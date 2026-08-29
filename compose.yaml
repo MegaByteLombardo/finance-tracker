@@ -1,0 +1,23 @@
+name: finance-tracker
+
+services:
+  app:
+    build: .
+    image: finance-tracker:local
+    restart: unless-stopped
+    ports:
+      # Only the host port is configurable; inside the container the address is
+      # fixed. Set HTTP_PORT in .env to move it.
+      - "${HTTP_PORT:-8080}:8080"
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HTTP_ADDR: ":8080"
+      # The database always lives on the volume, never in the container's
+      # writable layer, so it survives `docker compose down`.
+      DB_PATH: /data/finance.db
+    volumes:
+      - finance_data:/data
+
+volumes:
+  finance_data:

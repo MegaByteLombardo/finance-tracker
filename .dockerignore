@@ -1,0 +1,30 @@
+# Keep the build context small, and keep local state out of images.
+
+.git/
+.gitignore
+.dockerignore
+Dockerfile
+compose.yaml
+
+# Local secrets and local data must never reach an image layer.
+.env
+.env.local
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Build output
+bin/
+dist/
+*.exe
+
+# Docs are not needed to compile
+README.md
+CLAUDE.md
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
