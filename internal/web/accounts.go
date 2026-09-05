@@ -202,6 +202,8 @@ func handleCreateAccount(logger *slog.Logger, renderer *Renderer, svcs *Services
 		// Success: PRG redirect
 		if IsHXRequest(r) {
 			w.Header().Set("HX-Redirect", "/accounts")
+			w.WriteHeader(http.StatusOK)
+			return
 		}
 		http.Redirect(w, r, "/accounts", http.StatusSeeOther)
 	}

@@ -147,6 +147,8 @@ func handleCreateCategory(logger *slog.Logger, renderer *Renderer, svcs *Service
 		// Success: PRG redirect
 		if IsHXRequest(r) {
 			w.Header().Set("HX-Redirect", "/categories")
+			w.WriteHeader(http.StatusOK)
+			return
 		}
 		http.Redirect(w, r, "/categories", http.StatusSeeOther)
 	}
@@ -182,6 +184,8 @@ func handleToggleCategory(logger *slog.Logger, svcs *Services) http.HandlerFunc 
 
 		if IsHXRequest(r) {
 			w.Header().Set("HX-Redirect", "/categories")
+			w.WriteHeader(http.StatusOK)
+			return
 		}
 		http.Redirect(w, r, "/categories", http.StatusSeeOther)
 	}

@@ -261,6 +261,8 @@ func handleCreateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 		// Success: PRG redirect
 		if IsHXRequest(r) {
 			w.Header().Set("HX-Redirect", "/transactions")
+			w.WriteHeader(http.StatusOK)
+			return
 		}
 		http.Redirect(w, r, "/transactions", http.StatusSeeOther)
 	}
