@@ -22,6 +22,7 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/config"
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/httpserver"
+	"github.com/MegaByteLombardo/finance-tracker/internal/migrations"
 )
 
 // shutdownTimeout bounds how long in-flight requests get to finish once a
@@ -73,10 +74,14 @@ func run(ctx context.Context, getenv func(string) string, stdout io.Writer) erro
 	if err != nil {
 		return errors.Join(fmt.Errorf("reading sqlite settings: %w", err), db.Close())
 	}
-	logger.Info("sqlite ready", slog.Any("sqlite", pragmas))
+	logger.Info("database opened", slog.Any("sqlite", pragmas))
 
-	// Schema migrations arrive in M1, together with the first real domain
-	// migration. M0 owns no tables.
+	// Migrations run before anything listens. Serving requests against a
+	// half-migrated schema would be worse than not serving at all, so a failure
+	// here ends the process.
+	if err := migrations.Up(ctx, db, logger); err != nil {
+		return errors.Join(fmt.Errorf("migrating database: %w", err), db.Close())
+	}
 
 	// The listener is created here rather than through http.Server.Addr so that
 	// a port conflict is an error before anything claims to be listening.

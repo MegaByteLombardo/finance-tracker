@@ -28,17 +28,19 @@ a structure that can answer questions the spreadsheet cannot answer reliably.
 
 ## Functional vision
 
-Everything in this section is **future work**. None of it is implemented. It is
-recorded here so that the technical decisions being taken now can be judged
-against where the project is going.
+Everything in this section is the target. Most of it is **not implemented**; what
+exists today is listed in the next section. It is recorded here so that the
+technical decisions being taken now can be judged against where the project is
+going.
 
 **Accounts and balances**
-- Multiple accounts of different kinds
-- Cash held outside any institution
+- Multiple accounts of different kinds — *partly built (M1)*
+- Cash held outside any institution — *partly built (M1)*
 - Savings held separately from day-to-day money
+- Balances, derived from the movement ledger
 
 **Currencies**
-- Multiple currencies held simultaneously
+- Multiple currencies held simultaneously — *partly built (M1)*
 - Historical exchange rates, so that past figures remain accurate rather than
   being restated at today's rate
 - Consolidated totals in a chosen reporting currency
@@ -63,17 +65,34 @@ against where the project is going.
 
 ## What exists today
 
-**Nothing from the list above.**
+The project is at milestone **M1**.
 
-The project is at milestone M0, which built the technical foundation only:
-configuration, a correctly configured SQLite database, a health endpoint,
-graceful shutdown, a container image, and tests. There are no accounts, no
-currencies, no categories, no transactions, no rates, no credit and no
-instalments — and no database tables for any of them.
+**Built:**
 
-This is deliberate. M0 exists so that the first real financial data has somewhere
-correct to land: durable storage settings, enforced foreign keys, and a rule
-that money is never stored as a floating-point number.
+- The technical foundation from M0 — configuration, a correctly configured
+  SQLite database, a health endpoint, graceful shutdown, a container image.
+- **Currencies.** A seeded set (USD, EUR, VES), each with its name, symbol and
+  minor unit. They can be created, renamed and archived; they are never deleted.
+- **Accounts.** Multiple accounts across the four container types — bank, cash,
+  wallet, other — each denominated in exactly one currency that never changes.
+  They can be created, edited and archived; they are never deleted.
+- Both are reachable through Go services, and covered by tests against real
+  SQLite.
+
+**Not built:**
+
+- **No user interface.** Nothing renders any of this yet; the domain is exercised
+  through its tests.
+- **No amounts.** Accounts have no balance, and no monetary value is stored
+  anywhere in the system. Balances will be derived from the movement ledger once
+  it exists.
+- No categories, transactions, transfers, exchange rates, credit, instalments,
+  calendar or analysis.
+
+The ordering is deliberate. M0 gave the first real financial data somewhere
+correct to land — durable storage settings, enforced foreign keys, and the rule
+that money is never a floating-point number. M1 gave it a shape to land in.
+Amounts come next, into a schema that already knows what currency they are in.
 
 See [milestones.md](milestones.md) for what M0 delivered and what is planned
 next, and [data-model.md](data-model.md) for the persistence conventions that
@@ -88,6 +107,9 @@ the future domain will follow.
   though that costs write performance that will never be missed at this volume.
 - **Exact money.** Amounts and exchange rates are never represented as binary
   floating point. See [technical-decisions.md](technical-decisions.md), TD-013.
+- **One account, one currency.** A bank offering several denominations is
+  modelled as several accounts. This keeps the ledger single-currency by
+  construction and makes cross-currency movement explicit. See TD-020.
 - **Deliberate simplicity.** A modular monolith, the Go standard library, and as
   few dependencies as the job allows. Abstractions are added when a second case
   exists, not in anticipation of one.

@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the architecture **as actually implemented at M0**.
+This document describes the architecture **as actually implemented at M1**.
 Layers that do not exist yet are marked as such and are not described as if they
 did.
 
@@ -23,33 +23,41 @@ operational surface without adding capability.
 | SQLite driver | `modernc.org/sqlite` — pure Go, no cgo |
 | Logging | `log/slog` (standard library) |
 | Storage | SQLite, a single local file |
+| Migrations | `github.com/pressly/goose/v3`, SQL embedded in the binary |
 | Packaging | Docker, multi-stage build |
 | Runtime image | `gcr.io/distroless/static-debian13:nonroot`, uid 65532 |
 
-There is exactly one direct dependency: `modernc.org/sqlite`. No web framework,
-no router, no ORM, no configuration library, no dependency-injection container.
+There are exactly two direct dependencies: `modernc.org/sqlite` and
+`github.com/pressly/goose/v3`. No web framework, no router, no ORM, no
+configuration library, no dependency-injection container.
 
 ## Dependency direction
 
 ```text
 cmd/web
    ↓
-HTTP
+HTTP                    (internal/httpserver)
    ↓
-future application/domain
+domain services         (internal/currency, internal/account)
    ↓
-database
+repositories            (same packages)
+   ↓
+database                (internal/database, internal/migrations)
    ↓
 SQLite
 ```
 
 Dependencies point downward only. HTTP does not build SQL; the database layer
-knows nothing about HTTP.
+knows nothing about HTTP. Domain packages may depend on each other where the
+domain itself does — `account` uses `currency`, because an account is denominated
+in one — but never in a cycle.
 
-**The application/domain layer does not exist yet.** At M0 the HTTP layer talks
-to the database layer directly, because the only endpoint is a health check that
-probes the database. When the first domain arrives, it goes between them; no
-existing package has to be restructured to make room for it.
+**The domain layer has no HTTP surface yet.** `currency.Service` and
+`account.Service` are complete and tested, but nothing in `cmd/web` calls them:
+their consumer is the htmx handler layer, which is a later milestone. This is
+deliberate. It differs from unfinished plumbing in that these are closed,
+covered units waiting for a caller, not half-built machinery the startup path
+never exercises.
 
 ## Packages
 
@@ -57,10 +65,10 @@ existing package has to be restructured to make room for it.
 
 The **composition root**, and the only place that wires packages together.
 
-It loads configuration, builds the logger, opens the database, creates the
-listener, starts the server, waits for a signal, and shuts everything down in
-order. Every failure is a returned error — there is no `panic` on an ordinary
-error path and no `os.Exit` buried in a helper.
+It loads configuration, builds the logger, opens the database, runs migrations,
+creates the listener, starts the server, waits for a signal, and shuts everything
+down in order. Every failure is a returned error — there is no `panic` on an
+ordinary error path and no `os.Exit` buried in a helper.
 
 The startup and shutdown logic lives in a `run` function that takes its
 environment and output stream as parameters, which is what makes a full
@@ -87,6 +95,53 @@ effect. Nothing else in the codebase builds a DSN or issues a PRAGMA.
 It also exposes a way to read the *effective* settings back, which serves both
 the startup log line and the tests.
 
+Two further things live here because they are persistence conventions rather
+than anything domain-specific:
+
+- **`DBTX`** — the three-method subset of `*sql.DB` that `*sql.Tx` also
+  satisfies. Repositories are built over it, which is what lets a service run a
+  read and a dependent write inside one transaction. It is not a repository
+  abstraction and does not exist to be mocked; see TD-021.
+- **The timestamp convention** — `TimeLayout`, `FormatTime`, `ParseTime` and
+  `Now`. One definition of how time is stored, used by every domain package.
+
+### `internal/migrations`
+
+Owns the schema and its evolution. The SQL files sit beside the Go file and are
+compiled into the binary with `embed.FS`, so a deployment is a single executable:
+no goose CLI in the runtime image and no loose `.sql` files to keep in sync.
+
+goose discovers migrations by globbing `*.sql` at the **root** of the filesystem
+it is given, which is why the package and its SQL share a directory and no
+`fs.Sub` is needed.
+
+**This is the only package that imports goose.** Everything else sees one
+function, `Up`.
+
+### `internal/currency` and `internal/account`
+
+One package per domain, each holding its model, its validation, its repository
+and its service. Organised by feature rather than by layer: there is no
+`domain/entities`, `application/usecases`, `infrastructure/repository` tree.
+
+- `<domain>.go` — the model, its constants, its sentinel errors, and
+  validation/normalisation of input. No SQL, no `context`.
+- `repository.go` — translation between the model and SQL, one hand-written
+  statement per method. No business rules; it converts `sql.ErrNoRows` into the
+  domain's `ErrNotFound`.
+- `service.go` — the use cases. The only surface a future handler will call.
+
+Repositories are concrete structs, not interfaces. There is one implementation,
+tests run against real SQLite, and an interface with a single implementation and
+no test double is indirection without a purpose.
+
+Each package declares its own sentinel errors rather than sharing a common
+package — the standard library does the same with `sql.ErrNoRows` and
+`os.ErrNotExist`, and it avoids a junk-drawer package. Where one domain consults
+another, it **translates**: `account` returns `ErrCurrencyNotFound` and
+`ErrCurrencyInactive` rather than letting `currency`'s errors escape, so a
+handler for accounts never needs to import `currency`.
+
 ### `internal/httpserver`
 
 Builds the HTTP server and its routes. Owns the server timeouts and routes
@@ -95,7 +150,8 @@ Builds the HTTP server and its routes. Owns the server timeouts and routes
 Routing uses the standard `http.ServeMux`, which since Go 1.22 matches on method
 and path wildcards — the capability that used to justify a third-party router.
 
-At M0 it exposes one route: `GET /healthz`.
+It exposes one route: `GET /healthz`. The domain services have no HTTP surface
+yet.
 
 `http.Server.Addr` is deliberately left empty. The composition root creates the
 listener itself, so a port conflict is reported as an error before the process
@@ -179,7 +235,7 @@ recorded in [technical-decisions.md](technical-decisions.md).
 
 ## HTTP
 
-One endpoint at M0:
+One endpoint:
 
 - `GET /healthz` — `200` with `{"status":"ok"}` when the process is alive and
   SQLite answers; `503` when the database probe fails. The database probe is
@@ -198,8 +254,31 @@ endpoints worth tracing.
 
 ## Lifecycle
 
-Startup, in order: configuration → logger → database (opened and verified) →
-listener → HTTP server.
+Startup, in order:
+
+```text
+configuration → logger → database (opened and verified) → migrations
+              → listener → HTTP server
+```
+
+**Migrations run before anything listens.** Serving requests against a
+half-migrated schema would be worse than not serving at all, so a migration
+failure ends the process. The startup log makes the outcome explicit:
+
+```text
+database opened            sqlite.journal_mode=wal sqlite.foreign_keys=true …
+migrations applied         count=3 version=3          (or: database schema already current)
+http server listening      addr=…
+```
+
+Applying migrations on every start is safe: goose records applied versions, so a
+current database is a no-op. A failure that leaves some migrations applied is
+reported with which one failed and how many succeeded; SQLite has transactional
+DDL, so the failed migration itself rolled back and the schema sits at the last
+consistent version.
+
+Rollbacks are never run automatically. `Up` is the only exported function in
+`internal/migrations`.
 
 Shutdown, on `SIGINT` or `SIGTERM`: stop accepting connections, drain in-flight
 requests under a bounded timeout, wait for the serve loop to return, then close
@@ -209,11 +288,28 @@ draining would break them.
 Default signal handling is restored once shutdown begins, so a second `Ctrl+C`
 can still kill a process wedged mid-shutdown.
 
-## Migrations
+## Transactions
 
-**There is no migration machinery at M0**, and no migration dependency in
-`go.mod`.
+Single-statement operations run directly on the pool; SQLite already wraps each
+one in its own implicit transaction.
 
-Schema migrations arrive in M1, together with the first real domain table. The
-reasoning is recorded in [technical-decisions.md](technical-decisions.md),
-TD-012.
+Operations that must read and then write atomically open an explicit transaction
+and build their repositories over the same `*sql.Tx`. `account.Service.Create` is
+the case that exists today:
+
+```text
+BeginTx
+   ↓
+currencies.Get(tx)      read the currency
+   ↓
+check IsActive          business rule, decided on the field
+   ↓
+accounts.Insert(tx)     write, same transaction
+   ↓
+Commit                  (any error on the way → explicit Rollback)
+```
+
+The foreign key guarantees the currency exists; only the transaction can
+guarantee it was still active at the moment of the insert. Rollback is handled in
+a `defer` so it covers every error path, and distinguishes the benign
+`sql.ErrTxDone` that follows a successful commit from a real failure.

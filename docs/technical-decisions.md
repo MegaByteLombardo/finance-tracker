@@ -294,7 +294,7 @@ something is orchestrating restarts.
 
 ## TD-012 — Migrations deferred to M1
 
-**Status:** Accepted · **Milestone:** M0
+**Status:** Superseded by TD-014 · **Milestone:** M0
 
 **Decision.** M0 ships no migration machinery, no `migrations/` directory and no
 migration dependency in `go.mod`. All of it arrives in M1 together with the first
@@ -362,3 +362,331 @@ make by accident.
 **Note.** No `Money` type exists yet. The invariant is recorded now so that the
 first code to handle an amount is written correctly rather than retrofitted. See
 [data-model.md](data-model.md).
+
+---
+
+## TD-014 — goose for migrations, via the Provider API
+
+**Status:** Accepted · **Milestone:** M1 · **Supersedes:** TD-012
+
+**Decision.** Use `github.com/pressly/goose/v3` (v3.27.3) as a library, through
+the Provider API. SQL migrations, embedded with `embed.FS`, applied automatically
+at startup before anything listens. Rollbacks are never run automatically, and no
+CLI or migration flags are added.
+
+**Rationale.** Migrations are a solved problem and writing our own engine would
+be a poor use of effort for a worse result. goose supports SQLite, takes an
+`fs.FS` so migrations compile into the binary, and lets a deployment stay a single
+executable — no goose CLI in the runtime image, no loose `.sql` files to keep in
+sync with it.
+
+The Provider API rather than the global `SetBaseFS`/`SetDialect`/`Up` functions:
+the global form keeps package-level state and reports errors poorly, while the
+Provider touches no globals and returns structured results, including
+`*PartialError` with what was applied and what failed.
+
+Two things had to be verified rather than assumed:
+
+- **`Provider.Close()` closes the `*sql.DB` it was given** —
+  `func (p *Provider) Close() error { return p.db.Close() }`. That database
+  belongs to `cmd/web` for the life of the process, so `Close` is never called;
+  the provider is a transient object with nothing else to release. A reflexive
+  `defer provider.Close()` would leave the HTTP server without a database the
+  moment migrations finished, which is why the omission is commented in the code.
+- **A single-connection pool does not deadlock.** goose has a guard that errors
+  when `MaxOpenConnections == 1`, but it applies only to *Go* migrations running
+  without a transaction. SQL migrations execute on the already-held `*sql.Conn`
+  and never request a second connection, so TD-008's `MaxOpenConns(1)` stands
+  unchanged.
+
+**Measured, not assumed.** goose's `go.mod` requires the ClickHouse, MySQL, pgx,
+MSSQL, Vertica, YDB and libsql drivers *directly*, which was a real concern. None
+of them reach the binary: `go list -deps` is clean for both
+`./internal/migrations` and `./cmd/web`, and the runtime image grew from 5.58 MB
+to 5.80 MB — 222 KB for goose plus the embedded SQL. `go.sum` did grow
+considerably; that is the accepted cost.
+
+**Alternatives considered.** Writing a migration runner — rejected outright;
+it is a known problem with known edge cases and no reason to re-solve it.
+`golang-migrate` — comparable, no advantage here, and a heavier module graph.
+`dbmate` — CLI-oriented, which conflicts with embedding migrations in the binary.
+
+**Deferred deliberately.** No `status` or `down` interface was added. The startup
+logs say what happened, and `goose_db_version` is one query away in the sqlite3
+CLI. Adding flags now would be infrastructure with no consumer.
+
+---
+
+## TD-015 — Migrations live in `internal/migrations`
+
+**Status:** Accepted · **Milestone:** M1
+
+**Decision.** The migration package and its `.sql` files live together in
+`internal/migrations/`, versioned sequentially (`00001_`, `00002_`, `00003_`).
+
+**Rationale.** goose globs `*.sql` at the **root** of the `fs.FS` it is handed
+(verified in `provider_collect.go`), so the Go file carrying `//go:embed *.sql`
+must sit beside the SQL — otherwise an `fs.Sub` is needed to strip a directory
+prefix. That settles co-location; the remaining question was where.
+
+`internal/` because it is a Go package of this application, and all application
+code lives there; because `internal/` is compiler-enforced, and a migration
+runner is not public API; and because the repository root stays a short list of
+top-level concerns.
+
+Sequential versions because there is one author and no concurrent branches. The
+timestamp scheme exists to resolve collisions between developers, which cannot
+happen here, and sequential numbers read in order at a glance.
+
+**Alternatives considered.** A top-level `migrations/` directory — more
+discoverable, and the convention someone coming from the goose CLI would expect.
+That argument lost weight because the CLI is not used at all, and because
+[data-model.md](data-model.md) and [architecture.md](architecture.md) point at the
+directory explicitly. If the CLI is ever wanted it is one flag:
+`goose -dir ./internal/migrations`.
+
+---
+
+## TD-016 — Timestamps stored as RFC 3339 TEXT
+
+**Status:** Accepted · **Milestone:** M1
+
+**Decision.** Every timestamp is `TEXT`: RFC 3339, UTC, with exactly three
+fractional digits — `2026-08-29T22:37:55.123Z`. Go writes it with the layout
+`2006-01-02T15:04:05.000Z`; SQL defaults use
+`strftime('%Y-%m-%dT%H:%M:%fZ','now')`; a `CHECK … GLOB` enforces the shape.
+This is the project-wide convention, not just M1's.
+
+**Rationale.** Two reasons decide it. The database is a single file its owner
+will open with the sqlite3 CLI to look at their own finances, and
+`2026-08-29T22:37:55.123Z` reads where `1787012275` does not. And business dates
+arriving in M2 are calendar dates, so ISO-8601 keeps system timestamps and
+business dates on one convention, where `date()`, `strftime()`, comparisons and
+`BETWEEN` behave identically over both; integers would mean two conventions.
+
+Ordering is not a trade-off here: fixed-width RFC 3339 in UTC sorts
+lexicographically exactly as it sorts chronologically.
+
+**The trap this avoids.** `time.RFC3339Nano` strips trailing zeros from the
+fractional part, so `…:05.1Z` sorts *after* `…:05.09Z` as text. The layout is
+pinned to `.000`, which always emits three digits, and the `CHECK` enforces that
+in the database so the ordering invariant survives a hand-written INSERT.
+
+Go supplies the value explicitly; the SQL `DEFAULT` is a safety net for manual
+inserts. `database.Now()` truncates to milliseconds so a value held in memory
+compares equal to the one read back. Reads scan into `string` and parse
+explicitly — the driver's `_texttotime` conversion is left off, because implicit
+conversion would be hidden behaviour over a convention we want visible, and it
+would change the DSN that M0 fixed and tested.
+
+**Alternatives considered.** Unix `INTEGER` — compact, trivially sortable,
+inherently UTC, and genuinely defensible; rejected on readability and on the
+split it would create with calendar dates. SQLite `DATETIME` — not a real type,
+and not permitted in a STRICT table at all.
+
+---
+
+## TD-017 — Currency keyed on its ISO 4217 code
+
+**Status:** Accepted · **Milestone:** M1
+
+**Decision.** `currencies.code TEXT PRIMARY KEY`, holding the ISO 4217 code. No
+surrogate integer id.
+
+**Rationale.** The code is stable, globally unique, fixed-width and already the
+value every other table references. A surrogate key would add a join to read
+something the foreign key column already contains, plus a `UNIQUE(code)` that
+would be the real key anyway.
+
+In a STRICT table, "columns that are part of the PRIMARY KEY are implicitly NOT
+NULL", so SQLite's long-standing quirk of allowing NULLs in non-INTEGER primary
+keys does not apply. `NOT NULL` is still written out, because a reader should not
+have to know that.
+
+**Alternatives considered.** Surrogate integer plus `UNIQUE(code)` — the usual
+reflex; it buys the ability to rename a code, which is precisely what we want to
+prevent. `WITHOUT ROWID` — technically reasonable for a small table with a text
+key, but worth nothing measurable at three rows and adds a constraint to remember.
+
+---
+
+## TD-018 — `minor_unit` bounded to 0–4 and immutable
+
+**Status:** Accepted · **Milestone:** M1
+
+**Decision.** `CHECK (minor_unit BETWEEN 0 AND 4)`, and no operation may change
+it after creation.
+
+**Rationale.** The range is not arbitrary: it is the real span of ISO 4217
+exponents — 0 (JPY, KRW, CLP), 2 (most), 3 (BHD, KWD, JOD), 4 (CLF, UYW).
+Nothing in the standard exceeds 4, so the bound admits every real currency and
+nothing meaningless.
+
+Immutability matters more than the range. Changing a currency's minor unit
+reinterprets every amount already stored in it — 1.00 becomes 0.100 — silently
+and irreversibly. It is the worst class of failure for financial data. The
+guarantee is structural: `UpdateMetadataInput` has no such field, and the
+`UPDATE` statement does not name the column.
+
+**Alternatives considered.** A wider bound for crypto (8 for BTC, 18 for ETH) —
+excluded deliberately. Eighteen decimals would overflow `int64` for trivial
+amounts, so supporting crypto is a numeric representation decision, not a wider
+`CHECK`; leaving it out means it can only ever be adopted on purpose. No bound at
+all — would accept values with no meaning. A `BEFORE UPDATE` trigger to enforce
+immutability — see TD-022.
+
+---
+
+## TD-019 — Account types classify the container, not the purpose
+
+**Status:** Accepted · **Milestone:** M1
+
+**Decision.** `account_type` is one of `BANK`, `CASH`, `WALLET`, `OTHER`. No
+`CHECKING`, no `SAVINGS`, and no `purpose`, `is_savings` or `account_subtype`
+column.
+
+**Rationale.** `account_type` answers one question: *what kind of container is
+this money in?* "Savings" answers a different one — *what is this money for?* —
+and the two are orthogonal, because one can save in a bank account, in cash or in
+a wallet.
+
+Putting both on one axis forces a false choice: a cash reserve set aside as
+savings would have to be declared `CASH` **or** `SAVINGS`, discarding one of two
+facts that are simultaneously true. An enum that makes a user drop true
+information is malformed, and no number of extra values repairs it. `BANK`
+absorbs current and savings accounts without loss; the institution is recorded
+separately.
+
+The purpose axis is not designed now because nothing consumes it. When a real
+use case appears it arrives as its own decision, better informed by seeing how
+accounts are actually used.
+
+**Alternatives considered.** Keeping `CHECKING`/`SAVINGS` — the initial proposal;
+rejected for the reason above. A second `purpose` column now — an anticipated
+abstraction with no reader. A lookup table instead of a `CHECK` — four fixed
+values the code knows as constants; a table would add a join to read something
+already legible.
+
+---
+
+## TD-020 — One account, one currency
+
+**Status:** Accepted · **Milestone:** M1
+
+**Decision.** Every account is denominated in exactly one currency, and that
+currency never changes. A bank offering USD and VES under one contract is
+modelled as two accounts.
+
+**Rationale.** The modelling cost is cosmetic — two rows where the bank shows one
+tab, and a UI can group them by institution. What it buys is structural:
+
+- **The ledger becomes single-currency by construction.** Every movement inherits
+  its account's currency; no per-movement currency column, and no validation that
+  the two agree.
+- **Balances are a plain `SUM`.** With multi-currency accounts, "the balance of
+  this account" would not be a number.
+- **Cross-currency movement becomes explicit.** Moving USD to VES is a transfer
+  between two accounts with a rate attached — which is what it economically is —
+  rather than an invisible change of composition inside one account.
+- **Reconciliation works.** The statement a bank issues per denomination maps to
+  exactly one account.
+
+Immutability follows from the same logic: once movements exist, re-denominating
+an account would reinterpret its entire history. The remedy for a mistake is to
+archive and recreate, not to rewrite the past. It is enforced by there being no
+use case, no input field and no `UPDATE` statement that touches it, and by
+`ON UPDATE RESTRICT` on the foreign key.
+
+**Alternatives considered.** Multi-currency accounts mirroring how banks present
+them — closer to the source documents, at the cost of every consequence above.
+
+---
+
+## TD-021 — Concrete repositories, plus one executor interface
+
+**Status:** Accepted · **Milestone:** M1
+
+**Decision.** Repositories are concrete structs. There are no repository
+interfaces. There is exactly one new interface, `database.DBTX`, carrying
+`ExecContext`, `QueryContext` and `QueryRowContext`.
+
+**Rationale.** SQLite is the only backend and tests run against real SQLite, so a
+repository interface would have one implementation and no test double — pure
+indirection. Go interfaces are consumer-defined, so if a second implementation
+ever appears, extracting one then is a non-breaking refactor.
+
+`DBTX` is a different kind of thing and earns its place on a problem that exists
+today. Both `*sql.DB` and `*sql.Tx` satisfy it, which is what lets a repository be
+built over either. `account.Service.Create` must check that a currency is active
+and insert the account atomically; without `DBTX` the repository would be nailed
+to `*sql.DB` and could not join the transaction, leaving the invariant to luck.
+It is also the standard shape for this in Go — what `sqlc` generates — and is a
+standard-library interface in everything but name.
+
+**Alternatives considered.** Repository interfaces with generated mocks —
+architecture for its own sake; real SQLite tests are both simpler and stronger. A
+single `INSERT … SELECT … WHERE EXISTS (…)` making the check and insert atomic in
+one statement, avoiding both the transaction and the interface — it works, but it
+needs a second query on the error path to distinguish "missing" from "inactive",
+and the SQL becomes cleverer than it is readable. A generic base repository —
+explicitly unwanted.
+
+---
+
+## TD-022 — Immutability enforced in code, not by triggers
+
+**Status:** Accepted · **Milestone:** M1
+
+**Decision.** `currencies.code`, `currencies.minor_unit` and
+`accounts.currency_code` are immutable by construction: no use case accepts them,
+no input struct carries them, and no `UPDATE` statement names them. No database
+trigger enforces this.
+
+**Rationale.** `CHECK` cannot compare `OLD` with `NEW`, so a `BEFORE UPDATE`
+trigger is the only mechanism SQLite offers. It was rejected on two grounds: it
+defends only against someone writing raw SQL, who is the same person able to drop
+the trigger; and it introduces hidden control flow into the database, which this
+project avoids deliberately.
+
+**The accepted risk is real and worth stating plainly.** A manual
+`UPDATE currencies SET minor_unit = …` would silently reinterpret every amount
+stored in that currency. This is recorded in [data-model.md](data-model.md) under
+invariants not enforced by the database, so it is a known rule rather than an
+assumption.
+
+Related: "an account's currency must be active at creation" is deliberately *not*
+a database constraint either, but for a different reason — a currency may
+legitimately be archived after accounts already use it, so the rule applies only
+at creation time. It is enforced in the service, inside the same transaction as
+the insert.
+
+**Alternatives considered.** Triggers — as above. A composite foreign key against
+a generated column to make "active currency" referential — cleverer than clear,
+and it would wrongly forbid archiving a currency that accounts already use.
+
+---
+
+## TD-023 — SQLite constraint errors are not classified by code
+
+**Status:** Accepted · **Milestone:** M1
+
+**Decision.** Error classification never inspects message text. Where a SQLite
+error must be recognised, `errors.As` is used against `*sqlite.Error`. But
+`ErrConflict` is **not** derived from the driver's error at all: it is determined
+by an existence check inside the same transaction as the insert.
+
+**Rationale.** `(*sqlite.Error).Code()` returns the **primary** SQLite result
+code, not the extended one. A duplicate primary key, a foreign key violation and
+a failed `CHECK` therefore all arrive as `SQLITE_CONSTRAINT` (19) and cannot be
+told apart. Any scheme that maps "constraint error" to "conflict" would
+mis-report a failed `CHECK` as a duplicate, and distinguishing them would mean
+parsing the message — exactly what we refuse to do.
+
+Determining the conflict instead is both correct and simpler: the service reads
+before it writes, in one transaction, so the answer is unambiguous. The primary
+key remains as the database's backstop, and if it ever fires it means something
+bypassed the check — a bug to surface, not a conflict to report as one.
+
+**Note for later.** This is easy to reintroduce by accident: the next person to
+map a SQLite error to a domain error will look at `Code()` and reasonably assume
+it is enough. It is not.

@@ -69,6 +69,69 @@ argument:
 
 ---
 
+## M1 — Accounts & Currencies · `CLOSED`
+
+**Closed:** 2026-08-29
+
+The first real domain: currencies and accounts, with schema migrations and the
+`Domain → Service → Repository → SQLite` chain in place. No HTTP surface, no
+balances, no exchange rates.
+
+### Delivered
+
+- **Migrations** — `github.com/pressly/goose/v3` v3.27.3 via the Provider API,
+  SQL migrations embedded with `embed.FS`, applied automatically at startup
+  before anything listens. Three migrations: create currencies, seed them,
+  create accounts. `internal/migrations` is the only package that imports goose.
+- **`currencies`** — STRICT table keyed on the ISO 4217 code, with constraints on
+  the code shape, name, symbol and minor unit. Seeded with USD, EUR and VES.
+- **`accounts`** — STRICT table with a mandatory, immutable currency, four
+  container types (`BANK`, `CASH`, `WALLET`, `OTHER`), and `RESTRICT` on both
+  sides of the foreign key. **No monetary column of any kind.**
+- **Domain packages** — `internal/currency` and `internal/account`, each with a
+  model, validation, a concrete repository and a service exposing exactly five
+  use cases. No repository interfaces.
+- **Transactional creation** — `account.Service.Create` reads the currency and
+  inserts the account through repositories built over one `*sql.Tx`, so "no
+  account is created with a retired currency" is an invariant rather than a race.
+- **Encapsulated errors** — `account` translates currency failures into
+  `ErrCurrencyNotFound` / `ErrCurrencyInactive`, so a future accounts handler
+  never imports `currency` to interpret them.
+- **Timestamp convention** — TEXT, RFC 3339, UTC, fixed-width, enforced by CHECK
+  constraints. Applies project-wide from here.
+- **Tests** — migration application, idempotence and failure; every schema
+  constraint; both domains end to end. Real SQLite throughout.
+
+### Verification
+
+All 46 acceptance criteria passed. Quality gates at close: `gofmt -l .` silent,
+`go vet ./...` clean, `go test ./... -count=1` green over six consecutive runs,
+`go test -race ./...` green in the Linux container, `docker compose build`
+successful, and `/healthz` returning 200 in the container.
+
+Two risks identified during planning were closed by measurement:
+
+- **goose's dependency graph.** Its `go.mod` requires ClickHouse, MySQL, pgx,
+  MSSQL, Vertica, YDB and libsql drivers directly, so the concern was real. None
+  of them reach our binary: `go list -deps` is clean for both
+  `./internal/migrations` and `./cmd/web`, and the runtime image grew from
+  5.58 MB to 5.80 MB — 222 KB, which is goose plus the embedded SQL. The image
+  still contains no `.sql` files, no `.go` files and no goose CLI.
+- **`goose.WithSlog` log volume.** Not noisy: goose emits nothing extra at info
+  level, so it stays, and its warnings will surface structured rather than being
+  lost.
+
+One test flake was found and fixed rather than tolerated: the shutdown test slept
+250 ms before cancelling, which under full-suite load raced with migrations. It
+now waits for the "http server listening" line on the log stream, so it is
+condition-based rather than a guess.
+
+### Carry-over resolved
+
+The migration decision deferred from M0 (TD-012) is settled by TD-014.
+
+---
+
 ## Roadmap
 
 Everything below is **provisional**. These are the currently expected shape of
@@ -81,7 +144,6 @@ below has acceptance criteria yet, by design.
 
 | Milestone | Theme | Status |
 | --- | --- | --- |
-| M1 | Accounts & Currencies | `PLANNED` |
 | M2 | Transactions & Categories | `PLANNED` |
 | M3 | Dashboard | `PLANNED` |
 | M4 | Multi-Currency & FX | `PLANNED` |
@@ -92,21 +154,19 @@ below has acceptance criteria yet, by design.
 | M9 | Analytics | `PLANNED` |
 | M10 | Hardening | `PLANNED` |
 
-### Known carry-over into M1
+### Known carry-over
 
-One decision was explicitly deferred from M0 and belongs to M1:
+Parked items, none blocking:
 
-**Schema migrations.** M0 ships no migration machinery and no migration
-dependency. M1 introduces migrations together with the first real domain table,
-at which point the tooling, the file versioning scheme, when migrations run, how
-partial failures are handled, and how `status` and `down` are exposed are all
-decided against a real migration rather than a hypothetical one. See
-[technical-decisions.md](technical-decisions.md), TD-012.
-
-Two smaller items are also parked, neither blocking:
-
-- **Container `HEALTHCHECK`.** Not added at M0: the distroless image has no
-  shell and no `curl`. The clean approach is a self-check flag on the binary,
-  worth adding when something is orchestrating restarts.
+- **Container `HEALTHCHECK`.** The distroless image has no shell and no `curl`,
+  so the usual form does not apply. The clean approach is a self-check flag on
+  the binary, worth adding when something is orchestrating restarts.
 - **Request-logging middleware.** Deferred until there are endpoints worth
-  tracing.
+  tracing. The domain services built in M1 have no HTTP surface yet, so there is
+  still nothing to trace.
+- **Migration `status` / `down` interface.** No CLI or flags were added: the
+  startup logs report what happened, and `goose_db_version` is one query away in
+  the sqlite3 CLI. Revisit if a rollback is ever needed in anger.
+- **Purpose dimension for accounts.** `account_type` classifies the container
+  only. If distinguishing savings from day-to-day money ever has a real
+  consumer, it arrives as its own decision rather than as more enum values.

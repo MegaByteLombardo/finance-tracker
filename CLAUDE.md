@@ -29,10 +29,18 @@ HTTP  →  Application / Services  →  Repository  →  SQLite
 - `cmd/web` is the composition root. It is the only place that wires
   dependencies together. No DI framework.
 - `internal/database` owns every decision about opening SQLite — DSN, PRAGMAs,
-  pool. Nothing else builds a DSN or sets a PRAGMA.
+  pool — plus the `DBTX` executor interface and the timestamp convention.
+  Nothing else builds a DSN or sets a PRAGMA.
+- `internal/migrations` owns the schema. It is the **only** package that imports
+  goose.
 - `internal/httpserver` owns HTTP. It never builds SQL.
-- Domain packages (`internal/account`, `internal/transaction`, …) arrive with
-  the milestone that needs them. Do not create a package before it has code.
+- Domain packages (`internal/currency`, `internal/account`, …) hold their own
+  model, repository and service — organised by feature, not by layer. Do not
+  create a package before it has code.
+
+Each domain package declares its own sentinel errors and **translates** errors
+from packages it consults, so a handler never has to import a neighbouring domain
+to interpret what it was returned.
 
 Separation of concerns, yes. Ceremonial Clean Architecture, no. Do not add an
 abstraction for a second implementation that does not exist.
@@ -74,8 +82,20 @@ A `Money` type does not exist yet. When it is introduced, it enforces this.
   comments in `internal/database/sqlite.go` before changing it.
 - **Every business table is `CREATE TABLE ... STRICT;`** unless there is a
   written reason not to.
+- **Timestamps are `TEXT`**, RFC 3339 UTC with exactly three fractional digits.
+  Use `database.FormatTime` / `database.Now`, never `time.RFC3339Nano` — it
+  strips trailing zeros and breaks the ordering the fixed width guarantees.
+- **Never classify a SQLite error by its code or its message.** `Error.Code()`
+  returns the primary result code, so a duplicate key, a foreign key violation
+  and a failed CHECK are all `SQLITE_CONSTRAINT`. Determine the condition with a
+  query instead, in the same transaction.
+- Migrations are SQL, embedded, sequential, applied at startup before anything
+  listens. `Down` never runs automatically. Never call `provider.Close()` — it
+  closes the `*sql.DB` the caller owns.
 - No ORM. Hand-written SQL against `database/sql`. Revisit only as an explicit,
   recorded decision.
+- Repositories are concrete structs over `database.DBTX`. **Do not add
+  repository interfaces** to enable mocks; tests use real SQLite.
 
 ## Dependencies
 
@@ -83,6 +103,9 @@ A `Money` type does not exist yet. When it is introduced, it enforces this.
   status, what it pulls in. Prefer the standard library.
 - Never bump `modernc.org/libc` on its own — it is tightly coupled to
   `modernc.org/sqlite`. Let `go get modernc.org/sqlite@vX` resolve the pair.
+- goose's `go.mod` requires several database drivers directly. They do not reach
+  our binary; if a dependency change is made, re-check with
+  `go list -deps ./cmd/web`.
 - No Viper, no ORM, no DI framework, no Redis, no PostgreSQL, no Kubernetes.
 
 ## Testing
@@ -96,13 +119,19 @@ A `Money` type does not exist yet. When it is introduced, it enforces this.
 
 ## Current scope
 
-**M0 (done): foundation only.** Config, SQLite, `/healthz`, graceful shutdown,
-Docker, tests, docs. **No financial domain whatsoever** — no accounts,
-currencies, categories, transactions, rates, credits or instalments.
+**M0 (closed): foundation.** Config, SQLite, `/healthz`, graceful shutdown,
+Docker, tests, docs.
 
-**Schema migrations arrive in M1**, together with the first real domain
-migration. M0 deliberately ships no `migrations/` directory and no migration
-dependency: `go:embed` cannot embed an empty directory, and a bootstrap
-migration invented only to satisfy the tooling would be noise.
+**M1 (closed): currencies and accounts.** Migrations, the `currencies` and
+`accounts` tables, and the `internal/currency` and `internal/account` packages.
+
+**Not built yet, and not to be added opportunistically:**
+
+- **No UI.** No HTML, htmx, templates or CSS. The domain services have no HTTP
+  surface; `/healthz` is still the only route.
+- **No amounts anywhere.** `accounts` has no balance column and there is no
+  `Money` type. Balances will be derived from the movement ledger.
+- **No transactions, categories, transfers, exchange rates, FX, credit,
+  instalments or calendar.**
 
 Do not implement a future milestone's domain because it seems convenient.

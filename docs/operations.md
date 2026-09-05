@@ -119,17 +119,64 @@ Structured logging via `log/slog`, written to stdout.
 - `LOG_LEVEL=debug` additionally includes source locations
 
 Logged at startup: the environment, the database path, the log level, the Go
-version, the **effective** SQLite settings, and the address actually bound.
+version, the **effective** SQLite settings, what migrations did, and the address
+actually bound.
 
 ```text
-msg="sqlite ready" sqlite.journal_mode=wal sqlite.foreign_keys=true
-                   sqlite.busy_timeout_ms=5000 sqlite.synchronous=FULL
+msg="starting finance-tracker" env=development db_path=/data/finance.db …
+msg="database opened" sqlite.journal_mode=wal sqlite.foreign_keys=true
+                      sqlite.busy_timeout_ms=5000 sqlite.synchronous=FULL
+msg="migrations applied" count=3 version=3        # or: "database schema already current"
+msg="http server listening" addr=[::]:8080
 ```
 
-Those values are read back from SQLite rather than echoed from configuration, so
-the line reflects what is actually in force.
+The SQLite values are read back from the database rather than echoed from
+configuration, so the line reflects what is actually in force.
 
-There is no per-request logging. The health endpoint logs only when it fails.
+Those four lines are the whole startup output at info level. There is no
+per-request logging, and the health endpoint logs only when it fails.
+
+## Migrations
+
+Migrations are embedded in the binary and applied automatically at startup,
+before the process listens. Nothing has to be run by hand, and there is no goose
+CLI in the image.
+
+Applying them on every start is safe: goose records applied versions, so a
+current database is a no-op and says so.
+
+**A migration failure ends the process** — the server never starts, rather than
+serving requests against a half-migrated schema. The error names the migration
+that failed and how many were applied before it. SQLite has transactional DDL, so
+the failed migration itself rolled back and the schema sits at the last
+consistent version; fix it and restart.
+
+**Rollbacks are never run automatically**, and the binary offers no way to
+trigger one. To inspect the current state:
+
+```sh
+sqlite3 ./data/finance.db "SELECT version_id, is_applied, tstamp
+                           FROM goose_db_version ORDER BY version_id;"
+```
+
+## Inspecting the data
+
+The database is one file, so the sqlite3 CLI is the quickest way in:
+
+```sh
+sqlite3 ./data/finance.db ".schema currencies"
+sqlite3 ./data/finance.db "SELECT * FROM currencies;"
+sqlite3 ./data/finance.db "SELECT id, name, account_type, currency_code FROM accounts;"
+```
+
+Timestamps are stored as readable RFC 3339 UTC text, which is much of why that
+format was chosen.
+
+**Three columns are read-only in practice:** `currencies.code`,
+`currencies.minor_unit` and `accounts.currency_code`. No application code changes
+them, and no database constraint stops you from doing so by hand — but changing a
+minor unit would silently reinterpret every amount stored in that currency. See
+[data-model.md](data-model.md).
 
 ## Tests
 
@@ -139,10 +186,11 @@ go vet ./...
 go test ./... -count=1
 ```
 
-Database tests run against real SQLite in temporary directories rather than a
-mock. They verify the PRAGMAs actually in effect, that foreign keys are genuinely
-enforced, that those settings hold on **every** connection in the pool, and that
-data survives a close and reopen.
+Tests run against real SQLite in temporary directories rather than a mock. They
+verify the PRAGMAs actually in effect, that foreign keys are genuinely enforced,
+that those settings hold on **every** connection in the pool, that data survives
+a close and reopen, that every schema constraint rejects what it should, and that
+migrations are idempotent across restarts.
 
 Tests deliberately do not assert on the presence of `-wal` or `-shm` files:
 their lifecycle depends on checkpointing and clean shutdown, and asserting on

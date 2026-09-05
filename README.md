@@ -4,9 +4,9 @@ A local, single-user web application for managing personal finances. Go +
 SQLite, server-rendered, run on your own machine with Docker Compose. No cloud,
 no accounts, no telemetry.
 
-**This repository is at milestone M0.** M0 is the technical foundation only — it
-starts, opens SQLite correctly, answers a health check, and shuts down cleanly.
-It contains no financial features yet. See [Scope](#scope) below.
+**This repository is at milestone M1.** It starts, migrates its schema, and can
+model currencies and accounts. There is no user interface yet — the domain is
+exercised through its Go API and its tests. See [Scope](#scope) below.
 
 ## Requirements
 
@@ -121,14 +121,20 @@ HTTP  →  Application / Services  →  Repository  →  SQLite
 ```
 
 ```
-cmd/web/            composition root: config → database → server → shutdown
-internal/config/    environment loading and validation
-internal/database/  SQLite: DSN, PRAGMAs, connection pool
+cmd/web/             composition root: config → database → migrations → server
+internal/config/     environment loading and validation
+internal/database/   SQLite: DSN, PRAGMAs, connection pool, time convention
+internal/migrations/ schema, as embedded SQL migrations
+internal/currency/   currencies: model, repository, service
+internal/account/    accounts: model, repository, service
 internal/httpserver/ HTTP server, timeouts, routes
 ```
 
-The service and repository layers arrive with the first domain milestone. No
-package exists before it has code in it.
+Domain packages hold their own model, repository and service — organised by
+feature, not by layer. No package exists before it has code in it.
+
+The domain services have no HTTP surface yet; that arrives with the htmx
+milestone.
 
 Some decisions worth knowing about, all explained in the code:
 
@@ -146,25 +152,36 @@ Some decisions worth knowing about, all explained in the code:
 
 ## Scope
 
-### In M0
+### Built so far
 
-- Environment-based configuration with validation
-- SQLite opened with WAL, `foreign_keys`, `busy_timeout` and `synchronous`
-  verified at startup
-- `GET /healthz` — reports 200 when the process is alive and SQLite answers,
-  503 when it does not
-- Graceful shutdown on `SIGINT` / `SIGTERM`
-- Multi-stage Docker build, non-root distroless runtime, persistent volume
-- Tests against real SQLite
+**M0 — foundation.** Environment-based configuration with validation; SQLite
+opened with WAL, `foreign_keys`, `busy_timeout` and `synchronous` verified at
+startup; `GET /healthz`; graceful shutdown on `SIGINT` / `SIGTERM`; multi-stage
+Docker build with a non-root distroless runtime and a persistent volume.
 
-### Not in M0
+**M1 — currencies and accounts.** Schema migrations embedded in the binary and
+applied at startup; a `currencies` table seeded with USD, EUR and VES; an
+`accounts` table where every account is denominated in exactly one immutable
+currency; and Go packages for both, each with validation, a repository and a
+service. Accounts and currencies are archived, never deleted.
 
-Schema migrations arrive in **M1**, with the first real domain migration.
+All of it is covered by tests running against real SQLite.
 
-Everything else is a later milestone and is deliberately absent: UI, htmx,
-templates, CSS, authentication, users, accounts, cash, currencies, income,
-expenses, categories, transfers, net worth, exchange rates, credits, cards,
-loans, instalments, financial calendar, charts, dashboards, automatic backups,
-Excel import, export, cloud deployment and CI/CD.
+### Not built yet
+
+There is **no user interface**. Currencies and accounts exist in the database and
+in the Go API, but nothing renders them; the domain is exercised through its
+tests. HTML, htmx, templates and CSS are a later milestone.
+
+There are also **no balances and no amounts anywhere**. `accounts` deliberately
+has no balance column: balances will be derived from the movement ledger that
+arrives with transactions, so a stored balance would be a denormalised value that
+can silently disagree with its own history.
+
+Everything else remains a later milestone and is deliberately absent:
+authentication, users, income, expenses, categories, transfers, net worth,
+exchange rates and FX conversion, credits, cards, loans, instalments, financial
+calendar, charts, dashboards, automatic backups, Excel import, export, cloud
+deployment and CI/CD.
 
 Nothing in this README describes a feature that does not exist yet.
