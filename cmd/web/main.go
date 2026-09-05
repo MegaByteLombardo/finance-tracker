@@ -23,6 +23,8 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/httpserver"
 	"github.com/MegaByteLombardo/finance-tracker/internal/migrations"
+	"github.com/MegaByteLombardo/finance-tracker/internal/web"
+	"github.com/MegaByteLombardo/finance-tracker/internal/web/adapter"
 )
 
 // shutdownTimeout bounds how long in-flight requests get to finish once a
@@ -90,7 +92,10 @@ func run(ctx context.Context, getenv func(string) string, stdout io.Writer) erro
 		return errors.Join(fmt.Errorf("listening on %q: %w", cfg.HTTPAddr, err), db.Close())
 	}
 
-	srv := httpserver.New(logger, db)
+	webSvcs := adapter.New(db)
+	webRouter := web.NewRouter(logger, webSvcs, web.DefaultConfig())
+
+	srv := httpserver.New(logger, db, webRouter)
 
 	// Serve always returns a non-nil error. ErrServerClosed is the ordinary
 	// result of Shutdown, so it is normalised to nil rather than discarded.

@@ -690,3 +690,310 @@ bypassed the check — a bug to surface, not a conflict to report as one.
 **Note for later.** This is easy to reintroduce by accident: the next person to
 map a SQLite error to a domain error will look at `Code()` and reasonably assume
 it is enough. It is not.
+
+---
+
+## TD-024 — Account subtype is a dependent column, not more account types
+
+**Status:** Accepted · **Milestone:** M2
+
+**Decision.** `accounts` gains `account_subtype TEXT NULL`, constrained to
+`CHECKING` / `SAVINGS` and required exactly when `account_type = 'BANK'`.
+`account_type` keeps its four values.
+
+**Rationale.** TD-019 settled that `account_type` classifies the *container*.
+Current-versus-savings is a different axis, and one that only exists inside a
+bank: adding `CHECKING` and `SAVINGS` to `account_type` would have made "a
+savings account at Mercantil" and "cash" siblings in one enumeration, and left
+`CASH`, `WALLET` and `OTHER` with no way to say which they are. A second,
+dependent column says exactly what is true and nothing more.
+
+The dependency is enforced in Go *and* by a table `CHECK`, in both directions: a
+bank account without a subtype and a cash account with one are both refused, on
+insert and on update. Neither is silently corrected — dropping a subtype sent for
+cash would hide a caller's bug, and defaulting a missing one for a bank account
+would invent a fact about someone's money.
+
+**Applied by rebuilding the table.** SQLite cannot add a constraint to an
+existing table, so migration `00004` uses the documented 12-step rebuild rather
+than `ALTER TABLE ADD COLUMN`. Two reasons: copying the rows through the new
+definition validates the data that is already there, which `ADD COLUMN` would
+not do; and `ALTER TABLE DROP COLUMN` refuses to drop a column named in a
+`CHECK`, so the `Down` would have needed a rebuild regardless.
+
+The rebuild is ordered **before** `account_movements` exists. Nothing references
+`accounts` at that point, so dropping and renaming it is safe with foreign keys
+on — no children to orphan, no other table's `REFERENCES` clause to rewrite. Had
+this migration come later it would have needed `PRAGMA defer_foreign_keys`,
+because `PRAGMA foreign_keys` is a no-op inside the transaction goose runs each
+migration in. The ordering of the four M2 migrations is deliberate for this
+reason.
+
+**Alternatives considered.** More `account_type` values — rejected above, and
+already rejected once in TD-019. A `banks` table — `institution` is free text and
+there is no query a normalised table would serve. `ALTER TABLE ADD COLUMN` with a
+`CHECK` — works, but leaves existing rows unvalidated and the column
+un-droppable.
+
+---
+
+## TD-025 — A `CHECK` constraint must never be able to evaluate to NULL
+
+**Status:** Accepted · **Milestone:** M2
+
+**Decision.** Every `CHECK` in this schema is written so that its expression is
+always `TRUE` or `FALSE`, never `NULL`. Where a nullable column is involved, the
+condition uses `IS NULL` / `IS NOT NULL`, or guards the comparison with one.
+
+**Rationale.** SQLite rejects a row only when a `CHECK` evaluates to **false**.
+`NULL` passes. This is easy to write by accident and impossible to see by
+reading:
+
+```sql
+-- WRONG. A BANK row with a NULL subtype is ACCEPTED.
+CHECK ((account_type =  'BANK' AND account_subtype IN ('CHECKING','SAVINGS'))
+    OR (account_type <> 'BANK' AND account_subtype IS NULL))
+```
+
+With `account_type = 'BANK'` and `account_subtype = NULL`, the first branch is
+`TRUE AND NULL` which is `NULL`, the second is `FALSE`, and `NULL OR FALSE` is
+`NULL` — so the row goes in. The constraint reads as though it forbids exactly
+the case it permits.
+
+The fix is an explicit presence test before the membership test:
+
+```sql
+CHECK ((account_type =  'BANK' AND account_subtype IS NOT NULL
+                                AND account_subtype IN ('CHECKING','SAVINGS'))
+    OR (account_type <> 'BANK' AND account_subtype IS NULL))
+```
+
+The same trap appears with `=` in the date check: `date(x) = x` is `NULL` when
+`date(x)` is `NULL`, so `date(x) IS x` is used instead — `IS` never returns
+`NULL`.
+
+**This was found by testing, not by review.** The first version of the subtype
+constraint was written, looked correct, and accepted a bank account with no
+subtype when run against real SQLite. Every multi-column `CHECK` in M2 is
+therefore covered by a test that asserts every combination, including all the
+NULL ones.
+
+---
+
+## TD-026 — The ledger separates the event from its effect on an account
+
+**Status:** Accepted · **Milestone:** M2
+
+**Decision.** Two tables. `transactions` holds the financial event — type,
+category, payment method, description, effective date — and carries no amount and
+no account. `account_movements` holds the effect on one account: a signed
+`amount_minor`. In M2 every transaction has exactly one movement, and
+`transaction_id` is deliberately **not** unique.
+
+**Rationale.** A transfer between two of the user's own accounts is one event
+with two effects. It is out of scope for M2, but a flat
+`transactions(account_id, amount)` table would have to be migrated away from when
+it arrives — and migrating a ledger, in place, with history in it, is exactly the
+thing worth spending a second table to avoid now.
+
+The absence of `UNIQUE(transaction_id)` is the load-bearing part. It would hold
+today and be true for the wrong reason. A test asserts that no unique index
+exists on that table, so it cannot be added by someone tidying up.
+
+**Alternatives considered.** One flat table, migrated later — the migration is
+the cost being avoided. Full double-entry bookkeeping with a chart of accounts —
+correct for an accounting system, and far more than one person tracking their own
+money needs; the movement table is the part of it that pays for itself here.
+
+---
+
+## TD-027 — Money crosses the boundary as a decimal string
+
+**Status:** Accepted · **Milestone:** M2
+
+**Decision.** Monetary input arrives as a decimal string (`"1000.50"`) and is
+converted to `int64` minor units by `internal/money`, using the currency's
+`minor_unit` as the scale. Output carries both the `int64` and a pre-formatted
+string. No float is involved at any point, and no decimal library is added.
+
+**Rationale.** TD-013 forbids float for storage; this is how that survives the
+edges. A form posts text, so *something* has to parse it, and the two obvious
+shortcuts are both wrong: `strconv.ParseFloat` reintroduces exactly the
+representation error TD-013 exists to prevent, and multiplying a float by 100
+rounds unpredictably. Walking the digits and building an integer is a page of
+explicit code with no dependency and no rounding at all.
+
+**More decimals than the currency has is an error, not a rounding.** `"12.345"`
+in USD is rejected. Silently storing `12.34` or `12.35` would discard money the
+user typed, and which one it discarded would depend on a rule they never agreed
+to.
+
+**The sign belongs to the operation, not the input.** `RecordExpense` takes
+`"25.99"` and stores `-2599`; a leading `-` there is refused. This is what makes
+"an expense that increases a balance" unrepresentable rather than merely invalid.
+
+Formatting is the same function in reverse, and `Parse(Format(v, u), u) == v` is
+a tested property across every scale and both int64 extremes. It emits no
+thousands separators and no currency symbol: both are presentation decisions that
+depend on locale, and the currency travels next to every amount so the caller has
+what it needs.
+
+**Why its own package.** `money` is numeric representation; `currency` is a
+catalogue of rows. Keeping them apart leaves `currency` a pure reference-data
+package, and gives the exact-rate arithmetic of the FX milestone somewhere
+obvious to land. It is two functions and a sentinel error — there is no `Money`
+struct, because an amount is never separated from its currency in this codebase
+and a wrapper would carry no invariant the surrounding code does not already
+hold.
+
+**Alternatives considered.** `shopspring/decimal` — a dependency for arbitrary
+precision this application does not need; integer minor units are both exact and
+smaller. Accepting `int64` minor units directly from the handler — that pushes
+parsing into the web layer, which is precisely where it must not live.
+
+---
+
+## TD-028 — Calendar dates are stored as TEXT, distinct from timestamps
+
+**Status:** Accepted · **Milestone:** M2
+
+**Decision.** `transactions.effective_date` is `TEXT` in `YYYY-MM-DD`. It is a
+different convention from `created_at` / `updated_at` (TD-016), and
+`internal/database` owns both: `DateLayout`, `ParseDate`, `FormatDate`, `Today`.
+
+**Rationale.** "The purchase happened on 2026-09-03" is true in every timezone. A
+timestamp is not: it names an instant that different zones render as different
+days, so storing a business date as one would make the date of a transaction
+depend on where it is read. They are different facts and they get different
+columns — a purchase made on the 3rd and entered on the 5th has an effective date
+of the 3rd and a `created_at` of the 5th, and listings order by the former.
+
+Validity is enforced twice, and the SQL half needs both clauses:
+
+```sql
+CHECK (effective_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+       AND date(effective_date) IS effective_date)
+```
+
+The `GLOB` fixes the shape and rejects `2026-9-5`. `date(x) IS x` rejects dates
+that are well-formed but do not exist: `date('2026-02-31')` normalises to
+`'2026-03-03'`, which is not equal to the input. `IS` rather than `=` for the
+reason in TD-025. In Go, `time.Parse` with the same layout enforces both rules.
+
+Whether SQLite would accept a date function inside a `CHECK` at all was verified
+against the real driver before the migration was written, rather than argued from
+the documentation.
+
+Future dates are allowed. Scheduled and recurring transactions are a later
+milestone, but nothing about a date in the future makes it invalid to record.
+
+---
+
+## TD-029 — Opening balances are ledger facts, and a zero one records nothing
+
+**Status:** Accepted · **Milestone:** M2
+
+**Decision.** A starting balance is an `OPENING_BALANCE` transaction with one
+movement, not a column on `accounts`. An amount of zero records **no transaction
+and no movement**, and `RecordOpeningBalance` returns `(nil, nil)`.
+`account_movements.amount_minor` is therefore `CHECK (amount_minor <> 0)`.
+Negative opening balances are allowed.
+
+**Rationale.** `accounts.opening_balance` would be a second source of truth that
+can disagree with the ledger it claims to summarise, and when it does, neither
+figure can be trusted. As a transaction it is dated, listed, and summed by the
+same rule as everything else: one balance, one derivation.
+
+It is deliberately **not** income. Recording a starting balance as income would
+place it in every "what did I earn" figure forever, which is why it is its own
+transaction type, and why it has no category — the schema refuses one.
+
+**Zero records nothing** because the sum over no rows is already zero. A
+zero-amount row asserts nothing, and would appear in every listing as an event
+that did not happen. Accepting zero rather than rejecting it matters: leaving the
+balance field empty is how a user says "this account starts at zero", and that
+must not be an error.
+
+A consequence worth stating: because nothing is recorded, a zero opening balance
+does not require an effective date either — there is no transaction for the date
+to belong to. This is the order validation runs in, and it is tested. The account
+is still checked, so a zero amount is not a way to skip everything else.
+
+**A negative opening balance** is an account that starts overdrawn, which is a
+real thing to record. No arbitrary constraint forbids it.
+
+---
+
+## TD-030 — `internal/application` holds cross-domain workflows
+
+**Status:** Accepted · **Milestone:** M2
+
+**Decision.** A third package holds workflows that span two domains and must be
+atomic. It contains exactly one today: `OpenAccount`, which creates an account
+and records its opening balance inside one `sql.Tx`.
+
+**Rationale.** It is forced, not chosen. `ledger` already imports `account`, so
+the workflow cannot live in `account` without a cycle, and it does not belong in
+`ledger` because creating accounts is not the ledger's job.
+
+The workflow is real today. Without it a handler writes:
+
+```go
+acct, err := accounts.Create(ctx, in)   // committed
+if err == nil {
+    ledgerSvc.RecordOpeningBalance(...) // may fail, independently
+}
+```
+
+which leaves an account the user believes has a balance, and no error they ever
+see. The compensating delete that "fixes" it can fail too.
+
+Mechanically, each domain exposes a transaction-scoped form of the use case —
+`account.CreateTx`, `ledger.RecordOpeningBalanceTx` — taking a `database.DBTX`
+instead of opening its own transaction. The service methods become thin wrappers
+that begin, delegate and commit. This is the mechanism TD-021 introduced `DBTX`
+for, applied one layer up.
+
+**It is not a general application layer**, and pass-through wrappers do not
+belong in it. A workflow earns a place here by coordinating two domains inside
+one transaction; everything else calls its domain service directly.
+
+**Errors pass through untranslated.** `OpenAccount` declares no sentinels of its
+own: its errors match `account.*` and `ledger.*` with `errors.Is`. The
+encapsulation rule this bends — a caller should not have to import a neighbouring
+domain to interpret a result — exists to hide *internal* consultations. Here the
+caller named both domains in its input and receives values from both in its
+result, so this is the composition it asked for rather than a leak.
+
+---
+
+## TD-031 — Category names are unique per type, case-insensitively
+
+**Status:** Accepted · **Milestone:** M2
+
+**Decision.** `CREATE UNIQUE INDEX idx_categories_type_name ON
+categories(category_type, name COLLATE NOCASE)`. Conflicts are determined by a
+query inside the same transaction as the insert, never inferred from the driver's
+error (TD-023). Categories are not seeded.
+
+**Rationale.** Two `EXPENSE` categories called "Comida" are a data-entry mistake
+rather than a distinction: nothing downstream could tell the user which is which,
+and their totals would be split for no reason. The type is part of the key
+because the same name across the two is legitimate — "Intereses" is both earned
+and paid.
+
+**The known limitation, stated rather than hidden:** SQLite's `NOCASE` folds
+ASCII only, so "Café" and "CAFÉ" are treated as different names. Fixing it
+properly would mean a normalised shadow column or an ICU build, neither of which
+is worth it for a table with tens of rows in it.
+
+**No seed.** A default set of twenty categories would be rows guessed on
+someone's behalf, most of which they would archive. Nor is there a special
+category for opening balances: an opening balance is uncategorised by
+construction, and the schema refuses a category on one.
+
+**Immutable type.** `category_type` cannot change, for the same reason
+`currencies.minor_unit` and `accounts.currency_code` cannot: flipping a category
+from `INCOME` to `EXPENSE` would reinterpret every transaction already filed
+under it. As with those, it is enforced by the absence of any code path rather
+than by a trigger (TD-022).

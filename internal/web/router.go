@@ -1,0 +1,77 @@
+package web
+
+import (
+	"io/fs"
+	"log/slog"
+	"net/http"
+	"os"
+
+	webassets "github.com/MegaByteLombardo/finance-tracker/web"
+)
+
+// Config holds web presentation configuration
+type Config struct {
+	TemplatesFS  fs.FS
+	StaticFS     fs.FS
+	TemplatesDir string
+	StaticDir    string
+}
+
+// DefaultConfig returns reasonable defaults using embedded assets.
+func DefaultConfig() Config {
+	tmplFS, _ := fs.Sub(webassets.FS, "templates")
+	staticFS, _ := fs.Sub(webassets.FS, "static")
+	return Config{
+		TemplatesFS: tmplFS,
+		StaticFS:    staticFS,
+	}
+}
+
+// NewRouter constructs and configures the presentation layer HTTP router.
+func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
+	var templateFS fs.FS
+	if cfg.TemplatesFS != nil {
+		templateFS = cfg.TemplatesFS
+	} else if cfg.TemplatesDir != "" {
+		templateFS = os.DirFS(cfg.TemplatesDir)
+	} else {
+		templateFS, _ = fs.Sub(webassets.FS, "templates")
+	}
+
+	renderer := NewRenderer(templateFS)
+	mux := http.NewServeMux()
+
+	// Static files
+	if cfg.StaticFS != nil {
+		mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(cfg.StaticFS))))
+	} else if cfg.StaticDir != "" {
+		mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir(cfg.StaticDir))))
+	} else {
+		staticFS, _ := fs.Sub(webassets.FS, "static")
+		mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+	}
+
+	// Dashboard
+	mux.HandleFunc("GET /{$}", handleDashboard(logger, renderer, svcs))
+
+	// Accounts
+	mux.HandleFunc("GET /accounts", handleAccountsList(logger, renderer, svcs))
+	mux.HandleFunc("GET /accounts/new", handleNewAccountForm(logger, renderer, svcs))
+	mux.HandleFunc("POST /accounts", handleCreateAccount(logger, renderer, svcs))
+	mux.HandleFunc("GET /accounts/subtype-options", handleSubtypeOptions(logger, renderer))
+
+	// Transactions
+	mux.HandleFunc("GET /transactions", handleTransactionsList(logger, renderer, svcs))
+	mux.HandleFunc("GET /transactions/new", handleNewTransactionForm(logger, renderer, svcs))
+	mux.HandleFunc("POST /transactions", handleCreateTransaction(logger, renderer, svcs))
+	mux.HandleFunc("GET /transactions/account-info", handleAccountInfo(logger, renderer, svcs))
+	mux.HandleFunc("GET /transactions/category-options", handleCategoryOptions(logger, renderer, svcs))
+
+	// Categories
+	mux.HandleFunc("GET /categories", handleCategoriesList(logger, renderer, svcs))
+	mux.HandleFunc("GET /categories/new", handleNewCategoryForm(logger, renderer, svcs))
+	mux.HandleFunc("POST /categories", handleCreateCategory(logger, renderer, svcs))
+	mux.HandleFunc("POST /categories/{id}/toggle", handleToggleCategory(logger, svcs))
+
+	return mux
+}

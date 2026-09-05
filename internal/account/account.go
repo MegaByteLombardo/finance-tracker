@@ -68,6 +68,49 @@ func (t Type) Valid() bool {
 	return false
 }
 
+// Subtype refines Bank, and only Bank.
+//
+// It is a second, dependent axis rather than two more values in Type. Type
+// classifies the container; whether that container is a current or a savings
+// account is a fact that exists only for accounts held at an institution.
+// Folding them into Type would have made "a savings account at Mercantil" and
+// "cash" siblings in one enumeration, and left the other three types with no
+// way to say which they are.
+type Subtype string
+
+const (
+	// Checking is a current account: money kept for day-to-day use.
+	Checking Subtype = "CHECKING"
+	// Savings is a savings account at the same institution.
+	Savings Subtype = "SAVINGS"
+)
+
+// Subtypes lists every valid subtype, in the order a UI would present them.
+func Subtypes() []Subtype { return []Subtype{Checking, Savings} }
+
+// SubtypesFor lists the subtypes valid for an account type: the two above for
+// Bank, and none for anything else.
+//
+// A UI drives its subtype control from this. An empty result means the control
+// must not be shown and must not be submitted, which is the same rule the
+// validation below and the database's CHECK constraint enforce.
+func SubtypesFor(t Type) []Subtype {
+	if t == Bank {
+		return Subtypes()
+	}
+	return nil
+}
+
+// Valid reports whether s is a known subtype.
+func (s Subtype) Valid() bool {
+	for _, known := range Subtypes() {
+		if s == known {
+			return true
+		}
+	}
+	return false
+}
+
 const (
 	maxNameLength        = 120
 	maxInstitutionLength = 120
@@ -78,6 +121,11 @@ type Account struct {
 	ID   int64
 	Name string
 	Type Type
+
+	// Subtype is set if and only if Type is Bank. It is editable metadata: an
+	// account genuinely reclassified from current to savings is corrected
+	// rather than re-created.
+	Subtype *Subtype
 
 	// CurrencyCode is immutable. Once movements exist, changing it would
 	// reinterpret the entire history of the account, so there is no operation
@@ -95,8 +143,12 @@ type Account struct {
 
 // CreateInput is the input to Service.Create.
 type CreateInput struct {
-	Name         string
-	Type         Type
+	Name string
+	Type Type
+
+	// Subtype is required when Type is Bank and must be nil otherwise.
+	Subtype *Subtype
+
 	CurrencyCode string
 	Institution  *string // nil means no institution, as for cash
 }
@@ -108,12 +160,14 @@ type CreateInput struct {
 type UpdateMetadataInput struct {
 	Name        string
 	Type        Type
+	Subtype     *Subtype
 	Institution *string
 }
 
 func (in *CreateInput) normalize() {
 	in.Name = strings.TrimSpace(in.Name)
 	in.Type = Type(strings.ToUpper(strings.TrimSpace(string(in.Type))))
+	in.Subtype = normalizeSubtype(in.Subtype)
 	in.CurrencyCode = strings.ToUpper(strings.TrimSpace(in.CurrencyCode))
 	in.Institution = trimOptional(in.Institution)
 }
@@ -125,6 +179,9 @@ func (in CreateInput) validate() error {
 	if err := validateType(in.Type); err != nil {
 		return err
 	}
+	if err := validateSubtype(in.Type, in.Subtype); err != nil {
+		return err
+	}
 	if in.CurrencyCode == "" {
 		return fmt.Errorf("%w: currency code must not be blank", ErrInvalidInput)
 	}
@@ -134,6 +191,7 @@ func (in CreateInput) validate() error {
 func (in *UpdateMetadataInput) normalize() {
 	in.Name = strings.TrimSpace(in.Name)
 	in.Type = Type(strings.ToUpper(strings.TrimSpace(string(in.Type))))
+	in.Subtype = normalizeSubtype(in.Subtype)
 	in.Institution = trimOptional(in.Institution)
 }
 
@@ -142,6 +200,9 @@ func (in UpdateMetadataInput) validate() error {
 		return err
 	}
 	if err := validateType(in.Type); err != nil {
+		return err
+	}
+	if err := validateSubtype(in.Type, in.Subtype); err != nil {
 		return err
 	}
 	return validateInstitution(in.Institution)
@@ -164,6 +225,31 @@ func validateType(t Type) error {
 	return nil
 }
 
+// validateSubtype enforces the dependency between the two columns: a bank
+// account is a current or a savings account, and nothing else has a subtype at
+// all.
+//
+// Both directions are errors rather than corrections. Silently dropping a
+// subtype sent for a cash account would hide a caller's bug, and silently
+// defaulting a missing one for a bank account would invent a fact about
+// someone's money.
+func validateSubtype(t Type, subtype *Subtype) error {
+	if t != Bank {
+		if subtype != nil {
+			return fmt.Errorf("%w: only a %s account has a subtype, and this one is %s",
+				ErrInvalidInput, Bank, t)
+		}
+		return nil
+	}
+	if subtype == nil {
+		return fmt.Errorf("%w: a %s account needs a subtype, one of %v", ErrInvalidInput, Bank, Subtypes())
+	}
+	if !subtype.Valid() {
+		return fmt.Errorf("%w: account subtype %q must be one of %v", ErrInvalidInput, *subtype, Subtypes())
+	}
+	return nil
+}
+
 // validateInstitution rejects a present-but-empty institution. Absence is
 // expressed with nil, so an empty string is a caller mistake rather than a way
 // to say "none".
@@ -179,6 +265,17 @@ func validateInstitution(institution *string) error {
 			ErrInvalidInput, maxInstitutionLength)
 	}
 	return nil
+}
+
+// normalizeSubtype canonicalises the case and spacing of a supplied subtype so
+// that "checking" and " CHECKING " address the same value. nil stays nil, and a
+// value that normalises to something unknown is left for validation to reject.
+func normalizeSubtype(s *Subtype) *Subtype {
+	if s == nil {
+		return nil
+	}
+	normalized := Subtype(strings.ToUpper(strings.TrimSpace(string(*s))))
+	return &normalized
 }
 
 // trimOptional trims the value behind a pointer. nil stays nil; a value that

@@ -14,6 +14,12 @@ import (
 
 func ptr(s string) *string { return &s }
 
+// checking returns a pointer to the CHECKING subtype, which every BANK account
+// in these tests needs and no other type may have.
+func checking() *account.Subtype { s := account.Checking; return &s }
+
+func subtype(s account.Subtype) *account.Subtype { return &s }
+
 // fixture returns an account service and the database behind it, so tests can
 // assert on rows directly when the point is what did or did not get written.
 func fixture(t *testing.T) (*account.Service, *currency.Service, *sql.DB) {
@@ -32,6 +38,7 @@ func TestCreateGetList(t *testing.T) {
 	created, err := svc.Create(ctx, account.CreateInput{
 		Name:         "Mercantil USD",
 		Type:         account.Bank,
+		Subtype:      checking(),
 		CurrencyCode: "USD",
 		Institution:  ptr("Mercantil"),
 	})
@@ -79,9 +86,16 @@ func TestCreateAcceptsEveryType(t *testing.T) {
 	svc, _, _ := fixture(t)
 
 	for _, accountType := range account.Types() {
+		// Only a bank account carries a subtype, and it must carry one.
+		var st *account.Subtype
+		if accountType == account.Bank {
+			st = checking()
+		}
+
 		created, err := svc.Create(t.Context(), account.CreateInput{
 			Name:         "Account " + string(accountType),
 			Type:         accountType,
+			Subtype:      st,
 			CurrencyCode: "USD",
 		})
 		if err != nil {
@@ -130,12 +144,32 @@ func TestCreateRejectsInvalidInput(t *testing.T) {
 		"unknown type":      {Name: "Test", Type: "CRYPTO", CurrencyCode: "USD"},
 		"CHECKING is gone":  {Name: "Test", Type: "CHECKING", CurrencyCode: "USD"},
 		"SAVINGS is gone":   {Name: "Test", Type: "SAVINGS", CurrencyCode: "USD"},
-		"blank currency":    {Name: "Test", Type: account.Bank, CurrencyCode: "   "},
-		"empty institution": {Name: "Test", Type: account.Bank, CurrencyCode: "USD", Institution: ptr("")},
-		"blank institution": {Name: "Test", Type: account.Bank, CurrencyCode: "USD", Institution: ptr("   ")},
+		"blank currency":    {Name: "Test", Type: account.Bank, Subtype: checking(), CurrencyCode: "   "},
+		"empty institution": {Name: "Test", Type: account.Bank, Subtype: checking(), CurrencyCode: "USD", Institution: ptr("")},
+		"blank institution": {Name: "Test", Type: account.Bank, Subtype: checking(), CurrencyCode: "USD", Institution: ptr("   ")},
 		"overlong institution": {
-			Name: "Test", Type: account.Bank, CurrencyCode: "USD",
+			Name: "Test", Type: account.Bank, Subtype: checking(), CurrencyCode: "USD",
 			Institution: ptr(strings.Repeat("x", 121)),
+		},
+
+		// The subtype rule, in both directions. Neither is silently corrected:
+		// dropping a subtype sent for cash would hide a caller's bug, and
+		// defaulting a missing one for a bank account would invent a fact.
+		"bank without subtype": {Name: "Test", Type: account.Bank, CurrencyCode: "USD"},
+		"bank with unknown subtype": {
+			Name: "Test", Type: account.Bank, Subtype: subtype("PREMIUM"), CurrencyCode: "USD",
+		},
+		"bank with empty subtype": {
+			Name: "Test", Type: account.Bank, Subtype: subtype(""), CurrencyCode: "USD",
+		},
+		"cash with subtype": {
+			Name: "Test", Type: account.Cash, Subtype: checking(), CurrencyCode: "USD",
+		},
+		"wallet with subtype": {
+			Name: "Test", Type: account.Wallet, Subtype: subtype(account.Savings), CurrencyCode: "USD",
+		},
+		"other with subtype": {
+			Name: "Test", Type: account.Other, Subtype: checking(), CurrencyCode: "USD",
 		},
 	}
 
@@ -159,6 +193,7 @@ func TestCreateNormalisesInput(t *testing.T) {
 	created, err := svc.Create(t.Context(), account.CreateInput{
 		Name:         "  Mercantil USD  ",
 		Type:         "  bank  ",
+		Subtype:      subtype("  savings  "),
 		CurrencyCode: "  usd  ",
 		Institution:  ptr("  Mercantil  "),
 	})
@@ -171,6 +206,9 @@ func TestCreateNormalisesInput(t *testing.T) {
 	}
 	if created.Type != account.Bank {
 		t.Errorf("Type = %q, want %q", created.Type, account.Bank)
+	}
+	if created.Subtype == nil || *created.Subtype != account.Savings {
+		t.Errorf("Subtype = %v, want %q", created.Subtype, account.Savings)
 	}
 	if created.CurrencyCode != "USD" {
 		t.Errorf("CurrencyCode = %q, want %q", created.CurrencyCode, "USD")
@@ -186,7 +224,7 @@ func TestCreateWithUnknownCurrency(t *testing.T) {
 	svc, _, _ := fixture(t)
 
 	_, err := svc.Create(t.Context(), account.CreateInput{
-		Name: "Test", Type: account.Bank, CurrencyCode: "ZZZ",
+		Name: "Test", Type: account.Bank, Subtype: checking(), CurrencyCode: "ZZZ",
 	})
 	if !errors.Is(err, account.ErrCurrencyNotFound) {
 		t.Fatalf("Create with an unknown currency = %v, want ErrCurrencyNotFound", err)
@@ -213,7 +251,7 @@ func TestCreateWithInactiveCurrency(t *testing.T) {
 	}
 
 	_, err := accounts.Create(ctx, account.CreateInput{
-		Name: "Ahorros EUR", Type: account.Bank, CurrencyCode: "EUR",
+		Name: "Ahorros EUR", Type: account.Bank, Subtype: subtype(account.Savings), CurrencyCode: "EUR",
 	})
 	if !errors.Is(err, account.ErrCurrencyInactive) {
 		t.Fatalf("Create with an inactive currency = %v, want ErrCurrencyInactive", err)
@@ -239,7 +277,7 @@ func TestArchivingACurrencyLeavesExistingAccountsAlone(t *testing.T) {
 	ctx := t.Context()
 
 	created, err := accounts.Create(ctx, account.CreateInput{
-		Name: "Cuenta EUR", Type: account.Bank, CurrencyCode: "EUR",
+		Name: "Cuenta EUR", Type: account.Bank, Subtype: checking(), CurrencyCode: "EUR",
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -279,7 +317,8 @@ func TestUpdateMetadataLeavesCurrencyUntouched(t *testing.T) {
 	ctx := t.Context()
 
 	created, err := svc.Create(ctx, account.CreateInput{
-		Name: "Mercantil USD", Type: account.Bank, CurrencyCode: "USD", Institution: ptr("Mercantil"),
+		Name: "Mercantil USD", Type: account.Bank, Subtype: checking(),
+		CurrencyCode: "USD", Institution: ptr("Mercantil"),
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -337,7 +376,7 @@ func TestSetActiveArchivesAndRestores(t *testing.T) {
 	ctx := t.Context()
 
 	created, err := svc.Create(ctx, account.CreateInput{
-		Name: "Ahorros USD", Type: account.Bank, CurrencyCode: "USD",
+		Name: "Ahorros USD", Type: account.Bank, Subtype: subtype(account.Savings), CurrencyCode: "USD",
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -408,8 +447,114 @@ func TestOperationsRespectContextCancellation(t *testing.T) {
 		t.Error("Get succeeded with a cancelled context")
 	}
 	if _, err := svc.Create(ctx, account.CreateInput{
-		Name: "Test", Type: account.Bank, CurrencyCode: "USD",
+		Name: "Test", Type: account.Bank, Subtype: checking(), CurrencyCode: "USD",
 	}); err == nil {
 		t.Error("Create succeeded with a cancelled context")
+	}
+}
+
+// The subtype is editable metadata, so reclassifying an account is a normal
+// edit. What must not be possible is an account left in a state where its type
+// and subtype disagree.
+func TestUpdateMetadataEnforcesTheSubtypeRule(t *testing.T) {
+	t.Parallel()
+
+	svc, _, _ := fixture(t)
+	ctx := t.Context()
+
+	created, err := svc.Create(ctx, account.CreateInput{
+		Name: "Mercantil USD", Type: account.Bank, Subtype: checking(),
+		CurrencyCode: "USD", Institution: ptr("Mercantil"),
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Current account becomes a savings account at the same bank.
+	updated, err := svc.UpdateMetadata(ctx, created.ID, account.UpdateMetadataInput{
+		Name: "Mercantil Ahorros", Type: account.Bank,
+		Subtype: subtype(account.Savings), Institution: ptr("Mercantil"),
+	})
+	if err != nil {
+		t.Fatalf("UpdateMetadata: %v", err)
+	}
+	if updated.Subtype == nil || *updated.Subtype != account.Savings {
+		t.Errorf("Subtype = %v, want %q", updated.Subtype, account.Savings)
+	}
+
+	// Dropping the subtype while it is still a bank account.
+	_, err = svc.UpdateMetadata(ctx, created.ID, account.UpdateMetadataInput{
+		Name: "Mercantil Ahorros", Type: account.Bank, Institution: ptr("Mercantil"),
+	})
+	if !errors.Is(err, account.ErrInvalidInput) {
+		t.Errorf("clearing a bank account's subtype = %v, want ErrInvalidInput", err)
+	}
+
+	// Becoming cash while keeping one.
+	_, err = svc.UpdateMetadata(ctx, created.ID, account.UpdateMetadataInput{
+		Name: "Efectivo", Type: account.Cash, Subtype: checking(),
+	})
+	if !errors.Is(err, account.ErrInvalidInput) {
+		t.Errorf("cash with a subtype = %v, want ErrInvalidInput", err)
+	}
+
+	// Becoming cash and dropping it at the same time is the legitimate move.
+	reclassified, err := svc.UpdateMetadata(ctx, created.ID, account.UpdateMetadataInput{
+		Name: "Efectivo", Type: account.Cash,
+	})
+	if err != nil {
+		t.Fatalf("a legitimate reclassification was rejected: %v", err)
+	}
+	if reclassified.Subtype != nil {
+		t.Errorf("Subtype = %v after becoming cash, want nil", reclassified.Subtype)
+	}
+
+	// And it survives a reload rather than only living in the returned value.
+	fetched, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if fetched.Subtype != nil {
+		t.Errorf("Subtype after reload = %v, want nil", fetched.Subtype)
+	}
+}
+
+// SubtypesFor is what a form uses to decide whether to render the control at
+// all, so it must agree with the validation rather than merely resemble it.
+func TestSubtypesForMatchesValidation(t *testing.T) {
+	t.Parallel()
+
+	svc, _, _ := fixture(t)
+
+	for _, accountType := range account.Types() {
+		allowed := account.SubtypesFor(accountType)
+
+		if accountType == account.Bank {
+			if len(allowed) != 2 {
+				t.Errorf("SubtypesFor(%s) returned %v, want both subtypes", accountType, allowed)
+			}
+		} else if len(allowed) != 0 {
+			t.Errorf("SubtypesFor(%s) returned %v, want none", accountType, allowed)
+		}
+
+		// Every subtype it offers must be accepted, and creating without one
+		// must succeed exactly when it offers none.
+		for _, s := range allowed {
+			if _, err := svc.Create(t.Context(), account.CreateInput{
+				Name: "Test", Type: accountType, Subtype: subtype(s), CurrencyCode: "USD",
+			}); err != nil {
+				t.Errorf("SubtypesFor(%s) offers %q but Create rejected it: %v", accountType, s, err)
+			}
+		}
+
+		_, err := svc.Create(t.Context(), account.CreateInput{
+			Name: "Test", Type: accountType, CurrencyCode: "USD",
+		})
+		if len(allowed) == 0 && err != nil {
+			t.Errorf("%s offers no subtype but Create demanded one: %v", accountType, err)
+		}
+		if len(allowed) > 0 && err == nil {
+			t.Errorf("%s offers subtypes but Create accepted an account without one", accountType)
+		}
 	}
 }

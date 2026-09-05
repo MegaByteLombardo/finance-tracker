@@ -59,6 +59,29 @@ involved. `.env` is git-ignored.
 An invalid value is reported by name at startup and the process exits non-zero.
 All problems are reported at once, not one per restart.
 
+## Using Finance Tracker
+
+A complete walkthrough to get started with a fresh instance:
+
+1. Start application
+2. Open http://localhost:8080
+3. Create categories (e.g. Salary as INCOME, Groceries as EXPENSE)
+4. Create account
+5. Select BANK/CASH/WALLET/OTHER
+6. For BANK select CHECKING/SAVINGS
+7. Select currency (USD, EUR, VES)
+8. Enter optional initial balance
+9. Record income
+10. Record expense
+11. Review balances on dashboard
+
+### Important financial model notes
+
+* **Balances are derived from transactions:** Accounts have no stored balance column. Every balance is calculated dynamically from ledger movements (`SUM(movements)`).
+* **Currencies are not converted in M2:** Accounts in different currencies (USD, EUR, VES) are displayed independently. Balances in different currencies are never summed together.
+* **A bank transfer payment method is not an internal-account transfer:** In M2, the "Bank transfer" option describes the payment channel for external income or expenses; transfers between your own accounts belong to a later milestone.
+
+
 ## Where the database lives
 
 **Locally:** `./data/finance.db` (configurable via `DB_PATH`).

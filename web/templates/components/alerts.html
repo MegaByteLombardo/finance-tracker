@@ -1,0 +1,7 @@
+{{ define "alerts" }}
+{{ if .Alert }}
+<div class="alert alert-{{ .Alert.Type }}" role="alert">
+  <div>{{ .Alert.Message }}</div>
+</div>
+{{ end }}
+{{ end }}

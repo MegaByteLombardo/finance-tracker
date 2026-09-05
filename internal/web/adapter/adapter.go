@@ -1,0 +1,231 @@
+package adapter
+
+import (
+	"context"
+	"database/sql"
+
+	"github.com/MegaByteLombardo/finance-tracker/internal/account"
+	"github.com/MegaByteLombardo/finance-tracker/internal/application"
+	"github.com/MegaByteLombardo/finance-tracker/internal/category"
+	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
+	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
+	"github.com/MegaByteLombardo/finance-tracker/internal/web"
+)
+
+// Currency adapter
+
+type currencyAdapter struct {
+	svc *currency.Service
+}
+
+func (a *currencyAdapter) List(ctx context.Context, includeInactive bool) ([]web.Currency, error) {
+	list, err := a.svc.List(ctx, includeInactive)
+	if err != nil {
+		return nil, TranslateCurrencyError(err)
+	}
+	return toWebCurrencies(list), nil
+}
+
+func (a *currencyAdapter) Get(ctx context.Context, code string) (web.Currency, error) {
+	c, err := a.svc.Get(ctx, code)
+	if err != nil {
+		return web.Currency{}, TranslateCurrencyError(err)
+	}
+	return toWebCurrency(c), nil
+}
+
+// Account adapter
+
+type accountAdapter struct {
+	svc *account.Service
+}
+
+func (a *accountAdapter) List(ctx context.Context, includeInactive bool) ([]web.Account, error) {
+	list, err := a.svc.List(ctx, includeInactive)
+	if err != nil {
+		return nil, TranslateAccountError(err)
+	}
+	return toWebAccounts(list), nil
+}
+
+func (a *accountAdapter) Get(ctx context.Context, id int64) (web.Account, error) {
+	acct, err := a.svc.Get(ctx, id)
+	if err != nil {
+		return web.Account{}, TranslateAccountError(err)
+	}
+	return toWebAccount(acct), nil
+}
+
+func (a *accountAdapter) Create(ctx context.Context, in web.CreateAccountInput) (web.Account, error) {
+	acct, err := a.svc.Create(ctx, toDomainCreateAccountInput(in))
+	if err != nil {
+		return web.Account{}, TranslateAccountError(err)
+	}
+	return toWebAccount(acct), nil
+}
+
+func (a *accountAdapter) UpdateMetadata(ctx context.Context, id int64, in web.UpdateAccountMetadataInput) (web.Account, error) {
+	acct, err := a.svc.UpdateMetadata(ctx, id, toDomainUpdateAccountMetadataInput(in))
+	if err != nil {
+		return web.Account{}, TranslateAccountError(err)
+	}
+	return toWebAccount(acct), nil
+}
+
+func (a *accountAdapter) SetActive(ctx context.Context, id int64, isActive bool) (web.Account, error) {
+	acct, err := a.svc.SetActive(ctx, id, isActive)
+	if err != nil {
+		return web.Account{}, TranslateAccountError(err)
+	}
+	return toWebAccount(acct), nil
+}
+
+// Category adapter
+
+type categoryAdapter struct {
+	svc *category.Service
+}
+
+func (a *categoryAdapter) List(ctx context.Context, in web.ListCategoriesInput) ([]web.Category, error) {
+	list, err := a.svc.List(ctx, toDomainListCategoriesInput(in))
+	if err != nil {
+		return nil, TranslateCategoryError(err)
+	}
+	return toWebCategories(list), nil
+}
+
+func (a *categoryAdapter) Get(ctx context.Context, id int64) (web.Category, error) {
+	cat, err := a.svc.Get(ctx, id)
+	if err != nil {
+		return web.Category{}, TranslateCategoryError(err)
+	}
+	return toWebCategory(cat), nil
+}
+
+func (a *categoryAdapter) Create(ctx context.Context, in web.CreateCategoryInput) (web.Category, error) {
+	cat, err := a.svc.Create(ctx, toDomainCreateCategoryInput(in))
+	if err != nil {
+		return web.Category{}, TranslateCategoryError(err)
+	}
+	return toWebCategory(cat), nil
+}
+
+func (a *categoryAdapter) UpdateMetadata(ctx context.Context, id int64, in web.UpdateCategoryMetadataInput) (web.Category, error) {
+	cat, err := a.svc.UpdateMetadata(ctx, id, toDomainUpdateCategoryMetadataInput(in))
+	if err != nil {
+		return web.Category{}, TranslateCategoryError(err)
+	}
+	return toWebCategory(cat), nil
+}
+
+func (a *categoryAdapter) SetActive(ctx context.Context, id int64, isActive bool) (web.Category, error) {
+	cat, err := a.svc.SetActive(ctx, id, isActive)
+	if err != nil {
+		return web.Category{}, TranslateCategoryError(err)
+	}
+	return toWebCategory(cat), nil
+}
+
+// Ledger adapter
+
+type ledgerAdapter struct {
+	svc *ledger.Service
+}
+
+func (a *ledgerAdapter) RecordIncome(ctx context.Context, in web.RecordIncomeInput) (web.TransactionView, error) {
+	view, err := a.svc.RecordIncome(ctx, toDomainRecordIncomeInput(in))
+	if err != nil {
+		return web.TransactionView{}, TranslateLedgerError(err)
+	}
+	return *toWebTransactionView(&view), nil
+}
+
+func (a *ledgerAdapter) RecordExpense(ctx context.Context, in web.RecordExpenseInput) (web.TransactionView, error) {
+	view, err := a.svc.RecordExpense(ctx, toDomainRecordExpenseInput(in))
+	if err != nil {
+		return web.TransactionView{}, TranslateLedgerError(err)
+	}
+	return *toWebTransactionView(&view), nil
+}
+
+func (a *ledgerAdapter) RecordOpeningBalance(ctx context.Context, in web.RecordOpeningBalanceInput) (*web.TransactionView, error) {
+	view, err := a.svc.RecordOpeningBalance(ctx, toDomainRecordOpeningBalanceInput(in))
+	if err != nil {
+		return nil, TranslateLedgerError(err)
+	}
+	return toWebTransactionView(view), nil
+}
+
+func (a *ledgerAdapter) ListTransactions(ctx context.Context, in web.ListTransactionsInput) ([]web.TransactionView, error) {
+	list, err := a.svc.ListTransactions(ctx, toDomainListTransactionsInput(in))
+	if err != nil {
+		return nil, TranslateLedgerError(err)
+	}
+	return toWebTransactionViews(list), nil
+}
+
+func (a *ledgerAdapter) GetTransaction(ctx context.Context, id int64) (web.TransactionView, error) {
+	view, err := a.svc.GetTransaction(ctx, id)
+	if err != nil {
+		return web.TransactionView{}, TranslateLedgerError(err)
+	}
+	return *toWebTransactionView(&view), nil
+}
+
+func (a *ledgerAdapter) GetAccountBalance(ctx context.Context, accountID int64) (web.AccountBalance, error) {
+	bal, err := a.svc.GetAccountBalance(ctx, accountID)
+	if err != nil {
+		return web.AccountBalance{}, TranslateLedgerError(err)
+	}
+	return toWebAccountBalance(bal), nil
+}
+
+func (a *ledgerAdapter) ListAccountBalances(ctx context.Context, includeInactive bool) ([]web.AccountBalance, error) {
+	list, err := a.svc.ListAccountBalances(ctx, includeInactive)
+	if err != nil {
+		return nil, TranslateLedgerError(err)
+	}
+	return toWebAccountBalances(list), nil
+}
+
+func (a *ledgerAdapter) ListCurrencyTotals(ctx context.Context, includeInactive bool) ([]web.CurrencyTotal, error) {
+	list, err := a.svc.ListCurrencyTotals(ctx, includeInactive)
+	if err != nil {
+		return nil, TranslateLedgerError(err)
+	}
+	return toWebCurrencyTotals(list), nil
+}
+
+// Application adapter
+
+type applicationAdapter struct {
+	svc *application.Service
+}
+
+func (a *applicationAdapter) OpenAccount(ctx context.Context, in web.OpenAccountInput) (web.OpenAccountResult, error) {
+	res, err := a.svc.OpenAccount(ctx, toDomainOpenAccountInput(in))
+	if err != nil {
+		return web.OpenAccountResult{}, TranslateApplicationError(err)
+	}
+	return toWebOpenAccountResult(res), nil
+}
+
+// Compile-time interface checks
+var (
+	_ web.CurrencyService    = (*currencyAdapter)(nil)
+	_ web.AccountService     = (*accountAdapter)(nil)
+	_ web.CategoryService    = (*categoryAdapter)(nil)
+	_ web.LedgerService      = (*ledgerAdapter)(nil)
+	_ web.ApplicationService = (*applicationAdapter)(nil)
+)
+
+// New builds the presentation layer's services over a real database.
+func New(db *sql.DB) *web.Services {
+	return &web.Services{
+		Currencies:  &currencyAdapter{svc: currency.NewService(db)},
+		Accounts:    &accountAdapter{svc: account.NewService(db)},
+		Categories:  &categoryAdapter{svc: category.NewService(db)},
+		Ledger:      &ledgerAdapter{svc: ledger.NewService(db)},
+		Application: &applicationAdapter{svc: application.NewService(db)},
+	}
+}

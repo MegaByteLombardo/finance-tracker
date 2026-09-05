@@ -34,9 +34,12 @@ const (
 // Addr is deliberately left unset: the caller creates the listener itself and
 // calls Serve. That way a port conflict surfaces as an error before the process
 // claims to be listening, and binding to :0 yields a usable address.
-func New(logger *slog.Logger, db *sql.DB) *http.Server {
+func New(logger *slog.Logger, db *sql.DB, webHandler ...http.Handler) *http.Server {
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", handleHealthz(logger, db))
+	if len(webHandler) > 0 && webHandler[0] != nil {
+		mux.Handle("/", webHandler[0])
+	}
 
 	return &http.Server{
 		Handler:           mux,

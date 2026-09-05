@@ -36,28 +36,45 @@ configuration library, no dependency-injection container.
 ```text
 cmd/web
    ↓
-HTTP                    (internal/httpserver)
+HTTP                    (internal/httpserver, internal/web)
    ↓
-domain services         (internal/currency, internal/account)
+cross-domain workflows  (internal/application)
+   ↓
+domain services         (internal/currency, internal/account,
+                         internal/category, internal/ledger)
    ↓
 repositories            (same packages)
    ↓
 database                (internal/database, internal/migrations)
    ↓
 SQLite
+
+internal/money is a leaf: it depends on nothing and everything above may use it.
 ```
 
 Dependencies point downward only. HTTP does not build SQL; the database layer
 knows nothing about HTTP. Domain packages may depend on each other where the
 domain itself does — `account` uses `currency`, because an account is denominated
-in one — but never in a cycle.
+in one, and `ledger` uses `account`, `category` and `currency`, because a
+movement lands in an account, is classified, and is denominated — but never in a
+cycle.
 
-**The domain layer has no HTTP surface yet.** `currency.Service` and
-`account.Service` are complete and tested, but nothing in `cmd/web` calls them:
-their consumer is the htmx handler layer, which is a later milestone. This is
-deliberate. It differs from unfinished plumbing in that these are closed,
-covered units waiting for a caller, not half-built machinery the startup path
-never exercises.
+**`internal/application` exists because of that last constraint.** Opening an
+account and recording its opening balance is one user action spanning two
+domains, and it must be atomic. It cannot live in `account`, which would have to
+import `ledger`, nor in `ledger`, whose job is not creating accounts. It holds
+exactly one workflow and is not a general application layer; see
+[TD-030](technical-decisions.md).
+
+**The presentation layer is built against a written contract, not against the
+packages directly.** M2 is delivered by two agents working in parallel, so the
+boundary between the domain services and `internal/web` is specified in
+[m2-contract.md](m2-contract.md) and frozen for the milestone: the service
+methods, their inputs and outputs, the enumerations, the money and date
+semantics, and the sentinel errors the handlers match on.
+
+That document is the interface. If the two sides disagree, the contract is what
+they are both wrong or right against.
 
 ## Packages
 
@@ -104,6 +121,9 @@ than anything domain-specific:
   abstraction and does not exist to be mocked; see TD-021.
 - **The timestamp convention** — `TimeLayout`, `FormatTime`, `ParseTime` and
   `Now`. One definition of how time is stored, used by every domain package.
+- **The calendar-date convention** — `DateLayout`, `FormatDate`, `ParseDate` and
+  `Today`. A business date is a different fact from an instant, and gets a
+  different representation; see TD-028.
 
 ### `internal/migrations`
 
@@ -118,7 +138,23 @@ it is given, which is why the package and its SQL share a directory and no
 **This is the only package that imports goose.** Everything else sees one
 function, `Up`.
 
-### `internal/currency` and `internal/account`
+### `internal/money`
+
+Exact conversion between the decimal strings a person types and the `int64`
+minor units the database stores, at a currency's scale. Two functions and a
+sentinel error.
+
+It is a **leaf**: it imports nothing from this project, which is what lets every
+layer above use it without creating a cycle. It is deliberately not part of
+`currency` — that package is a catalogue of rows, this is numeric
+representation, and the exact rate arithmetic of the FX milestone will land here
+rather than in the reference data. See TD-027.
+
+There is no `Money` struct. An amount never travels without its currency in this
+codebase, so a wrapper would carry no invariant the surrounding code does not
+already hold.
+
+### `internal/currency`, `internal/account`, `internal/category` and `internal/ledger`
 
 One package per domain, each holding its model, its validation, its repository
 and its service. Organised by feature rather than by layer: there is no
@@ -140,7 +176,33 @@ package — the standard library does the same with `sql.ErrNoRows` and
 `os.ErrNotExist`, and it avoids a junk-drawer package. Where one domain consults
 another, it **translates**: `account` returns `ErrCurrencyNotFound` and
 `ErrCurrencyInactive` rather than letting `currency`'s errors escape, so a
-handler for accounts never needs to import `currency`.
+handler for accounts never needs to import `currency`. `ledger` does the same for
+`account`, `category` and `money`, which is why it declares
+`ErrAccountInactive`, `ErrCategoryInactive`, `ErrCategoryTypeMismatch` and
+`ErrInvalidAmount` of its own.
+
+**`internal/ledger` is where the two-table ledger lives**: `transactions` for the
+financial event, `account_movements` for its effect on an account. Its service
+exposes one method per use case — `RecordIncome`, `RecordExpense`,
+`RecordOpeningBalance` — rather than a general `CreateTransaction(type, …)`, so
+that invalid combinations have no signature to arrive through. It is also the
+only package that reads or writes an amount.
+
+**Transaction-scoped entry points.** Where a use case must be composable into a
+larger transaction, the package exposes a second form taking a `database.DBTX`:
+`account.CreateTx`, `ledger.RecordOpeningBalanceTx`. The service method becomes a
+thin wrapper that begins, delegates and commits. This is what
+`internal/application` composes, and it is the `DBTX` mechanism of TD-021 applied
+one layer up.
+
+### `internal/application`
+
+Cross-domain workflows, and nothing else. One today: `OpenAccount`, which creates
+an account and records its opening balance in a single `sql.Tx`.
+
+A workflow earns a place here by coordinating two domains atomically. Pass-through
+wrappers do not belong in it, and neither does anything a single domain service
+can already do.
 
 ### `internal/httpserver`
 
@@ -150,8 +212,9 @@ Builds the HTTP server and its routes. Owns the server timeouts and routes
 Routing uses the standard `http.ServeMux`, which since Go 1.22 matches on method
 and path wildcards — the capability that used to justify a third-party router.
 
-It exposes one route: `GET /healthz`. The domain services have no HTTP surface
-yet.
+It owns `GET /healthz` and, from M2, mounts the presentation layer's handler at
+`/`. The health endpoint stays here rather than moving into `internal/web`: it
+reports on the process and its database, not on anything a user looks at.
 
 `http.Server.Addr` is deliberately left empty. The composition root creates the
 listener itself, so a port conflict is reported as an error before the process

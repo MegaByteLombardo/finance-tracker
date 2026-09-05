@@ -1,0 +1,184 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Dashboard</h1>
+    <p class="page-subtitle">Overview of accounts, derived balances, and recent ledger activity</p>
+  </div>
+  <div class="page-actions">
+    <a href="/accounts/new" class="btn btn-secondary">+ New Account</a>
+    <a href="/transactions/new" class="btn btn-primary">+ Record Transaction</a>
+  </div>
+</div>
+
+{{ if not .HasCategories }}
+<div class="alert alert-warning" role="alert">
+  <div>
+    <strong>Getting started:</strong> Create at least one income and expense category before recording transactions.
+    <a href="/categories/new" style="margin-left: 8px; font-weight: 600; color: inherit; text-decoration: underline;">Create category &rarr;</a>
+  </div>
+</div>
+{{ end }}
+
+<div class="notice-box">
+  <strong>Multi-currency notice:</strong> Balances are derived directly from ledger movements in their native currency. Finance Tracker does not convert or aggregate balances across different currencies.
+</div>
+
+<!-- Account Balances by Currency -->
+<section style="margin-bottom: var(--space-10);">
+  <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: var(--space-5);">Account Balances</h2>
+
+  {{ if not .HasAccounts }}
+  <div class="empty-state">
+    <div class="empty-state-icon">💳</div>
+    <h3 class="empty-state-title">No accounts yet</h3>
+    <p class="empty-state-text">Start by creating your first bank account, cash stash, or digital wallet.</p>
+    <a href="/accounts/new" class="btn btn-primary">Create your first account</a>
+  </div>
+  {{ else }}
+
+    {{ range .CurrencySections }}
+    <div class="currency-section">
+      <div class="currency-section-header">
+        <div class="currency-section-title">
+          <span>{{ .CurrencyCode }}</span>
+          <span style="font-size: 0.875rem; font-weight: 400; color: var(--text-muted);">{{ .CurrencyName }}</span>
+        </div>
+        <div class="currency-section-total">
+          <span style="font-size: 0.8125rem; font-weight: 600; color: var(--text-muted); margin-right: 4px;">Total {{ .CurrencyCode }}:</span>
+          <span>{{ if .CurrencySymbol }}{{ .CurrencySymbol }} {{ end }}{{ .TotalFormatted }}</span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3">
+        {{ range .Accounts }}
+        <div class="balance-card">
+          <div class="balance-card-header">
+            <div>
+              <div class="account-name">{{ .AccountName }}</div>
+              <div class="account-institution">
+                {{ if .Institution }}{{ .Institution }}{{ else }}&mdash;{{ end }}
+              </div>
+            </div>
+            <span class="badge {{ if eq .AccountType "BANK" }}badge-bank{{ else if eq .AccountType "CASH" }}badge-cash{{ else if eq .AccountType "WALLET" }}badge-wallet{{ else }}badge-other{{ end }}">
+              {{ .AccountType }}
+            </span>
+          </div>
+
+          <div class="balance-card-amount">
+            <span class="currency-badge">{{ .CurrencyCode }}</span>
+            <span class="{{ if isNegative .BalanceMinor }}amount-expense{{ end }}">
+              {{ .BalanceFormatted }}
+            </span>
+          </div>
+
+          <div class="balance-card-footer">
+            <div>
+              {{ if .AccountSubtype }}
+              <span class="badge badge-neutral">{{ derefSubtype .AccountSubtype }}</span>
+              {{ else }}
+              <span style="color: var(--text-subtle);">&mdash;</span>
+              {{ end }}
+            </div>
+            <div>
+              {{ if .IsActive }}
+              <span style="color: var(--success); font-weight: 500;">Active</span>
+              {{ else }}
+              <span style="color: var(--text-muted);">Archived</span>
+              {{ end }}
+            </div>
+          </div>
+        </div>
+        {{ end }}
+      </div>
+    </div>
+    {{ end }}
+
+  {{ end }}
+</section>
+
+<!-- Recent Transactions -->
+<section>
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-4);">
+    <h2 style="font-size: 1.25rem; font-weight: 700;">Recent Transactions</h2>
+    {{ if .HasTransactions }}
+    <a href="/transactions" style="font-size: 0.875rem; color: var(--accent); text-decoration: none; font-weight: 600;">View all &rarr;</a>
+    {{ end }}
+  </div>
+
+  {{ if not .HasTransactions }}
+  <div class="empty-state">
+    <div class="empty-state-icon">📝</div>
+    <h3 class="empty-state-title">No transactions yet</h3>
+    <p class="empty-state-text">Movements will appear here once income, expenses, or opening balances are recorded.</p>
+    {{ if .HasAccounts }}
+    <a href="/transactions/new" class="btn btn-primary">Record transaction</a>
+    {{ else }}
+    <a href="/accounts/new" class="btn btn-primary">Create account first</a>
+    {{ end }}
+  </div>
+  {{ else }}
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Description</th>
+          <th>Category</th>
+          <th>Account</th>
+          <th>Channel / Method</th>
+          <th class="cell-right">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .RecentTransactions }}
+        <tr>
+          <td class="cell-mono" style="white-space: nowrap;">{{ formatDate .EffectiveDate }}</td>
+          <td>
+            <div style="font-weight: 500;">
+              {{ if .Description }}
+                {{ derefString .Description }}
+              {{ else }}
+                <span style="color: var(--text-muted); font-style: italic;">
+                  {{ if eq .Type "OPENING_BALANCE" }}Initial balance{{ else }}No description{{ end }}
+                </span>
+              {{ end }}
+            </div>
+            <div>
+              {{ if eq .Type "OPENING_BALANCE" }}
+              <span class="badge badge-opening">Opening balance</span>
+              {{ else if eq .Type "INCOME" }}
+              <span class="badge badge-income">Income</span>
+              {{ else }}
+              <span class="badge badge-expense">Expense</span>
+              {{ end }}
+            </div>
+          </td>
+          <td>
+            {{ if .CategoryName }}
+              {{ derefString .CategoryName }}
+            {{ else }}
+              <span style="color: var(--text-subtle);">&mdash;</span>
+            {{ end }}
+          </td>
+          <td>
+            <div style="font-weight: 500;">{{ .AccountName }}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              {{ if .Institution }}{{ derefString .Institution }} · {{ end }}{{ .AccountType }}{{ if .AccountSubtype }} ({{ derefSubtype .AccountSubtype }}){{ end }}
+            </div>
+          </td>
+          <td>
+            {{ paymentMethodLabel .PaymentMethod }}
+          </td>
+          <td class="cell-right cell-mono" style="white-space: nowrap;">
+            <span class="{{ if eq .Type "INCOME" }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else }}amount-opening{{ end }}">
+              {{ formatSignedAmount . }} {{ .CurrencyCode }}
+            </span>
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+  {{ end }}
+</section>
+{{ end }}

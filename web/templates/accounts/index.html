@@ -1,0 +1,75 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Accounts</h1>
+    <p class="page-subtitle">Manage bank accounts, cash containers, and wallets</p>
+  </div>
+  <div class="page-actions">
+    <a href="/accounts/new" class="btn btn-primary">+ New Account</a>
+  </div>
+</div>
+
+{{ if not .Accounts }}
+<div class="empty-state">
+  <div class="empty-state-icon">🏦</div>
+  <h3 class="empty-state-title">No accounts yet</h3>
+  <p class="empty-state-text">Create your first account to begin tracking financial transactions.</p>
+  <a href="/accounts/new" class="btn btn-primary">Create Account</a>
+</div>
+{{ else }}
+<div class="table-container">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Account Name</th>
+        <th>Institution</th>
+        <th>Type</th>
+        <th>Subtype</th>
+        <th>Currency</th>
+        <th class="cell-right">Current Balance</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .Accounts }}
+      <tr>
+        <td>
+          <span style="font-weight: 600;">{{ .AccountName }}</span>
+        </td>
+        <td>
+          {{ if .Institution }}{{ derefString .Institution }}{{ else }}<span style="color: var(--text-subtle);">&mdash;</span>{{ end }}
+        </td>
+        <td>
+          <span class="badge {{ if eq .AccountType "BANK" }}badge-bank{{ else if eq .AccountType "CASH" }}badge-cash{{ else if eq .AccountType "WALLET" }}badge-wallet{{ else }}badge-other{{ end }}">
+            {{ .AccountType }}
+          </span>
+        </td>
+        <td>
+          {{ if .AccountSubtype }}
+            <span class="badge badge-neutral">{{ derefSubtype .AccountSubtype }}</span>
+          {{ else }}
+            <span style="color: var(--text-subtle);">&mdash;</span>
+          {{ end }}
+        </td>
+        <td>
+          <span style="font-weight: 600;">{{ .CurrencyCode }}</span>
+        </td>
+        <td class="cell-right cell-mono" style="white-space: nowrap;">
+          <span class="{{ if isNegative .BalanceMinor }}amount-expense{{ end }}">
+            {{ .BalanceFormatted }} {{ .CurrencyCode }}
+          </span>
+        </td>
+        <td>
+          {{ if .IsActive }}
+          <span class="badge badge-active">Active</span>
+          {{ else }}
+          <span class="badge badge-inactive">Archived</span>
+          {{ end }}
+        </td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{ end }}
+{{ end }}

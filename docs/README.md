@@ -20,6 +20,7 @@ decided and what is actually built, and it is expected to be kept current.
 | [project-context.md](project-context.md) | What Finance Tracker is for, the problem it replaces, and the full functional vision — with a clear line between what exists today and what is still aspiration. |
 | [architecture.md](architecture.md) | The architecture as actually implemented: packages, dependency direction, and the SQLite configuration in force. No speculative layers. |
 | [milestones.md](milestones.md) | The living roadmap. Milestone status (`PLANNED` / `IN PROGRESS` / `CLOSED`), what M0 delivered, and the provisional shape of everything after it. |
+| [m2-contract.md](m2-contract.md) | The M2 agreement between the backend and the presentation layer: the services, models, enumerations, money and date semantics, and errors the UI may rely on. Frozen for the duration of M2. |
 | [data-model.md](data-model.md) | The current schema — `currencies` and `accounts` — column by column, with its constraints, relationships and lifecycle, plus the persistence conventions every future table follows. |
 | [operations.md](operations.md) | Running, configuring, observing and backing up the application locally and under Docker. |
 | [technical-decisions.md](technical-decisions.md) | Numbered record of the architectural decisions taken so far, each with its rationale and the alternatives rejected. |

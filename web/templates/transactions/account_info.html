@@ -1,0 +1,10 @@
+{{ define "account_info" }}
+<div id="currency-display-box" class="form-group">
+  <label class="form-label">Currency (Read-only)</label>
+  <input type="text"
+         class="form-control"
+         value="{{ if .SelectedCurrencyCode }}{{ .SelectedCurrencyCode }}{{ if .SelectedCurrencySymbol }} ({{ derefString .SelectedCurrencySymbol }}){{ end }}{{ else }}Select an account to view currency{{ end }}"
+         readonly>
+  <div class="form-help">Transaction currency is strictly derived from the selected account.</div>
+</div>
+{{ end }}

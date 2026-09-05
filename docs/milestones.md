@@ -132,6 +132,81 @@ The migration decision deferred from M0 (TD-012) is settled by TD-014.
 
 ---
 
+## M2 — Core Ledger MVP · `IN PROGRESS`
+
+**Opened:** 2026-09-05
+
+The first amounts in the system. M2 turns the domain from a catalogue of accounts
+into a working ledger: money enters, money leaves, and every balance is derived
+from those movements rather than stored.
+
+Backend and presentation are built **in parallel by two agents**, which is why
+this milestone has something no earlier one needed: a frozen interface between
+them, [m2-contract.md](m2-contract.md). It is written before the implementation
+and changed only deliberately and visibly.
+
+### Scope
+
+- **Account subtype.** `BANK` accounts are `CHECKING` or `SAVINGS`; every other
+  type has no subtype. Enforced in Go *and* in SQLite — not folded into
+  `account_type`, which continues to classify only the container (TD-019).
+- **Categories.** `internal/category`, with `INCOME` and `EXPENSE` types, unique
+  names per type, archive/restore, and no seed data. Not hierarchical.
+- **The ledger.** `internal/ledger`, splitting the financial **event**
+  (`transactions`) from its **impact on an account** (`account_movements`). One
+  movement per transaction in M2; the schema allows several, because that is
+  where transfers will live.
+- **Money.** `internal/money` — exact conversion between decimal strings and
+  `int64` minor units, at the currency's scale, with no float anywhere in
+  parsing, arithmetic or formatting.
+- **Opening balances as ledger facts.** A starting balance is an
+  `OPENING_BALANCE` transaction, not a column. There is still no balance stored
+  anywhere.
+- **Derived balances.** Per account and per currency, always `SUM(movements)` at
+  read time. No conversion between currencies.
+- **`internal/application`.** One cross-domain workflow — open an account and
+  record its opening balance in a single transaction — which cannot live in
+  either domain without an import cycle.
+
+### Not in M2
+
+Transfers between the user's own accounts, FX and exchange rates, a reporting
+currency, consolidated or historical net worth, credit, instalments, recurring
+transactions, budgets, tags, hierarchical categories, and editing or deleting a
+transaction.
+
+### Status
+
+**Backend, presentation and their integration are all in place.**
+
+- Migrations `00004`–`00007` (schema version 7); the `money`, `category`,
+  `ledger` and `application` packages; the account subtype.
+- The presentation layer in `internal/web` and `web/`, built in parallel against
+  the contract.
+- `internal/web/adapter`, which translates between the two vocabularies and
+  builds the presentation layer's services over the real database. `cmd/web` no
+  longer runs on fakes; the fakes remain as the presentation layer's test double.
+
+**Quality gates at this point:** `gofmt -l .` silent, `go vet ./...` clean,
+`go test ./... -count=1` green across 13 packages, `go test -race ./...` green in
+the Linux container, `git diff --check` clean, `docker compose build`
+successful.
+
+**Verified against the running application**, not only by unit tests: a fresh
+database, then categories, an account with an opening balance, an income and an
+expense recorded through the real HTTP forms. Balances came out of
+`SUM(account_movements.amount_minor)` exactly — 1000.00 + 1500.50 − 25.99 =
+2474.51 — and a cash account with no opening balance read 0.00. A bank account
+without a subtype, an amount with three decimals, and an expense filed under an
+income category were each rejected with 422.
+
+**What remains before this milestone can be declared closed:** agreeing the
+acceptance criteria and verifying them one by one, as M0 and M1 were, and a
+final pass over the `Using Finance Tracker` walkthrough in the README now that
+there is a UI to check it against.
+
+---
+
 ## Roadmap
 
 Everything below is **provisional**. These are the currently expected shape of
@@ -144,7 +219,7 @@ below has acceptance criteria yet, by design.
 
 | Milestone | Theme | Status |
 | --- | --- | --- |
-| M2 | Transactions & Categories | `PLANNED` |
+| M2 | Core Ledger MVP | `IN PROGRESS` — see above |
 | M3 | Dashboard | `PLANNED` |
 | M4 | Multi-Currency & FX | `PLANNED` |
 | M5 | Transfers | `PLANNED` |

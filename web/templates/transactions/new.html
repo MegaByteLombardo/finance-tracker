@@ -1,0 +1,182 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Record Transaction</h1>
+    <p class="page-subtitle">Enter an income or expense movement into the ledger</p>
+  </div>
+  <div class="page-actions">
+    <a href="/transactions" class="btn btn-secondary">&larr; Back to Transactions</a>
+  </div>
+</div>
+
+<div class="form-card">
+  {{ if .Errors.general }}
+  <div class="alert alert-danger" role="alert">
+    <div>{{ .Errors.general }}</div>
+  </div>
+  {{ end }}
+
+  <!-- Transaction Type Switcher -->
+  <div class="segmented-control" role="tablist">
+    <a href="/transactions/new?type=EXPENSE"
+       class="segment-btn {{ if eq .Type "EXPENSE" }}active-expense{{ end }}">
+      Expense
+    </a>
+    <a href="/transactions/new?type=INCOME"
+       class="segment-btn {{ if eq .Type "INCOME" }}active-income{{ end }}">
+      Income
+    </a>
+  </div>
+
+  <form action="/transactions" method="POST" hx-post="/transactions" hx-swap="outerHTML">
+    <input type="hidden" name="type" value="{{ .Type }}">
+
+    <!-- Account Selection -->
+    <div class="form-group">
+      <label class="form-label" for="account_id">
+        Account <span class="required-indicator">*</span>
+      </label>
+      <select class="form-control {{ if .HasError "account_id" }}is-invalid{{ end }}"
+              id="account_id"
+              name="account_id"
+              hx-get="/transactions/account-info"
+              hx-target="#currency-display-container"
+              hx-swap="innerHTML"
+              required>
+        <option value="">Select account...</option>
+        {{ range .Accounts }}
+        <option value="{{ .ID }}" {{ if eq $.AccountID .ID }}selected{{ end }}>
+          {{ .Name }} ({{ .CurrencyCode }}){{ if .Institution }} &middot; {{ derefString .Institution }}{{ end }}
+        </option>
+        {{ end }}
+      </select>
+      {{ if .HasError "account_id" }}
+      <div class="form-error">{{ .Error "account_id" }}</div>
+      {{ end }}
+    </div>
+
+    <!-- Currency Display (Read-only, derived from Account) -->
+    <div id="currency-display-container">
+      <div id="currency-display-box" class="form-group">
+        <label class="form-label">Currency (Read-only)</label>
+        <input type="text"
+               class="form-control"
+               value="{{ if .SelectedCurrencyCode }}{{ .SelectedCurrencyCode }}{{ if .SelectedCurrencySymbol }} ({{ derefString .SelectedCurrencySymbol }}){{ end }}{{ else }}Select an account to view currency{{ end }}"
+               readonly>
+        <div class="form-help">Transaction currency is strictly derived from the selected account.</div>
+      </div>
+    </div>
+
+    <!-- Amount & Effective Date -->
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="amount">
+          Amount <span class="required-indicator">*</span>
+        </label>
+        <input type="text"
+               class="form-control {{ if .HasError "amount" }}is-invalid{{ end }}"
+               id="amount"
+               name="amount"
+               value="{{ .Amount }}"
+               placeholder="e.g. 25.50"
+               autocomplete="off"
+               required>
+        {{ if .HasError "amount" }}
+        <div class="form-error">{{ .Error "amount" }}</div>
+        {{ end }}
+        <div class="form-help">Enter positive digits with up to 2 decimal places.</div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="effective_date">
+          Effective Date <span class="required-indicator">*</span>
+        </label>
+        <input type="date"
+               class="form-control {{ if .HasError "effective_date" }}is-invalid{{ end }}"
+               id="effective_date"
+               name="effective_date"
+               value="{{ .EffectiveDate }}"
+               required>
+        {{ if .HasError "effective_date" }}
+        <div class="form-error">{{ .Error "effective_date" }}</div>
+        {{ end }}
+      </div>
+    </div>
+
+    <!-- Category Selection -->
+    <div id="category-container">
+      <div id="category-group" class="form-group">
+        <label class="form-label" for="category_id">
+          Category ({{ .Type }}) <span class="required-indicator">*</span>
+        </label>
+        <select class="form-control {{ if .HasError "category_id" }}is-invalid{{ end }}"
+                id="category_id"
+                name="category_id"
+                required>
+          <option value="">Select {{ .Type }} category...</option>
+          {{ range .Categories }}
+          <option value="{{ .ID }}" {{ if eq $.CategoryID .ID }}selected{{ end }}>
+            {{ .Name }}
+          </option>
+          {{ end }}
+        </select>
+        {{ if .HasError "category_id" }}
+        <div class="form-error">{{ .Error "category_id" }}</div>
+        {{ end }}
+        {{ if not .Categories }}
+        <div class="form-help" style="color: var(--danger);">
+          No active {{ .Type }} categories available. <a href="/categories/new" target="_blank" style="color: var(--accent); text-decoration: underline;">Create category</a>
+        </div>
+        {{ end }}
+      </div>
+    </div>
+
+    <!-- Payment Method -->
+    <div class="form-group">
+      <label class="form-label" for="payment_method">
+        Payment Method / Channel <span class="required-indicator">*</span>
+      </label>
+      <select class="form-control {{ if .HasError "payment_method" }}is-invalid{{ end }}"
+              id="payment_method"
+              name="payment_method"
+              required>
+        <option value="">Select payment method...</option>
+        <option value="BANK_TRANSFER" {{ if eq .PaymentMethod "BANK_TRANSFER" }}selected{{ end }}>Bank transfer</option>
+        <option value="POS" {{ if eq .PaymentMethod "POS" }}selected{{ end }}>Point of sale</option>
+        <option value="CASH" {{ if eq .PaymentMethod "CASH" }}selected{{ end }}>Cash</option>
+        <option value="OTHER" {{ if eq .PaymentMethod "OTHER" }}selected{{ end }}>Other</option>
+      </select>
+      {{ if .HasError "payment_method" }}
+      <div class="form-error">{{ .Error "payment_method" }}</div>
+      {{ end }}
+      <div class="form-help">
+        “Bank transfer” describe cómo se realizó este movimiento con el exterior. Las transferencias internas entre cuentas propias aún no existen en M2.
+      </div>
+    </div>
+
+    <!-- Description -->
+    <div class="form-group">
+      <label class="form-label" for="description">
+        Description
+      </label>
+      <input type="text"
+             class="form-control {{ if .HasError "description" }}is-invalid{{ end }}"
+             id="description"
+             name="description"
+             value="{{ .Description }}"
+             placeholder="e.g. Grocery shopping, monthly salary (optional)"
+             maxlength="255">
+      {{ if .HasError "description" }}
+      <div class="form-error">{{ .Error "description" }}</div>
+      {{ end }}
+    </div>
+
+    <div class="form-actions">
+      <a href="/transactions" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn {{ if eq .Type "INCOME" }}btn-primary{{ else }}btn-primary{{ end }}">
+        Save {{ if eq .Type "INCOME" }}Income{{ else }}Expense{{ end }}
+      </button>
+    </div>
+  </form>
+</div>
+{{ end }}

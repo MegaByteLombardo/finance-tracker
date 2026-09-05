@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ if .Title }}{{ .Title }} · {{ end }}Finance Tracker</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script src="/static/vendor/htmx.min.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-container">
+      <a href="/" class="brand">
+        <span class="brand-icon">FT</span>
+        <span>Finance Tracker</span>
+      </a>
+      {{ template "nav" . }}
+    </div>
+  </header>
+
+  <main class="main-content">
+    {{ template "alerts" . }}
+    {{ template "content" .Data }}
+  </main>
+
+  <footer class="app-footer">
+    <p>Finance Tracker · M2 Core Ledger · Derived Balances · No FX Conversions</p>
+  </footer>
+</body>
+</html>

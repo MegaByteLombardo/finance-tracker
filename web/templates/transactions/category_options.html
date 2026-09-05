@@ -1,0 +1,26 @@
+{{ define "category_options" }}
+<div id="category-group" class="form-group">
+  <label class="form-label" for="category_id">
+    Category <span class="required-indicator">*</span>
+  </label>
+  <select class="form-control {{ if .HasError "category_id" }}is-invalid{{ end }}"
+          id="category_id"
+          name="category_id"
+          required>
+    <option value="">Select {{ .Type }} category...</option>
+    {{ range .Categories }}
+    <option value="{{ .ID }}" {{ if eq $.CategoryID .ID }}selected{{ end }}>
+      {{ .Name }}
+    </option>
+    {{ end }}
+  </select>
+  {{ if .HasError "category_id" }}
+  <div class="form-error">{{ .Error "category_id" }}</div>
+  {{ end }}
+  {{ if not .Categories }}
+  <div class="form-help" style="color: var(--danger);">
+    No active {{ .Type }} categories found. <a href="/categories/new" target="_blank" style="color: var(--accent); text-decoration: underline;">Create category</a>
+  </div>
+  {{ end }}
+</div>
+{{ end }}

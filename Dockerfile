@@ -36,8 +36,10 @@ FROM gcr.io/distroless/static-debian13:nonroot
 # numerically because COPY --chown resolves names against the target image.
 COPY --from=build /out/finance-tracker /usr/local/bin/finance-tracker
 COPY --from=build --chown=65532:65532 /out/data /data
+COPY --from=build /src/web /web
 
 USER 65532:65532
+WORKDIR /
 
 ENV HTTP_ADDR=":8080" \
     DB_PATH="/data/finance.db"

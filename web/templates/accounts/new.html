@@ -1,0 +1,163 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Create Account</h1>
+    <p class="page-subtitle">Add a new financial account or container</p>
+  </div>
+  <div class="page-actions">
+    <a href="/accounts" class="btn btn-secondary">&larr; Back to Accounts</a>
+  </div>
+</div>
+
+<div class="form-card">
+  {{ if .Errors.general }}
+  <div class="alert alert-danger" role="alert">
+    <div>{{ .Errors.general }}</div>
+  </div>
+  {{ end }}
+
+  <form action="/accounts" method="POST" hx-post="/accounts" hx-swap="outerHTML">
+    <div class="form-group">
+      <label class="form-label" for="name">
+        Account Name <span class="required-indicator">*</span>
+      </label>
+      <input type="text"
+             class="form-control {{ if .HasError "name" }}is-invalid{{ end }}"
+             id="name"
+             name="name"
+             value="{{ .Name }}"
+             placeholder="e.g. Mercantil USD, Main Checking, Cash Wallet"
+             maxlength="120"
+             required>
+      {{ if .HasError "name" }}
+      <div class="form-error">{{ .Error "name" }}</div>
+      {{ end }}
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="type">
+          Account Type <span class="required-indicator">*</span>
+        </label>
+        <select class="form-control {{ if .HasError "type" }}is-invalid{{ end }}"
+                id="type"
+                name="type"
+                hx-get="/accounts/subtype-options"
+                hx-target="#subtype-container"
+                hx-swap="innerHTML"
+                required>
+          <option value="BANK" {{ if eq .Type "BANK" }}selected{{ end }}>BANK (Institution)</option>
+          <option value="CASH" {{ if eq .Type "CASH" }}selected{{ end }}>CASH (Physical)</option>
+          <option value="WALLET" {{ if eq .Type "WALLET" }}selected{{ end }}>WALLET (Digital)</option>
+          <option value="OTHER" {{ if eq .Type "OTHER" }}selected{{ end }}>OTHER</option>
+        </select>
+        {{ if .HasError "type" }}
+        <div class="form-error">{{ .Error "type" }}</div>
+        {{ end }}
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="currency_code">
+          Currency <span class="required-indicator">*</span>
+        </label>
+        <select class="form-control {{ if .HasError "currency_code" }}is-invalid{{ end }}"
+                id="currency_code"
+                name="currency_code"
+                required>
+          <option value="">Select currency...</option>
+          {{ range .Currencies }}
+          <option value="{{ .Code }}" {{ if eq $.CurrencyCode .Code }}selected{{ end }}>
+            {{ .Code }} &mdash; {{ .Name }}{{ if .Symbol }} ({{ derefString .Symbol }}){{ end }}
+          </option>
+          {{ end }}
+        </select>
+        {{ if .HasError "currency_code" }}
+        <div class="form-error">{{ .Error "currency_code" }}</div>
+        {{ end }}
+        <div class="form-help">An account's currency is fixed and cannot be changed later.</div>
+      </div>
+    </div>
+
+    <div id="subtype-container">
+      {{ if isBank .Type }}
+      <div class="form-group" id="subtype-group">
+        <label class="form-label" for="subtype">
+          Account Subtype <span class="required-indicator">*</span>
+        </label>
+        <select class="form-control {{ if .HasError "subtype" }}is-invalid{{ end }}" id="subtype" name="subtype" required>
+          <option value="">Select checking or savings...</option>
+          <option value="CHECKING" {{ if eq .Subtype "CHECKING" }}selected{{ end }}>Checking</option>
+          <option value="SAVINGS" {{ if eq .Subtype "SAVINGS" }}selected{{ end }}>Savings</option>
+        </select>
+        {{ if .HasError "subtype" }}
+        <div class="form-error">{{ .Error "subtype" }}</div>
+        {{ end }}
+        <div class="form-help">Bank accounts require a subtype (Checking or Savings).</div>
+      </div>
+      {{ else }}
+      <div id="subtype-group"></div>
+      {{ end }}
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="institution">
+        Institution
+      </label>
+      <input type="text"
+             class="form-control {{ if .HasError "institution" }}is-invalid{{ end }}"
+             id="institution"
+             name="institution"
+             value="{{ .Institution }}"
+             placeholder="e.g. Mercantil, Banesco, Chase (optional)"
+             maxlength="120">
+      {{ if .HasError "institution" }}
+      <div class="form-error">{{ .Error "institution" }}</div>
+      {{ end }}
+    </div>
+
+    <hr style="border: 0; border-top: 1px solid var(--border-subtle); margin: var(--space-6) 0;">
+
+    <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: var(--space-2);">Starting Balance (Optional)</h3>
+    <p class="form-help" style="margin-bottom: var(--space-4);">
+      El saldo inicial se registra como el primer movimiento de la cuenta. Si se deja en blanco o es 0, no se registrará movimiento inicial.
+    </p>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="initial_balance">
+          Initial Balance
+        </label>
+        <input type="text"
+               class="form-control {{ if .HasError "initial_balance" }}is-invalid{{ end }}"
+               id="initial_balance"
+               name="initial_balance"
+               value="{{ .InitialBalance }}"
+               placeholder="e.g. 1000.00"
+               autocomplete="off">
+        {{ if .HasError "initial_balance" }}
+        <div class="form-error">{{ .Error "initial_balance" }}</div>
+        {{ end }}
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="initial_balance_date">
+          Effective Date
+        </label>
+        <input type="date"
+               class="form-control {{ if .HasError "initial_balance_date" }}is-invalid{{ end }}"
+               id="initial_balance_date"
+               name="initial_balance_date"
+               value="{{ .InitialBalanceDate }}">
+        {{ if .HasError "initial_balance_date" }}
+        <div class="form-error">{{ .Error "initial_balance_date" }}</div>
+        {{ end }}
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <a href="/accounts" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">Create Account</button>
+    </div>
+  </form>
+</div>
+{{ end }}

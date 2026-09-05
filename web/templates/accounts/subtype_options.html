@@ -1,0 +1,22 @@
+{{ define "subtype_options" }}
+{{ if isBank .Type }}
+<div class="form-group" id="subtype-group">
+  <label class="form-label" for="subtype">
+    Account Subtype <span class="required-indicator">*</span>
+  </label>
+  <select class="form-control {{ if .HasError "subtype" }}is-invalid{{ end }}" id="subtype" name="subtype" required>
+    <option value="">Select checking or savings...</option>
+    <option value="CHECKING" {{ if eq .Subtype "CHECKING" }}selected{{ end }}>Checking</option>
+    <option value="SAVINGS" {{ if eq .Subtype "SAVINGS" }}selected{{ end }}>Savings</option>
+  </select>
+  {{ if .HasError "subtype" }}
+  <div class="form-error">{{ .Error "subtype" }}</div>
+  {{ end }}
+  <div class="form-help">Bank accounts require a subtype (Checking or Savings).</div>
+</div>
+{{ else }}
+<div id="subtype-group">
+  <!-- Subtype not applicable for {{ .Type }} -->
+</div>
+{{ end }}
+{{ end }}

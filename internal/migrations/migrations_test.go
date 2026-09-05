@@ -13,7 +13,7 @@ import (
 
 // expectedVersion is the highest migration version in this package. Bump it
 // when a migration is added; the test then proves the new one actually ran.
-const expectedVersion = 3
+const expectedVersion = 7
 
 func TestUpAppliesEveryMigration(t *testing.T) {
 	t.Parallel()
@@ -30,7 +30,9 @@ func TestUpAppliesEveryMigration(t *testing.T) {
 		t.Errorf("applied version = %d, want %d", version, expectedVersion)
 	}
 
-	for _, table := range []string{"currencies", "accounts"} {
+	for _, table := range []string{
+		"currencies", "accounts", "categories", "transactions", "account_movements",
+	} {
 		var name string
 		err := db.QueryRowContext(t.Context(),
 			"SELECT name FROM sqlite_schema WHERE type = 'table' AND name = ?", table).Scan(&name)

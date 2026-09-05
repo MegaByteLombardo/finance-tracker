@@ -1,0 +1,111 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Categories</h1>
+    <p class="page-subtitle">Organize income sources and expense targets</p>
+  </div>
+  <div class="page-actions">
+    <a href="/categories/new" class="btn btn-primary">+ New Category</a>
+  </div>
+</div>
+
+<div class="grid grid-cols-2">
+  <!-- Income Categories -->
+  <div class="card">
+    <div class="card-header">
+      <h2 class="card-title" style="display: flex; align-items: center; gap: 8px;">
+        <span class="badge badge-income">Income</span>
+        <span>Income Categories</span>
+      </h2>
+      <a href="/categories/new?type=INCOME" class="btn btn-sm btn-secondary">+ Add</a>
+    </div>
+    <div style="padding: 0;">
+      {{ if not .IncomeCategories }}
+      <div style="padding: var(--space-6); text-align: center; color: var(--text-muted);">
+        No income categories created yet.
+      </div>
+      {{ else }}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Status</th>
+            <th class="cell-right">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .IncomeCategories }}
+          <tr>
+            <td style="font-weight: 500;">{{ .Name }}</td>
+            <td>
+              {{ if .IsActive }}
+              <span class="badge badge-active">Active</span>
+              {{ else }}
+              <span class="badge badge-inactive">Archived</span>
+              {{ end }}
+            </td>
+            <td class="cell-right">
+              <form action="/categories/{{ .ID }}/toggle" method="POST" style="display: inline;">
+                <button type="submit" class="btn btn-sm btn-secondary">
+                  {{ if .IsActive }}Archive{{ else }}Activate{{ end }}
+                </button>
+              </form>
+            </td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+      {{ end }}
+    </div>
+  </div>
+
+  <!-- Expense Categories -->
+  <div class="card">
+    <div class="card-header">
+      <h2 class="card-title" style="display: flex; align-items: center; gap: 8px;">
+        <span class="badge badge-expense">Expense</span>
+        <span>Expense Categories</span>
+      </h2>
+      <a href="/categories/new?type=EXPENSE" class="btn btn-sm btn-secondary">+ Add</a>
+    </div>
+    <div style="padding: 0;">
+      {{ if not .ExpenseCategories }}
+      <div style="padding: var(--space-6); text-align: center; color: var(--text-muted);">
+        No expense categories created yet.
+      </div>
+      {{ else }}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Status</th>
+            <th class="cell-right">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .ExpenseCategories }}
+          <tr>
+            <td style="font-weight: 500;">{{ .Name }}</td>
+            <td>
+              {{ if .IsActive }}
+              <span class="badge badge-active">Active</span>
+              {{ else }}
+              <span class="badge badge-inactive">Archived</span>
+              {{ end }}
+            </td>
+            <td class="cell-right">
+              <form action="/categories/{{ .ID }}/toggle" method="POST" style="display: inline;">
+                <button type="submit" class="btn btn-sm btn-secondary">
+                  {{ if .IsActive }}Archive{{ else }}Activate{{ end }}
+                </button>
+              </form>
+            </td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+      {{ end }}
+    </div>
+  </div>
+</div>
+{{ end }}

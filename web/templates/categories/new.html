@@ -1,0 +1,60 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Create Category</h1>
+    <p class="page-subtitle">Add a category for grouping income or expense movements</p>
+  </div>
+  <div class="page-actions">
+    <a href="/categories" class="btn btn-secondary">&larr; Back to Categories</a>
+  </div>
+</div>
+
+<div class="form-card">
+  {{ if .Errors.general }}
+  <div class="alert alert-danger" role="alert">
+    <div>{{ .Errors.general }}</div>
+  </div>
+  {{ end }}
+
+  <form action="/categories" method="POST" hx-post="/categories" hx-swap="outerHTML">
+    <div class="form-group">
+      <label class="form-label" for="name">
+        Category Name <span class="required-indicator">*</span>
+      </label>
+      <input type="text"
+             class="form-control {{ if .HasError "name" }}is-invalid{{ end }}"
+             id="name"
+             name="name"
+             value="{{ .Name }}"
+             placeholder="e.g. Salary, Groceries, Rent, Utilities"
+             maxlength="80"
+             required>
+      {{ if .HasError "name" }}
+      <div class="form-error">{{ .Error "name" }}</div>
+      {{ end }}
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="type">
+        Category Type <span class="required-indicator">*</span>
+      </label>
+      <select class="form-control {{ if .HasError "type" }}is-invalid{{ end }}"
+              id="type"
+              name="type"
+              required>
+        <option value="EXPENSE" {{ if eq .Type "EXPENSE" }}selected{{ end }}>EXPENSE</option>
+        <option value="INCOME" {{ if eq .Type "INCOME" }}selected{{ end }}>INCOME</option>
+      </select>
+      {{ if .HasError "type" }}
+      <div class="form-error">{{ .Error "type" }}</div>
+      {{ end }}
+      <div class="form-help">Category type is immutable once created.</div>
+    </div>
+
+    <div class="form-actions">
+      <a href="/categories" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">Create Category</button>
+    </div>
+  </form>
+</div>
+{{ end }}

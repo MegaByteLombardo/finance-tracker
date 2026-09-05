@@ -2,6 +2,9 @@ package migrations_test
 
 import (
 	"database/sql"
+	"fmt"
+	"math"
+	"strings"
 	"testing"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/dbtest"
@@ -26,8 +29,18 @@ func TestTablesHaveExactlyTheExpectedColumns(t *testing.T) {
 			"code", "name", "symbol", "minor_unit", "is_active", "created_at", "updated_at",
 		},
 		"accounts": {
-			"id", "name", "account_type", "currency_code", "institution",
+			"id", "name", "account_type", "account_subtype", "currency_code", "institution",
 			"is_active", "created_at", "updated_at",
+		},
+		"categories": {
+			"id", "name", "category_type", "is_active", "created_at", "updated_at",
+		},
+		"transactions": {
+			"id", "transaction_type", "category_id", "payment_method", "description",
+			"effective_date", "created_at", "updated_at",
+		},
+		"account_movements": {
+			"id", "transaction_id", "account_id", "amount_minor", "created_at",
 		},
 	}
 
@@ -240,19 +253,30 @@ func TestTimestampDefaultsMatchTheRequiredFormat(t *testing.T) {
 
 // --- accounts ---------------------------------------------------------------
 
-const insertAccount = `INSERT INTO accounts (name, account_type, currency_code, institution, is_active)
-                       VALUES (?, ?, ?, ?, ?)`
+const insertAccount = `INSERT INTO accounts (name, account_type, account_subtype, currency_code, institution, is_active)
+                       VALUES (?, ?, ?, ?, ?, ?)`
 
 func TestAccountAcceptsEveryValidType(t *testing.T) {
 	t.Parallel()
 
 	db := dbtest.New(t)
 
-	for _, accountType := range []string{"BANK", "CASH", "WALLET", "OTHER"} {
+	valid := []struct {
+		accountType string
+		subtype     any
+	}{
+		{"BANK", "CHECKING"},
+		{"BANK", "SAVINGS"},
+		{"CASH", nil},
+		{"WALLET", nil},
+		{"OTHER", nil},
+	}
+
+	for _, tc := range valid {
 		_, err := db.ExecContext(t.Context(), insertAccount,
-			"Account "+accountType, accountType, "USD", nil, 1)
+			"Account "+tc.accountType, tc.accountType, tc.subtype, "USD", nil, 1)
 		if err != nil {
-			t.Errorf("account_type %q was rejected: %v", accountType, err)
+			t.Errorf("account_type %q with subtype %v was rejected: %v", tc.accountType, tc.subtype, err)
 		}
 	}
 }
@@ -263,28 +287,29 @@ func TestAccountConstraints(t *testing.T) {
 	rejected := map[string]struct {
 		name        string
 		accountType string
+		subtype     any
 		currency    any
 		institution any
 		isActive    any
 	}{
-		"unknown currency": {"Test", "BANK", "XYZ", "Bank", 1},
-		"null currency":    {"Test", "BANK", nil, "Bank", 1},
-		"empty currency":   {"Test", "BANK", "", "Bank", 1},
-		// CHECKING and SAVINGS were considered and rejected: savings is a
-		// purpose, not a container, and it can live in a bank, in cash or in a
-		// wallet.
-		"CHECKING is not a type":  {"Test", "CHECKING", "USD", "Bank", 1},
-		"SAVINGS is not a type":   {"Test", "SAVINGS", "USD", "Bank", 1},
-		"lowercase type":          {"Test", "bank", "USD", "Bank", 1},
-		"unknown type":            {"Test", "CRYPTO", "USD", "Bank", 1},
-		"empty type":              {"Test", "", "USD", "Bank", 1},
-		"blank name":              {"   ", "BANK", "USD", "Bank", 1},
-		"empty name":              {"", "BANK", "USD", "Bank", 1},
-		"empty institution":       {"Test", "BANK", "USD", "", 1},
-		"blank institution":       {"Test", "BANK", "USD", "   ", 1},
-		"non-boolean active":      {"Test", "BANK", "USD", "Bank", 2},
-		"negative active":         {"Test", "BANK", "USD", "Bank", -1},
-		"text in active (STRICT)": {"Test", "BANK", "USD", "Bank", "yes"},
+		"unknown currency": {"Test", "BANK", "CHECKING", "XYZ", "Bank", 1},
+		"null currency":    {"Test", "BANK", "CHECKING", nil, "Bank", 1},
+		"empty currency":   {"Test", "BANK", "CHECKING", "", "Bank", 1},
+		// CHECKING and SAVINGS were considered and rejected as account types:
+		// savings is not a container, and the distinction only exists for BANK.
+		// They live in account_subtype instead.
+		"CHECKING is not a type":  {"Test", "CHECKING", nil, "USD", "Bank", 1},
+		"SAVINGS is not a type":   {"Test", "SAVINGS", nil, "USD", "Bank", 1},
+		"lowercase type":          {"Test", "bank", "CHECKING", "USD", "Bank", 1},
+		"unknown type":            {"Test", "CRYPTO", nil, "USD", "Bank", 1},
+		"empty type":              {"Test", "", nil, "USD", "Bank", 1},
+		"blank name":              {"   ", "BANK", "CHECKING", "USD", "Bank", 1},
+		"empty name":              {"", "BANK", "CHECKING", "USD", "Bank", 1},
+		"empty institution":       {"Test", "BANK", "CHECKING", "USD", "", 1},
+		"blank institution":       {"Test", "BANK", "CHECKING", "USD", "   ", 1},
+		"non-boolean active":      {"Test", "BANK", "CHECKING", "USD", "Bank", 2},
+		"negative active":         {"Test", "BANK", "CHECKING", "USD", "Bank", -1},
+		"text in active (STRICT)": {"Test", "BANK", "CHECKING", "USD", "Bank", "yes"},
 	}
 
 	for name, tc := range rejected {
@@ -293,11 +318,84 @@ func TestAccountConstraints(t *testing.T) {
 
 			db := dbtest.New(t)
 			_, err := db.ExecContext(t.Context(), insertAccount,
-				tc.name, tc.accountType, tc.currency, tc.institution, tc.isActive)
+				tc.name, tc.accountType, tc.subtype, tc.currency, tc.institution, tc.isActive)
 			if err == nil {
 				t.Fatalf("the database accepted an invalid account (%s)", name)
 			}
 		})
+	}
+}
+
+// The subtype rule is a dependency between two columns, so it is worth
+// asserting exhaustively rather than by example. The NULL cases matter most: a
+// CHECK constraint fails only when its expression is FALSE, and an expression
+// that evaluates to NULL passes, which is how a BANK account with no subtype
+// would slip through a naively written constraint.
+func TestAccountSubtypeDependsOnType(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		accountType string
+		subtype     any
+		accepted    bool
+	}{
+		{"BANK", "CHECKING", true},
+		{"BANK", "SAVINGS", true},
+		{"BANK", nil, false},
+		{"BANK", "", false},
+		{"BANK", "OTHER", false},
+		{"BANK", "checking", false},
+		{"CASH", nil, true},
+		{"CASH", "CHECKING", false},
+		{"CASH", "SAVINGS", false},
+		{"WALLET", nil, true},
+		{"WALLET", "CHECKING", false},
+		{"OTHER", nil, true},
+		{"OTHER", "SAVINGS", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%s/%v", tc.accountType, tc.subtype), func(t *testing.T) {
+			t.Parallel()
+
+			db := dbtest.New(t)
+			_, err := db.ExecContext(t.Context(), insertAccount,
+				"Test", tc.accountType, tc.subtype, "USD", nil, 1)
+
+			switch {
+			case tc.accepted && err != nil:
+				t.Errorf("%s with subtype %v was rejected: %v", tc.accountType, tc.subtype, err)
+			case !tc.accepted && err == nil:
+				t.Errorf("%s with subtype %v was accepted", tc.accountType, tc.subtype)
+			}
+		})
+	}
+}
+
+// The rule must survive an UPDATE too, not only an INSERT.
+func TestAccountSubtypeRuleAppliesToUpdates(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.New(t)
+	ctx := t.Context()
+
+	if _, err := db.ExecContext(ctx, insertAccount,
+		"Mercantil USD", "BANK", "CHECKING", "USD", "Mercantil", 1); err != nil {
+		t.Fatalf("creating the account: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx,
+		"UPDATE accounts SET account_subtype = NULL WHERE name = 'Mercantil USD'"); err == nil {
+		t.Error("a BANK account had its subtype cleared")
+	}
+	if _, err := db.ExecContext(ctx,
+		"UPDATE accounts SET account_type = 'CASH' WHERE name = 'Mercantil USD'"); err == nil {
+		t.Error("a BANK account became CASH while keeping its subtype")
+	}
+	// Changing both at once is the legitimate reclassification.
+	if _, err := db.ExecContext(ctx,
+		"UPDATE accounts SET account_type = 'CASH', account_subtype = NULL WHERE name = 'Mercantil USD'"); err != nil {
+		t.Errorf("a legitimate reclassification was rejected: %v", err)
 	}
 }
 
@@ -308,7 +406,7 @@ func TestAccountAcceptsAbsentInstitution(t *testing.T) {
 	db := dbtest.New(t)
 
 	if _, err := db.ExecContext(t.Context(), insertAccount,
-		"Efectivo USD", "CASH", "USD", nil, 1); err != nil {
+		"Efectivo USD", "CASH", nil, "USD", nil, 1); err != nil {
 		t.Fatalf("an account with no institution was rejected: %v", err)
 	}
 
@@ -330,7 +428,7 @@ func TestCurrencyInUseCannotBeDeleted(t *testing.T) {
 	db := dbtest.New(t)
 
 	if _, err := db.ExecContext(t.Context(), insertAccount,
-		"Mercantil USD", "BANK", "USD", "Mercantil", 1); err != nil {
+		"Mercantil USD", "BANK", "CHECKING", "USD", "Mercantil", 1); err != nil {
 		t.Fatalf("creating the account: %v", err)
 	}
 
@@ -353,7 +451,7 @@ func TestCurrencyInUseCannotBeRenamed(t *testing.T) {
 	db := dbtest.New(t)
 
 	if _, err := db.ExecContext(t.Context(), insertAccount,
-		"Mercantil USD", "BANK", "USD", "Mercantil", 1); err != nil {
+		"Mercantil USD", "BANK", "CHECKING", "USD", "Mercantil", 1); err != nil {
 		t.Fatalf("creating the account: %v", err)
 	}
 
@@ -363,16 +461,453 @@ func TestCurrencyInUseCannotBeRenamed(t *testing.T) {
 	}
 }
 
-func TestAccountsCurrencyIndexExists(t *testing.T) {
+// --- categories -------------------------------------------------------------
+
+const insertCategory = `INSERT INTO categories (name, category_type, is_active) VALUES (?, ?, ?)`
+
+func TestCategoryConstraints(t *testing.T) {
+	t.Parallel()
+
+	rejected := map[string]struct {
+		name         string
+		categoryType any
+		isActive     any
+	}{
+		"blank name":              {"   ", "EXPENSE", 1},
+		"empty name":              {"", "EXPENSE", 1},
+		"unknown type":            {"Comida", "TRANSFER", 1},
+		"lowercase type":          {"Comida", "expense", 1},
+		"empty type":              {"Comida", "", 1},
+		"null type":               {"Comida", nil, 1},
+		"non-boolean active":      {"Comida", "EXPENSE", 2},
+		"text in active (STRICT)": {"Comida", "EXPENSE", "yes"},
+	}
+
+	for name, tc := range rejected {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dbtest.New(t)
+			_, err := db.ExecContext(t.Context(), insertCategory, tc.name, tc.categoryType, tc.isActive)
+			if err == nil {
+				t.Fatalf("the database accepted an invalid category (%s)", name)
+			}
+		})
+	}
+}
+
+func TestCategoryNameIsUniquePerTypeCaseInsensitively(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.New(t)
+	ctx := t.Context()
+
+	if _, err := db.ExecContext(ctx, insertCategory, "Comida", "EXPENSE", 1); err != nil {
+		t.Fatalf("creating the category: %v", err)
+	}
+
+	for _, duplicate := range []string{"Comida", "comida", "COMIDA"} {
+		if _, err := db.ExecContext(ctx, insertCategory, duplicate, "EXPENSE", 1); err == nil {
+			t.Errorf("a duplicate EXPENSE category %q was accepted", duplicate)
+		}
+	}
+
+	// The same name under the other type is legitimate: "Intereses" is both
+	// earned and paid.
+	if _, err := db.ExecContext(ctx, insertCategory, "Comida", "INCOME", 1); err != nil {
+		t.Errorf("the same name under the other type was rejected: %v", err)
+	}
+}
+
+// --- transactions -----------------------------------------------------------
+
+const insertTransaction = `INSERT INTO transactions
+                           (transaction_type, category_id, payment_method, description, effective_date)
+                           VALUES (?, ?, ?, ?, ?)`
+
+// seedCategory returns the id of a category of the given type.
+func seedCategory(t *testing.T, db *sql.DB, name, categoryType string) int64 {
+	t.Helper()
+
+	result, err := db.ExecContext(t.Context(), insertCategory, name, categoryType, 1)
+	if err != nil {
+		t.Fatalf("seeding category %q: %v", name, err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("reading the category id: %v", err)
+	}
+	return id
+}
+
+// seedAccount returns the id of a USD bank account.
+func seedAccount(t *testing.T, db *sql.DB, name string) int64 {
+	t.Helper()
+
+	result, err := db.ExecContext(t.Context(), insertAccount, name, "BANK", "CHECKING", "USD", "Mercantil", 1)
+	if err != nil {
+		t.Fatalf("seeding account %q: %v", name, err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("reading the account id: %v", err)
+	}
+	return id
+}
+
+// The shape of each transaction type is a dependency between three columns.
+// Every combination is asserted, because the NULL cases are exactly the ones a
+// carelessly written CHECK would let through.
+func TestTransactionShapePerType(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		txType      string
+		hasCategory bool
+		method      any
+		accepted    bool
+	}{
+		{"INCOME", true, "BANK_TRANSFER", true},
+		{"INCOME", true, "POS", true},
+		{"INCOME", true, "CASH", true},
+		{"INCOME", true, "OTHER", true},
+		{"INCOME", false, "POS", false},
+		{"INCOME", true, nil, false},
+		{"INCOME", false, nil, false},
+		{"EXPENSE", true, "POS", true},
+		{"EXPENSE", false, "POS", false},
+		{"EXPENSE", true, nil, false},
+		{"OPENING_BALANCE", false, nil, true},
+		{"OPENING_BALANCE", true, nil, false},
+		{"OPENING_BALANCE", false, "CASH", false},
+		{"OPENING_BALANCE", true, "CASH", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%s/category=%v/method=%v", tc.txType, tc.hasCategory, tc.method), func(t *testing.T) {
+			t.Parallel()
+
+			db := dbtest.New(t)
+
+			var categoryID any
+			if tc.hasCategory {
+				categoryType := "INCOME"
+				if tc.txType == "EXPENSE" {
+					categoryType = "EXPENSE"
+				}
+				categoryID = seedCategory(t, db, "Test", categoryType)
+			}
+
+			_, err := db.ExecContext(t.Context(), insertTransaction,
+				tc.txType, categoryID, tc.method, nil, "2026-09-05")
+
+			switch {
+			case tc.accepted && err != nil:
+				t.Errorf("a valid %s was rejected: %v", tc.txType, err)
+			case !tc.accepted && err == nil:
+				t.Errorf("an invalid %s was accepted", tc.txType)
+			}
+		})
+	}
+}
+
+func TestTransactionConstraints(t *testing.T) {
+	t.Parallel()
+
+	rejected := map[string]struct {
+		txType        any
+		method        any
+		description   any
+		effectiveDate any
+	}{
+		"unknown type":            {"REFUND", nil, nil, "2026-09-05"},
+		"lowercase type":          {"opening_balance", nil, nil, "2026-09-05"},
+		"null type":               {nil, nil, nil, "2026-09-05"},
+		"empty description":       {"OPENING_BALANCE", nil, "", "2026-09-05"},
+		"blank description":       {"OPENING_BALANCE", nil, "   ", "2026-09-05"},
+		"null effective date":     {"OPENING_BALANCE", nil, nil, nil},
+		"empty effective date":    {"OPENING_BALANCE", nil, nil, ""},
+		"unpadded effective date": {"OPENING_BALANCE", nil, nil, "2026-9-5"},
+		"timestamp not a date":    {"OPENING_BALANCE", nil, nil, "2026-09-05T00:00:00.000Z"},
+		"impossible day":          {"OPENING_BALANCE", nil, nil, "2026-02-31"},
+		"impossible month":        {"OPENING_BALANCE", nil, nil, "2026-13-01"},
+		"day zero":                {"OPENING_BALANCE", nil, nil, "2026-09-00"},
+		"letters in date":         {"OPENING_BALANCE", nil, nil, "abcd-ef-gh"},
+		"slashes in date":         {"OPENING_BALANCE", nil, nil, "2026/09/05"},
+	}
+
+	for name, tc := range rejected {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dbtest.New(t)
+			_, err := db.ExecContext(t.Context(), insertTransaction,
+				tc.txType, nil, tc.method, tc.description, tc.effectiveDate)
+			if err == nil {
+				t.Fatalf("the database accepted an invalid transaction (%s)", name)
+			}
+		})
+	}
+}
+
+// A leap day is a real date and must not be caught by the calendar check.
+func TestTransactionAcceptsLeapDay(t *testing.T) {
 	t.Parallel()
 
 	db := dbtest.New(t)
 
-	var name string
-	err := db.QueryRowContext(t.Context(),
-		"SELECT name FROM sqlite_schema WHERE type = 'index' AND name = 'idx_accounts_currency_code'").
-		Scan(&name)
+	if _, err := db.ExecContext(t.Context(), insertTransaction,
+		"OPENING_BALANCE", nil, nil, nil, "2028-02-29"); err != nil {
+		t.Errorf("2028-02-29 is a real date and was rejected: %v", err)
+	}
+	if _, err := db.ExecContext(t.Context(), insertTransaction,
+		"OPENING_BALANCE", nil, nil, nil, "2027-02-29"); err == nil {
+		t.Error("2027-02-29 does not exist and was accepted")
+	}
+}
+
+func TestCategoryInUseCannotBeDeleted(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.New(t)
+	ctx := t.Context()
+
+	id := seedCategory(t, db, "Comida", "EXPENSE")
+	if _, err := db.ExecContext(ctx, insertTransaction,
+		"EXPENSE", id, "POS", nil, "2026-09-05"); err != nil {
+		t.Fatalf("creating the transaction: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, "DELETE FROM categories WHERE id = ?", id); err == nil {
+		t.Error("a category referenced by a transaction was deleted")
+	}
+}
+
+// --- account movements ------------------------------------------------------
+
+const insertMovement = `INSERT INTO account_movements (transaction_id, account_id, amount_minor)
+                        VALUES (?, ?, ?)`
+
+// seedTransaction returns the id of an opening-balance transaction.
+func seedTransaction(t *testing.T, db *sql.DB) int64 {
+	t.Helper()
+
+	result, err := db.ExecContext(t.Context(), insertTransaction,
+		"OPENING_BALANCE", nil, nil, nil, "2026-09-05")
 	if err != nil {
-		t.Errorf("idx_accounts_currency_code is missing; foreign key checks would scan the table: %v", err)
+		t.Fatalf("seeding transaction: %v", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("reading the transaction id: %v", err)
+	}
+	return id
+}
+
+func TestMovementAcceptsSignedAmounts(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.New(t)
+	accountID := seedAccount(t, db, "Mercantil USD")
+
+	for _, amount := range []int64{1, -1, 100000, -100000, math.MaxInt64, math.MinInt64} {
+		txID := seedTransaction(t, db)
+		if _, err := db.ExecContext(t.Context(), insertMovement, txID, accountID, amount); err != nil {
+			t.Errorf("amount_minor %d was rejected: %v", amount, err)
+		}
+	}
+}
+
+func TestMovementConstraints(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.New(t)
+	ctx := t.Context()
+	accountID := seedAccount(t, db, "Mercantil USD")
+	txID := seedTransaction(t, db)
+
+	// A zero movement asserts nothing: the sum over no rows is already zero.
+	if _, err := db.ExecContext(ctx, insertMovement, txID, accountID, 0); err == nil {
+		t.Error("a zero amount_minor was accepted")
+	}
+	// STRICT is what stops a monetary amount ever being stored as a float.
+	if _, err := db.ExecContext(ctx, insertMovement, txID, accountID, 12.34); err == nil {
+		t.Error("a REAL amount_minor was accepted")
+	}
+	if _, err := db.ExecContext(ctx, insertMovement, txID, accountID, nil); err == nil {
+		t.Error("a NULL amount_minor was accepted")
+	}
+	if _, err := db.ExecContext(ctx, insertMovement, 99999, accountID, 100); err == nil {
+		t.Error("a movement against a non-existent transaction was accepted")
+	}
+	if _, err := db.ExecContext(ctx, insertMovement, txID, 99999, 100); err == nil {
+		t.Error("a movement against a non-existent account was accepted")
+	}
+	if _, err := db.ExecContext(ctx, insertMovement, nil, accountID, 100); err == nil {
+		t.Error("a movement with no transaction was accepted")
+	}
+	if _, err := db.ExecContext(ctx, insertMovement, txID, nil, 100); err == nil {
+		t.Error("a movement with no account was accepted")
+	}
+}
+
+// An account with history cannot be deleted; it is archived instead.
+func TestAccountWithMovementsCannotBeDeleted(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.New(t)
+	ctx := t.Context()
+
+	accountID := seedAccount(t, db, "Mercantil USD")
+	txID := seedTransaction(t, db)
+	if _, err := db.ExecContext(ctx, insertMovement, txID, accountID, 100000); err != nil {
+		t.Fatalf("creating the movement: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, "DELETE FROM accounts WHERE id = ?", accountID); err == nil {
+		t.Error("an account with movements was deleted")
+	}
+	if _, err := db.ExecContext(ctx, "DELETE FROM transactions WHERE id = ?", txID); err == nil {
+		t.Error("a transaction with movements was deleted")
+	}
+}
+
+// One transaction may impact several accounts. Nothing today creates such a
+// row, but a UNIQUE(transaction_id) added "because there is only ever one"
+// would have to be migrated away from when transfers arrive.
+func TestTransactionMayHaveSeveralMovements(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.New(t)
+	ctx := t.Context()
+
+	from := seedAccount(t, db, "Mercantil USD")
+	to := seedAccount(t, db, "Banesco USD")
+	txID := seedTransaction(t, db)
+
+	if _, err := db.ExecContext(ctx, insertMovement, txID, from, -100000); err != nil {
+		t.Fatalf("first movement: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, insertMovement, txID, to, 100000); err != nil {
+		t.Errorf("a second movement on the same transaction was rejected: %v", err)
+	}
+}
+
+// --- schema-wide invariants -------------------------------------------------
+
+// The money rule, asserted against the schema itself rather than trusted to
+// review: no business column anywhere may be REAL.
+func TestNoBusinessColumnIsREAL(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.New(t)
+
+	for _, table := range businessTables {
+		rows, err := db.QueryContext(t.Context(),
+			"SELECT name, type FROM pragma_table_info(?)", table)
+		if err != nil {
+			t.Fatalf("reading columns of %s: %v", table, err)
+		}
+		for rows.Next() {
+			var name, columnType string
+			if err := rows.Scan(&name, &columnType); err != nil {
+				t.Fatalf("scanning column: %v", err)
+			}
+			if strings.EqualFold(columnType, "REAL") {
+				t.Errorf("%s.%s is REAL; monetary precision cannot survive that", table, name)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("iterating columns of %s: %v", table, err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Errorf("closing rows: %v", err)
+		}
+	}
+}
+
+// Every business table is STRICT, which is what makes the column types above
+// mean anything at all.
+func TestEveryBusinessTableIsStrict(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.New(t)
+
+	for _, table := range businessTables {
+		var ddl string
+		if err := db.QueryRowContext(t.Context(),
+			"SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = ?", table).Scan(&ddl); err != nil {
+			t.Fatalf("reading the definition of %s: %v", table, err)
+		}
+		if !strings.Contains(strings.ToUpper(ddl), "STRICT") {
+			t.Errorf("%s is not STRICT", table)
+		}
+	}
+}
+
+// A stored balance would be a second source of truth that can drift from the
+// movements it claims to summarise. The exact column sets above already forbid
+// one; this states the rule by name, so a failure reads as what it is.
+func TestNoStoredBalanceAnywhere(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.New(t)
+
+	forbidden := []string{"balance", "current_balance", "opening_balance", "initial_balance", "total"}
+
+	for _, table := range businessTables {
+		for _, column := range columnNames(t, db, table) {
+			for _, bad := range forbidden {
+				if strings.EqualFold(column, bad) {
+					t.Errorf("%s.%s stores a balance; balances are derived from account_movements", table, column)
+				}
+			}
+		}
+	}
+}
+
+var businessTables = []string{"currencies", "accounts", "categories", "transactions", "account_movements"}
+
+func TestExpectedIndexesExist(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.New(t)
+
+	// Each of these answers a real query; see the comment above it in its
+	// migration. An index without a query behind it is not added.
+	want := []string{
+		"idx_accounts_currency_code",
+		"idx_categories_type_name",
+		"idx_transactions_effective_date",
+		"idx_transactions_category_id",
+		"idx_account_movements_account_id",
+		"idx_account_movements_transaction_id",
+	}
+
+	for _, index := range want {
+		var name string
+		err := db.QueryRowContext(t.Context(),
+			"SELECT name FROM sqlite_schema WHERE type = 'index' AND name = ?", index).Scan(&name)
+		if err != nil {
+			t.Errorf("index %s is missing: %v", index, err)
+		}
+	}
+}
+
+// The movement table must not gain a unique constraint on transaction_id: that
+// is where transfers will live.
+func TestTransactionIdIsNotUnique(t *testing.T) {
+	t.Parallel()
+
+	db := dbtest.New(t)
+
+	var unique int
+	err := db.QueryRowContext(t.Context(),
+		`SELECT count(*) FROM pragma_index_list('account_movements') WHERE "unique" = 1`).Scan(&unique)
+	if err != nil {
+		t.Fatalf("reading indexes of account_movements: %v", err)
+	}
+	if unique != 0 {
+		t.Errorf("account_movements has %d unique index(es); one transaction must be able to impact several accounts", unique)
 	}
 }
