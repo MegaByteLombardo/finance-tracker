@@ -122,6 +122,7 @@ func handleCreateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 		accountIDStr := strings.TrimSpace(r.FormValue("account_id"))
 		categoryIDStr := strings.TrimSpace(r.FormValue("category_id"))
 		amount := strings.TrimSpace(r.FormValue("amount"))
+		amount = strings.ReplaceAll(amount, ",", "")
 		paymentMethodStr := strings.TrimSpace(r.FormValue("payment_method"))
 		effectiveDate := strings.TrimSpace(r.FormValue("effective_date"))
 		description := strings.TrimSpace(r.FormValue("description"))

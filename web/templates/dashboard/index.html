@@ -45,7 +45,7 @@
         </div>
         <div class="currency-section-total">
           <span style="font-size: 0.8125rem; font-weight: 600; color: var(--text-muted); margin-right: 4px;">Total {{ .CurrencyCode }}:</span>
-          <span>{{ if .CurrencySymbol }}{{ .CurrencySymbol }} {{ end }}{{ .TotalFormatted }}</span>
+          <span>{{ if .CurrencySymbol }}{{ .CurrencySymbol }} {{ end }}{{ formatAmount .TotalFormatted }}</span>
         </div>
       </div>
 
@@ -67,7 +67,7 @@
           <div class="balance-card-amount">
             <span class="currency-badge">{{ .CurrencyCode }}</span>
             <span class="{{ if isNegative .BalanceMinor }}amount-expense{{ end }}">
-              {{ .BalanceFormatted }}
+              {{ formatAmount .BalanceFormatted }}
             </span>
           </div>
 

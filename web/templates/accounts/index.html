@@ -56,7 +56,7 @@
         </td>
         <td class="cell-right cell-mono" style="white-space: nowrap;">
           <span class="{{ if isNegative .BalanceMinor }}amount-expense{{ end }}">
-            {{ .BalanceFormatted }} {{ .CurrencyCode }}
+            {{ formatAmount .BalanceFormatted }} {{ .CurrencyCode }}
           </span>
         </td>
         <td>

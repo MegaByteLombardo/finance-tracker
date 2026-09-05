@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -102,13 +103,13 @@ func TestDashboardWithAccounts(t *testing.T) {
 	body, _ := io.ReadAll(res.Body)
 	bodyStr := string(body)
 
-	// USD account balance: 1000 + 500 - 25 = 1475.00
-	if !strings.Contains(bodyStr, "1475.00") {
-		t.Errorf("expected USD balance 1475.00 in dashboard, body: %s", bodyStr)
+	// USD account balance: 1000 + 500 - 25 = 1,475.00
+	if !strings.Contains(bodyStr, "1,475.00") {
+		t.Errorf("expected USD balance 1,475.00 in dashboard, body: %s", bodyStr)
 	}
-	// VES account balance: 10000.00
-	if !strings.Contains(bodyStr, "10000.00") {
-		t.Errorf("expected VES balance 10000.00 in dashboard")
+	// VES account balance: 10,000.00
+	if !strings.Contains(bodyStr, "10,000.00") {
+		t.Errorf("expected VES balance 10,000.00 in dashboard")
 	}
 
 	// Verify currencies are grouped separately and notice is present
@@ -610,36 +611,36 @@ func TestSmokeEndToEndFlow(t *testing.T) {
 		t.Fatalf("record expense: expected 303, got %d", resExp.StatusCode)
 	}
 
-	// 6. Verify Dashboard: must show USD 1475.00
+	// 6. Verify Dashboard: must show USD 1,475.00
 	dash1 := getHTML("/")
-	if !strings.Contains(dash1, "1475.00") {
-		t.Errorf("dashboard must show USD 1475.00 balance, got:\n%s", dash1)
+	if !strings.Contains(dash1, "1,475.00") {
+		t.Errorf("dashboard must show USD 1,475.00 balance, got:\n%s", dash1)
 	}
 	if !strings.Contains(dash1, "Mercantil USD") {
 		t.Errorf("dashboard must show Mercantil USD account card")
 	}
 
-	// 7. Create Banesco VES (BANK / SAVINGS, Bs. 10000 initial balance)
+	// 7. Create Banesco VES (BANK / SAVINGS, Bs. 10,000 initial balance - with comma)
 	resAcctVES := postForm("/accounts", url.Values{
 		"name":                 {"Banesco VES"},
 		"type":                 {"BANK"},
 		"subtype":              {"SAVINGS"},
 		"currency_code":        {"VES"},
 		"institution":          {"Banesco"},
-		"initial_balance":      {"10000.00"},
+		"initial_balance":      {"10,000.00"},
 		"initial_balance_date": {"2026-09-05"},
 	})
 	if resAcctVES.StatusCode != http.StatusSeeOther {
 		t.Fatalf("create banesco account: expected 303, got %d", resAcctVES.StatusCode)
 	}
 
-	// 8. Verify Dashboard: must show USD 1475.00 and VES 10000.00 independently
+	// 8. Verify Dashboard: must show USD 1,475.00 and VES 10,000.00 independently
 	dash2 := getHTML("/")
-	if !strings.Contains(dash2, "1475.00") {
-		t.Errorf("dashboard must show USD 1475.00")
+	if !strings.Contains(dash2, "1,475.00") {
+		t.Errorf("dashboard must show USD 1,475.00")
 	}
-	if !strings.Contains(dash2, "10000.00") {
-		t.Errorf("dashboard must show VES 10000.00")
+	if !strings.Contains(dash2, "10,000.00") {
+		t.Errorf("dashboard must show VES 10,000.00")
 	}
 	if !strings.Contains(dash2, "Total USD:") {
 		t.Errorf("dashboard must show Total USD section")
@@ -656,7 +657,7 @@ func TestStaticAssets(t *testing.T) {
 	fs := NewFakeServices()
 	router := testRouter(t, fs)
 
-	for _, path := range []string{"/static/css/app.css", "/static/vendor/htmx.min.js"} {
+	for _, path := range []string{"/static/css/app.css", "/static/vendor/htmx.min.js", "/static/js/app.js"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
@@ -666,5 +667,57 @@ func TestStaticAssets(t *testing.T) {
 			t.Errorf("expected 200 OK for %s, got %d", path, res.StatusCode)
 		}
 		res.Body.Close()
+	}
+}
+
+// 15. Test formatted amount input submission with commas
+func TestFormattedAmountInputSubmission(t *testing.T) {
+	t.Parallel()
+
+	fs := NewFakeServices()
+	ctx := t.Context()
+	st := AccountSubtypeChecking
+	acct, _ := fs.CreateAccount(ctx, CreateAccountInput{
+		Name:         "Checking USD",
+		Type:         AccountTypeBank,
+		Subtype:      &st,
+		CurrencyCode: "USD",
+	})
+	cat, _ := fs.CreateCategory(ctx, CreateCategoryInput{
+		Name: "Salary",
+		Type: CategoryTypeIncome,
+	})
+
+	router := testRouter(t, fs)
+
+	formData := url.Values{
+		"type":           {"INCOME"},
+		"account_id":     {strconv.FormatInt(acct.ID, 10)},
+		"category_id":    {strconv.FormatInt(cat.ID, 10)},
+		"amount":         {"1,250.75"},
+		"effective_date": {"2026-09-05"},
+		"payment_method": {"BANK_TRANSFER"},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/transactions", strings.NewReader(formData.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+	res := rec.Result()
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("expected 303 See Other when submitting amount with commas, got %d", res.StatusCode)
+	}
+
+	// Verify balance in dashboard shows formatted 1,250.75
+	reqDash := httptest.NewRequest(http.MethodGet, "/", nil)
+	recDash := httptest.NewRecorder()
+	router.ServeHTTP(recDash, reqDash)
+
+	body, _ := io.ReadAll(recDash.Result().Body)
+	if !strings.Contains(string(body), "1,250.75") {
+		t.Errorf("expected dashboard to show 1,250.75, got: %s", string(body))
 	}
 }

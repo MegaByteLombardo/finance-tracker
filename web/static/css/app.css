@@ -765,3 +765,15 @@ body {
 .htmx-request.htmx-indicator {
   opacity: 1;
 }
+
+/* Numeric & Currency Presentation */
+.cell-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+input[data-type="currency"] {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}

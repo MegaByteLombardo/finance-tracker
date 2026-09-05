@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -70,11 +71,24 @@ func NewRenderer(templateFS fs.FS) *Renderer {
 		"isNegative": func(n int64) bool {
 			return n < 0
 		},
-		"formatSignedAmount": func(tx TransactionView) string {
-			if tx.Type == TransactionTypeIncome {
-				return "+" + tx.AmountFormatted
+		"formatAmount": func(val any) string {
+			switch v := val.(type) {
+			case string:
+				return formatAmountString(v)
+			case int64:
+				return formatAmountString(strconv.FormatInt(v, 10))
+			case int:
+				return formatAmountString(strconv.Itoa(v))
+			default:
+				return formatAmountString(fmt.Sprintf("%v", val))
 			}
-			return tx.AmountFormatted
+		},
+		"formatSignedAmount": func(tx TransactionView) string {
+			amt := formatAmountString(tx.AmountFormatted)
+			if tx.Type == TransactionTypeIncome && !strings.HasPrefix(amt, "+") {
+				return "+" + amt
+			}
+			return amt
 		},
 		"lower": strings.ToLower,
 		"upper": strings.ToUpper,
@@ -155,4 +169,38 @@ func (rn *Renderer) RenderPartial(w http.ResponseWriter, r *http.Request, status
 	w.WriteHeader(status)
 	_, err = io.Copy(w, &buf)
 	return err
+}
+
+// formatAmountString formats a decimal amount with thousands separators, preserving decimal places.
+// E.g. "1234567.89" -> "1,234,567.89", "-25.00" -> "-25.00", "0.00" -> "0.00".
+func formatAmountString(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+
+	sign := ""
+	if strings.HasPrefix(s, "-") {
+		sign = "-"
+		s = s[1:]
+	} else if strings.HasPrefix(s, "+") {
+		sign = "+"
+		s = s[1:]
+	}
+
+	intPart, fracPart, hasPoint := strings.Cut(s, ".")
+
+	var buf strings.Builder
+	n := len(intPart)
+	for i, ch := range intPart {
+		if i > 0 && (n-i)%3 == 0 {
+			buf.WriteByte(',')
+		}
+		buf.WriteRune(ch)
+	}
+
+	if hasPoint {
+		return sign + buf.String() + "." + fracPart
+	}
+	return sign + buf.String()
 }

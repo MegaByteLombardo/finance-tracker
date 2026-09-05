@@ -132,7 +132,9 @@
                id="initial_balance"
                name="initial_balance"
                value="{{ .InitialBalance }}"
-               placeholder="e.g. 1000.00"
+               placeholder="e.g. 1,000.00"
+               data-type="currency"
+               inputmode="decimal"
                autocomplete="off">
         {{ if .HasError "initial_balance" }}
         <div class="form-error">{{ .Error "initial_balance" }}</div>

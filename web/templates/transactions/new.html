@@ -79,6 +79,8 @@
                name="amount"
                value="{{ .Amount }}"
                placeholder="e.g. 25.50"
+               data-type="currency"
+               inputmode="decimal"
                autocomplete="off"
                required>
         {{ if .HasError "amount" }}

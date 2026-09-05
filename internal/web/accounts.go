@@ -81,6 +81,7 @@ func handleCreateAccount(logger *slog.Logger, renderer *Renderer, svcs *Services
 		currencyCode := strings.TrimSpace(r.FormValue("currency_code"))
 		institution := strings.TrimSpace(r.FormValue("institution"))
 		initialBalance := strings.TrimSpace(r.FormValue("initial_balance"))
+		initialBalance = strings.ReplaceAll(initialBalance, ",", "")
 		initialBalanceDate := strings.TrimSpace(r.FormValue("initial_balance_date"))
 
 		currencies, _ := svcs.Currencies.List(ctx, false)
