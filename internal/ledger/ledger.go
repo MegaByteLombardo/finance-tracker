@@ -63,6 +63,26 @@ var (
 	// ErrCategoryTypeMismatch means an expense was filed under an income
 	// category, or the reverse.
 	ErrCategoryTypeMismatch = errors.New("category type does not match the transaction type")
+	// ErrPaymentMethodNotFound means the requested payment method does not
+	// exist.
+	ErrPaymentMethodNotFound = errors.New("transaction payment method not found")
+	// ErrPaymentMethodInactive means the payment method exists but has been
+	// archived, so it cannot be used for new or edited transactions.
+	ErrPaymentMethodInactive = errors.New("transaction payment method is inactive")
+	// ErrTypeChangeNotAllowed means an edit tried to convert a transaction to or
+	// from OPENING_BALANCE.
+	//
+	// Income and expenses convert freely between each other -- entering one as
+	// the other is a plausible mistake. An opening balance is different in kind:
+	// it states where an account started rather than recording an operation, and
+	// turning one into income would put it in every "what did I earn" figure.
+	ErrTypeChangeNotAllowed = errors.New("this transaction type cannot be changed")
+	// ErrCurrencyChangeNotConfirmed means an edit would move a transaction to an
+	// account denominated in a different currency without saying so explicitly.
+	//
+	// It is the one error here that means "ask the user and try again" rather
+	// than "the input was wrong". See UpdateTransactionInput.AllowCurrencyChange.
+	ErrCurrencyChangeNotConfirmed = errors.New("moving this transaction changes its currency")
 )
 
 // TransactionType is what kind of financial event a transaction records.
@@ -95,43 +115,20 @@ func (t TransactionType) Valid() bool {
 	return false
 }
 
-// PaymentMethod is the CHANNEL an operation with the outside world used.
+// Payment methods are rows in their own table, not values of a type here.
 //
-// It is not a transfer between the user's own accounts. BankTransfer here means
-// "this external operation moved through a bank transfer"; a future
-// TransactionType of TRANSFER will mean "money moved between two accounts we
-// own". Confusing the two would make the ledger unreadable.
+// M2 held four of them in a Go constant and a CHECK constraint. Real use
+// produced "Pago móvil", "Zelle" and "Débito", and adding one meant a migration,
+// so they became data the user administers -- see internal/paymentmethod.
 //
-// The same four values apply to income and to expenses: money can arrive by
-// transfer or in cash just as it can leave that way.
-type PaymentMethod string
-
-const (
-	// BankTransfer is money moved through the banking system.
-	BankTransfer PaymentMethod = "BANK_TRANSFER"
-	// POS is a card payment at a point of sale.
-	POS PaymentMethod = "POS"
-	// CashPayment is physical money changing hands.
-	CashPayment PaymentMethod = "CASH"
-	// OtherMethod is any channel the four above do not describe.
-	OtherMethod PaymentMethod = "OTHER"
-)
-
-// PaymentMethods lists every valid method, in the order a UI would present
-// them.
-func PaymentMethods() []PaymentMethod {
-	return []PaymentMethod{BankTransfer, POS, CashPayment, OtherMethod}
-}
-
-// Valid reports whether m is a known payment method.
-func (m PaymentMethod) Valid() bool {
-	for _, known := range PaymentMethods() {
-		if m == known {
-			return true
-		}
-	}
-	return false
-}
+// A transaction therefore carries a payment_method_id. The name is resolved for
+// display when a listing is read, which means renaming a method changes how past
+// transactions are shown; that is intended, and the one hazard it creates is
+// recorded in data-model.md.
+//
+// A payment method still describes the CHANNEL of an operation with the outside
+// world. It is not a transfer between the user's own accounts, which remains a
+// later milestone.
 
 const (
 	maxDescriptionLength = 255
@@ -150,10 +147,10 @@ type Transaction struct {
 	ID   int64
 	Type TransactionType
 
-	// CategoryID and PaymentMethod are set for income and expenses, and absent
-	// for an opening balance. The database enforces that pairing.
-	CategoryID    *int64
-	PaymentMethod *PaymentMethod
+	// CategoryID and PaymentMethodID are set for income and expenses, and
+	// absent for an opening balance. The database enforces that pairing.
+	CategoryID      *int64
+	PaymentMethodID *int64
 
 	Description *string
 
@@ -193,7 +190,13 @@ type TransactionView struct {
 	Type          TransactionType
 	EffectiveDate time.Time
 	Description   *string
-	PaymentMethod *PaymentMethod
+
+	// The payment method. Absent for an opening balance.
+	//
+	// The id is the identifier; the name is for display and can change when the
+	// method is renamed. Do not treat the name as stable.
+	PaymentMethodID   *int64
+	PaymentMethodName *string
 
 	// The category. Absent for an opening balance.
 	CategoryID   *int64
@@ -269,7 +272,8 @@ type RecordIncomeInput struct {
 	// applied by the use case, never taken from here.
 	Amount string
 
-	PaymentMethod PaymentMethod
+	// PaymentMethodID must name an active payment method.
+	PaymentMethodID int64
 
 	// Description is optional. nil means none; an empty string is a caller
 	// mistake and is rejected.
@@ -285,12 +289,12 @@ type RecordIncomeInput struct {
 // synonym: the sign belongs to the operation, which is what makes an expense
 // that increases a balance impossible to express.
 type RecordExpenseInput struct {
-	AccountID     int64
-	CategoryID    int64
-	Amount        string
-	PaymentMethod PaymentMethod
-	Description   *string
-	EffectiveDate string
+	AccountID       int64
+	CategoryID      int64
+	Amount          string
+	PaymentMethodID int64
+	Description     *string
+	EffectiveDate   string
 }
 
 // RecordOpeningBalanceInput is the input to Service.RecordOpeningBalance.
@@ -302,6 +306,59 @@ type RecordOpeningBalanceInput struct {
 
 	// Amount may be negative, for an account that starts overdrawn, and may be
 	// zero, which records nothing at all.
+	Amount string
+
+	EffectiveDate string
+}
+
+// UpdateTransactionInput is the input to Service.UpdateTransaction.
+//
+// It is a REPLACEMENT, not a patch: every editable field is sent on every call,
+// and the service revalidates exactly the same invariants as a creation. A patch
+// would need a way to say "leave this alone" for each field, and the difference
+// between "unset" and "set to nothing" is precisely where partial-update APIs go
+// wrong.
+type UpdateTransactionInput struct {
+	AccountID int64
+
+	// Type may be Income or Expense. Converting to or from OpeningBalance is
+	// ErrTypeChangeNotAllowed.
+	//
+	// Switching between the two recomputes the movement's sign from the new
+	// type; the old sign is never carried over.
+	Type TransactionType
+
+	CategoryID      int64
+	PaymentMethodID int64
+
+	// Amount is a positive decimal string. The sign belongs to the type.
+	Amount string
+
+	Description   *string
+	EffectiveDate string
+
+	// AllowCurrencyChange must be set to move a transaction to an account
+	// denominated in a different currency.
+	//
+	// The amount is a decimal string read at the destination account's scale, so
+	// moving 100.00 from a USD account to a VES account does not convert it --
+	// it reinterprets it as a different sum of money. M3 has no exchange rates
+	// and performs no conversion, so the reinterpretation must be deliberate:
+	// without this flag the service returns ErrCurrencyChangeNotConfirmed and
+	// writes nothing.
+	AllowCurrencyChange bool
+}
+
+// UpdateOpeningBalanceInput is the input to Service.UpdateOpeningBalance.
+//
+// The account cannot change and neither can the type. Category and payment
+// method are not fields of this struct, so an opening balance cannot acquire
+// either.
+type UpdateOpeningBalanceInput struct {
+	// Amount may be negative, for an account that started overdrawn. It may NOT
+	// be zero: in M2 a zero opening balance means "record nothing", and M3 has
+	// no delete, so setting an existing one to zero would leave a transaction
+	// with no financial effect.
 	Amount string
 
 	EffectiveDate string
@@ -373,14 +430,4 @@ func validateEffectiveDate(s string) (time.Time, error) {
 			ErrInvalidInput, trimmed)
 	}
 	return date, nil
-}
-
-// validatePaymentMethod normalises and checks a required payment method.
-func validatePaymentMethod(m PaymentMethod) (PaymentMethod, error) {
-	normalized := PaymentMethod(strings.ToUpper(strings.TrimSpace(string(m))))
-	if !normalized.Valid() {
-		return "", fmt.Errorf("%w: payment method %q must be one of %v",
-			ErrInvalidInput, m, PaymentMethods())
-	}
-	return normalized, nil
 }

@@ -28,10 +28,10 @@ func NewRepository(db database.DBTX) *Repository {
 // InsertTransaction stores the event and returns it with its assigned id.
 func (r *Repository) InsertTransaction(ctx context.Context, t Transaction) (Transaction, error) {
 	result, err := r.db.ExecContext(ctx,
-		`INSERT INTO transactions (transaction_type, category_id, payment_method, description,
+		`INSERT INTO transactions (transaction_type, category_id, payment_method_id, description,
 		                           effective_date, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		string(t.Type), t.CategoryID, paymentMethodArg(t.PaymentMethod), t.Description,
+		string(t.Type), t.CategoryID, t.PaymentMethodID, t.Description,
 		database.FormatDate(t.EffectiveDate),
 		database.FormatTime(t.CreatedAt), database.FormatTime(t.UpdatedAt))
 	if err != nil {
@@ -68,10 +68,12 @@ func (r *Repository) InsertMovement(ctx context.Context, m Movement) (Movement, 
 // viewQuery joins a movement to everything a listing row displays.
 //
 // One query rather than a lookup per row: a listing of 50 transactions would
-// otherwise issue 150 further queries for their accounts, currencies and
-// categories. The category join is LEFT because an opening balance has none.
+// otherwise issue 200 further queries for their accounts, currencies, categories
+// and payment methods. The category and payment method joins are LEFT because an
+// opening balance has neither.
 const viewQuery = `
-	SELECT t.id, t.transaction_type, t.effective_date, t.description, t.payment_method,
+	SELECT t.id, t.transaction_type, t.effective_date, t.description,
+	       t.payment_method_id, pm.name,
 	       t.category_id, cat.name, cat.category_type,
 	       m.id, m.account_id, a.name, a.account_type, a.account_subtype, a.institution,
 	       a.currency_code, cur.symbol, cur.minor_unit,
@@ -80,7 +82,8 @@ const viewQuery = `
 	  JOIN transactions t   ON t.id   = m.transaction_id
 	  JOIN accounts a       ON a.id   = m.account_id
 	  JOIN currencies cur   ON cur.code = a.currency_code
-	  LEFT JOIN categories cat ON cat.id = t.category_id`
+	  LEFT JOIN categories cat     ON cat.id = t.category_id
+	  LEFT JOIN payment_methods pm ON pm.id  = t.payment_method_id`
 
 // GetView returns the row for one transaction, or ErrNotFound.
 func (r *Repository) GetView(ctx context.Context, id int64) (TransactionView, error) {
@@ -249,15 +252,6 @@ func (r *Repository) ListCurrencyTotals(ctx context.Context, includeInactive boo
 	return totals, nil
 }
 
-// paymentMethodArg turns an absent payment method into a SQL NULL. Passing a
-// *PaymentMethod directly would hand the driver a type it does not know.
-func paymentMethodArg(m *PaymentMethod) any {
-	if m == nil {
-		return nil
-	}
-	return string(*m)
-}
-
 // scanner is satisfied by both *sql.Row and *sql.Rows.
 type scanner interface {
 	Scan(dest ...any) error
@@ -269,6 +263,7 @@ func scanView(s scanner) (TransactionView, error) {
 		transactionType string
 		effectiveDate   string
 		description     sql.NullString
+		paymentMethodID sql.NullInt64
 		paymentMethod   sql.NullString
 		categoryID      sql.NullInt64
 		categoryName    sql.NullString
@@ -280,7 +275,8 @@ func scanView(s scanner) (TransactionView, error) {
 		createdAt       string
 	)
 
-	if err := s.Scan(&v.ID, &transactionType, &effectiveDate, &description, &paymentMethod,
+	if err := s.Scan(&v.ID, &transactionType, &effectiveDate, &description,
+		&paymentMethodID, &paymentMethod,
 		&categoryID, &categoryName, &categoryType,
 		&v.MovementID, &v.AccountID, &v.AccountName, &accountType, &accountSubtype, &institution,
 		&v.CurrencyCode, &currencySymbol, &v.MinorUnit,
@@ -295,9 +291,13 @@ func scanView(s scanner) (TransactionView, error) {
 		value := description.String
 		v.Description = &value
 	}
+	if paymentMethodID.Valid {
+		value := paymentMethodID.Int64
+		v.PaymentMethodID = &value
+	}
 	if paymentMethod.Valid {
-		value := PaymentMethod(paymentMethod.String)
-		v.PaymentMethod = &value
+		value := paymentMethod.String
+		v.PaymentMethodName = &value
 	}
 	if categoryID.Valid {
 		value := categoryID.Int64
@@ -369,4 +369,130 @@ func scanBalance(s scanner) (AccountBalance, error) {
 
 	b.BalanceFormatted = money.Format(b.BalanceMinor, b.MinorUnit)
 	return b, nil
+}
+
+// transactionColumns is the read projection for the stored event.
+const transactionColumns = `id, transaction_type, category_id, payment_method_id, description,
+                            effective_date, created_at, updated_at`
+
+// GetTransaction returns the stored event, or ErrNotFound.
+//
+// Editing needs this as well as the view: the view is a joined listing row, and
+// an update has to know what the transaction currently IS before deciding what
+// it may become.
+func (r *Repository) GetTransaction(ctx context.Context, id int64) (Transaction, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT `+transactionColumns+` FROM transactions WHERE id = ?`, id)
+
+	var (
+		t               Transaction
+		transactionType string
+		effectiveDate   string
+		createdAt       string
+		updatedAt       string
+		categoryID      sql.NullInt64
+		paymentMethodID sql.NullInt64
+		description     sql.NullString
+	)
+	err := row.Scan(&t.ID, &transactionType, &categoryID, &paymentMethodID, &description,
+		&effectiveDate, &createdAt, &updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Transaction{}, fmt.Errorf("transaction %d: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return Transaction{}, fmt.Errorf("reading transaction %d: %w", id, err)
+	}
+
+	t.Type = TransactionType(transactionType)
+	if categoryID.Valid {
+		value := categoryID.Int64
+		t.CategoryID = &value
+	}
+	if paymentMethodID.Valid {
+		value := paymentMethodID.Int64
+		t.PaymentMethodID = &value
+	}
+	if description.Valid {
+		value := description.String
+		t.Description = &value
+	}
+	if t.EffectiveDate, err = database.ParseDate(effectiveDate); err != nil {
+		return Transaction{}, fmt.Errorf("transaction %d effective_date: %w", id, err)
+	}
+	if t.CreatedAt, err = database.ParseTime(createdAt); err != nil {
+		return Transaction{}, fmt.Errorf("transaction %d created_at: %w", id, err)
+	}
+	if t.UpdatedAt, err = database.ParseTime(updatedAt); err != nil {
+		return Transaction{}, fmt.Errorf("transaction %d updated_at: %w", id, err)
+	}
+	return t, nil
+}
+
+// GetMovementFor returns the movement belonging to a transaction.
+//
+// M3 writes exactly one movement per transaction, which is what lets editing
+// work on "the" movement. When transfers arrive a transaction will have two, and
+// this becomes the wrong shape -- deliberately so: it will fail to compile
+// rather than silently edit whichever one came first.
+func (r *Repository) GetMovementFor(ctx context.Context, transactionID int64) (Movement, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT id, transaction_id, account_id, amount_minor, created_at
+		   FROM account_movements WHERE transaction_id = ? ORDER BY id LIMIT 1`, transactionID)
+
+	var (
+		m         Movement
+		createdAt string
+	)
+	err := row.Scan(&m.ID, &m.TransactionID, &m.AccountID, &m.AmountMinor, &createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Movement{}, fmt.Errorf("transaction %d has no movement: %w", transactionID, ErrNotFound)
+	}
+	if err != nil {
+		return Movement{}, fmt.Errorf("reading the movement of transaction %d: %w", transactionID, err)
+	}
+
+	if m.CreatedAt, err = database.ParseTime(createdAt); err != nil {
+		return Movement{}, fmt.Errorf("movement %d created_at: %w", m.ID, err)
+	}
+	return m, nil
+}
+
+// UpdateTransaction rewrites the editable fields of an event.
+//
+// transaction_type is among them: correcting an expense entered as income is a
+// plausible mistake and M3 supports it. created_at is not -- when a row was
+// written does not change because its contents were corrected.
+func (r *Repository) UpdateTransaction(ctx context.Context, t Transaction) error {
+	return r.execOne(ctx, t.ID,
+		`UPDATE transactions
+		    SET transaction_type = ?, category_id = ?, payment_method_id = ?,
+		        description = ?, effective_date = ?, updated_at = ?
+		  WHERE id = ?`,
+		string(t.Type), t.CategoryID, t.PaymentMethodID, t.Description,
+		database.FormatDate(t.EffectiveDate), database.FormatTime(t.UpdatedAt), t.ID)
+}
+
+// UpdateMovement rewrites which account a movement lands in and for how much.
+//
+// created_at is untouched: the movement records the same event it always did.
+func (r *Repository) UpdateMovement(ctx context.Context, id, accountID, amountMinor int64) error {
+	return r.execOne(ctx, id,
+		`UPDATE account_movements SET account_id = ?, amount_minor = ? WHERE id = ?`,
+		accountID, amountMinor, id)
+}
+
+// execOne runs a statement that must affect exactly one row.
+func (r *Repository) execOne(ctx context.Context, id int64, query string, args ...any) error {
+	result, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("updating row %d: %w", id, err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected for row %d: %w", id, err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("row %d: %w", id, ErrNotFound)
+	}
+	return nil
 }

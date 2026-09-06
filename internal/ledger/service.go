@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/account"
 	"github.com/MegaByteLombardo/finance-tracker/internal/category"
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/money"
+	"github.com/MegaByteLombardo/finance-tracker/internal/paymentmethod"
 )
 
 // Service holds the ledger use cases. It is the only surface a handler needs;
@@ -41,19 +43,14 @@ func NewService(db *sql.DB) *Service {
 // category must be an active INCOME category, and the currency is the account's
 // — there is nowhere in the input to say otherwise.
 func (s *Service) RecordIncome(ctx context.Context, in RecordIncomeInput) (TransactionView, error) {
-	method, err := validatePaymentMethod(in.PaymentMethod)
-	if err != nil {
-		return TransactionView{}, err
-	}
-
 	view, err := s.record(ctx, recordRequest{
-		txType:        Income,
-		accountID:     in.AccountID,
-		amount:        in.Amount,
-		categoryID:    &in.CategoryID,
-		paymentMethod: &method,
-		description:   in.Description,
-		effectiveDate: in.EffectiveDate,
+		txType:          Income,
+		accountID:       in.AccountID,
+		amount:          in.Amount,
+		categoryID:      &in.CategoryID,
+		paymentMethodID: &in.PaymentMethodID,
+		description:     in.Description,
+		effectiveDate:   in.EffectiveDate,
 	})
 	if err != nil {
 		return TransactionView{}, err
@@ -68,19 +65,14 @@ func (s *Service) RecordIncome(ctx context.Context, in RecordIncomeInput) (Trans
 // the operation, so the movement is stored negative and an expense that
 // increases a balance cannot be expressed.
 func (s *Service) RecordExpense(ctx context.Context, in RecordExpenseInput) (TransactionView, error) {
-	method, err := validatePaymentMethod(in.PaymentMethod)
-	if err != nil {
-		return TransactionView{}, err
-	}
-
 	view, err := s.record(ctx, recordRequest{
-		txType:        Expense,
-		accountID:     in.AccountID,
-		amount:        in.Amount,
-		categoryID:    &in.CategoryID,
-		paymentMethod: &method,
-		description:   in.Description,
-		effectiveDate: in.EffectiveDate,
+		txType:          Expense,
+		accountID:       in.AccountID,
+		amount:          in.Amount,
+		categoryID:      &in.CategoryID,
+		paymentMethodID: &in.PaymentMethodID,
+		description:     in.Description,
+		effectiveDate:   in.EffectiveDate,
 	})
 	if err != nil {
 		return TransactionView{}, err
@@ -162,13 +154,13 @@ func (s *Service) ListCurrencyTotals(ctx context.Context, includeInactive bool) 
 // unexported on purpose: the public API is one method per use case, so that
 // invalid combinations have no signature to arrive through.
 type recordRequest struct {
-	txType        TransactionType
-	accountID     int64
-	amount        string
-	categoryID    *int64
-	paymentMethod *PaymentMethod
-	description   *string
-	effectiveDate string
+	txType          TransactionType
+	accountID       int64
+	amount          string
+	categoryID      *int64
+	paymentMethodID *int64
+	description     *string
+	effectiveDate   string
 }
 
 // record runs a request in its own transaction.
@@ -210,76 +202,29 @@ func (s *Service) record(ctx context.Context, r recordRequest) (_ *TransactionVi
 // could be written whose movement then failed — leaving a financial event with
 // no effect on any account.
 func recordTx(ctx context.Context, exec database.DBTX, r recordRequest) (*TransactionView, error) {
-	r.description = normalizeDescription(r.description)
-	if err := validateDescription(r.description); err != nil {
-		return nil, err
-	}
-
-	accounts := account.NewRepository(exec)
-	currencies := currency.NewRepository(exec)
-	repo := NewRepository(exec)
-
-	acct, err := accounts.Get(ctx, r.accountID)
-	switch {
-	case errors.Is(err, account.ErrNotFound):
-		return nil, fmt.Errorf("account %d: %w", r.accountID, ErrAccountNotFound)
-	case err != nil:
-		return nil, fmt.Errorf("looking up account %d: %w", r.accountID, err)
-	}
-	if !acct.IsActive {
-		// Decided here, on the field. Being archived is a fact about the
-		// account, not an error the account package raises.
-		return nil, fmt.Errorf("account %q: %w", acct.Name, ErrAccountInactive)
-	}
-
-	// The currency is the account's, always. It supplies the scale the amount is
-	// read at, which is why it is loaded before the amount is parsed.
-	//
-	// An archived currency does NOT block this. Retiring a currency stops it
-	// denominating new accounts; it does not freeze the accounts that already
-	// use it, and money keeps moving in them.
-	cur, err := currencies.Get(ctx, acct.CurrencyCode)
-	if err != nil {
-		return nil, fmt.Errorf("looking up currency %q of account %d: %w", acct.CurrencyCode, acct.ID, err)
-	}
-
-	amountMinor, err := amountFor(r.txType, r.amount, cur.MinorUnit)
+	resolved, err := resolveRequest(ctx, exec, &r)
 	if err != nil {
 		return nil, err
 	}
-	if amountMinor == 0 {
+
+	if resolved.amountMinor == 0 {
 		// Only an opening balance reaches here; amountFor rejects zero for the
 		// other two. Nothing is written and nothing is an error: a balance of
 		// zero is what an account with no movements already has.
-		//
-		// This returns BEFORE the effective date is examined, deliberately. A
-		// date is a property of a transaction, and there is no transaction: an
-		// account opened with a zero balance should not have to supply the date
-		// of an event that never gets recorded.
 		return nil, nil
 	}
 
-	// Validated here rather than at the top so that the decision above does not
-	// depend on a field the caller had no reason to fill in.
-	effectiveDate, err := validateEffectiveDate(r.effectiveDate)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := checkCategory(ctx, exec, r); err != nil {
-		return nil, err
-	}
-
+	repo := NewRepository(exec)
 	now := database.Now()
 
 	transaction, err := repo.InsertTransaction(ctx, Transaction{
-		Type:          r.txType,
-		CategoryID:    r.categoryID,
-		PaymentMethod: r.paymentMethod,
-		Description:   r.description,
-		EffectiveDate: effectiveDate,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		Type:            r.txType,
+		CategoryID:      r.categoryID,
+		PaymentMethodID: r.paymentMethodID,
+		Description:     r.description,
+		EffectiveDate:   resolved.effectiveDate,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	})
 	if err != nil {
 		return nil, err
@@ -287,8 +232,8 @@ func recordTx(ctx context.Context, exec database.DBTX, r recordRequest) (*Transa
 
 	if _, err := repo.InsertMovement(ctx, Movement{
 		TransactionID: transaction.ID,
-		AccountID:     acct.ID,
-		AmountMinor:   amountMinor,
+		AccountID:     resolved.account.ID,
+		AmountMinor:   resolved.amountMinor,
 		CreatedAt:     now,
 	}); err != nil {
 		return nil, err
@@ -299,6 +244,86 @@ func recordTx(ctx context.Context, exec database.DBTX, r recordRequest) (*Transa
 		return nil, err
 	}
 	return &view, nil
+}
+
+// resolvedRequest is what validation produced: the account the movement lands
+// in, the exact signed amount, and the calendar date.
+type resolvedRequest struct {
+	account       account.Account
+	amountMinor   int64
+	effectiveDate time.Time
+}
+
+// resolveRequest validates a request and resolves everything it refers to.
+//
+// Creating and editing both go through here, which is what stops them from
+// drifting apart. An edit that could produce a state a creation would refuse
+// would be a hole in every invariant this package maintains, and the only
+// reliable way to prevent that is to run the same code.
+//
+// r is a pointer because normalisation -- trimming a description -- has to be
+// visible to the caller that goes on to store it.
+func resolveRequest(ctx context.Context, exec database.DBTX, r *recordRequest) (resolvedRequest, error) {
+	r.description = normalizeDescription(r.description)
+	if err := validateDescription(r.description); err != nil {
+		return resolvedRequest{}, err
+	}
+
+	acct, err := account.NewRepository(exec).Get(ctx, r.accountID)
+	switch {
+	case errors.Is(err, account.ErrNotFound):
+		return resolvedRequest{}, fmt.Errorf("account %d: %w", r.accountID, ErrAccountNotFound)
+	case err != nil:
+		return resolvedRequest{}, fmt.Errorf("looking up account %d: %w", r.accountID, err)
+	}
+	if !acct.IsActive {
+		// Decided here, on the field. Being archived is a fact about the
+		// account, not an error the account package raises.
+		return resolvedRequest{}, fmt.Errorf("account %q: %w", acct.Name, ErrAccountInactive)
+	}
+
+	// The currency is the account's, always. It supplies the scale the amount is
+	// read at, which is why it is loaded before the amount is parsed -- and why
+	// moving a transaction to an account in another currency reinterprets the
+	// amount rather than converting it.
+	//
+	// An archived currency does NOT block this. Retiring a currency stops it
+	// denominating new accounts; it does not freeze the accounts that already
+	// use it, and money keeps moving in them.
+	cur, err := currency.NewRepository(exec).Get(ctx, acct.CurrencyCode)
+	if err != nil {
+		return resolvedRequest{}, fmt.Errorf(
+			"looking up currency %q of account %d: %w", acct.CurrencyCode, acct.ID, err)
+	}
+
+	amountMinor, err := amountFor(r.txType, r.amount, cur.MinorUnit)
+	if err != nil {
+		return resolvedRequest{}, err
+	}
+	if amountMinor == 0 {
+		// The caller decides what a zero means. Creating an opening balance
+		// treats it as "record nothing"; editing one refuses it, because M3 has
+		// no delete and the transaction would be left with no effect.
+		//
+		// The date is deliberately not examined here: an account opened with a
+		// zero balance should not have to supply the date of an event that never
+		// gets recorded.
+		return resolvedRequest{account: acct}, nil
+	}
+
+	effectiveDate, err := validateEffectiveDate(r.effectiveDate)
+	if err != nil {
+		return resolvedRequest{}, err
+	}
+
+	if err := checkCategory(ctx, exec, *r); err != nil {
+		return resolvedRequest{}, err
+	}
+	if err := checkPaymentMethod(ctx, exec, r.paymentMethodID); err != nil {
+		return resolvedRequest{}, err
+	}
+
+	return resolvedRequest{account: acct, amountMinor: amountMinor, effectiveDate: effectiveDate}, nil
 }
 
 // amountFor reads the amount and applies the use case's sign rule.
@@ -374,6 +399,29 @@ func checkCategory(ctx context.Context, exec database.DBTX, r recordRequest) err
 	return nil
 }
 
+// checkPaymentMethod verifies that the payment method exists and is usable.
+//
+// Like the category check, this compares rows in two tables and so cannot be a
+// database constraint. The foreign key guarantees the method exists; only this
+// guarantees it was still active.
+func checkPaymentMethod(ctx context.Context, exec database.DBTX, id *int64) error {
+	if id == nil {
+		return nil
+	}
+
+	method, err := paymentmethod.NewRepository(exec).Get(ctx, *id)
+	switch {
+	case errors.Is(err, paymentmethod.ErrNotFound):
+		return fmt.Errorf("payment method %d: %w", *id, ErrPaymentMethodNotFound)
+	case err != nil:
+		return fmt.Errorf("looking up payment method %d: %w", *id, err)
+	}
+	if !method.IsActive {
+		return fmt.Errorf("payment method %q: %w", method.Name, ErrPaymentMethodInactive)
+	}
+	return nil
+}
+
 // categoryTypeFor maps a transaction type to the category type it demands.
 func categoryTypeFor(txType TransactionType) (category.Type, error) {
 	switch txType {
@@ -395,4 +443,172 @@ func unwrapAmountMessage(err error) string {
 		return after
 	}
 	return message
+}
+
+// UpdateTransaction corrects an income or an expense.
+//
+// Everything a creation checks is checked again: the account exists and is
+// active, the category exists, is active and matches the type, the payment
+// method exists and is active, the amount is positive and within the currency's
+// precision, and the date is a real calendar date. An edit that produced a state
+// a creation would have refused would be a hole in every invariant this package
+// maintains.
+//
+// The transaction and its movement are rewritten in ONE transaction. There is no
+// moment at which a corrected event sits beside an uncorrected movement, so the
+// balance is right the instant the commit returns.
+//
+// M3 does not keep the previous version of an edited record. That is a scope
+// decision, documented in docs/m3-contract.md; the way back is a backup.
+func (s *Service) UpdateTransaction(ctx context.Context, id int64, in UpdateTransactionInput) (TransactionView, error) {
+	view, err := s.update(ctx, id, func(ctx context.Context, exec database.DBTX, current Transaction) (recordRequest, error) {
+		// Income and expenses convert freely; an opening balance does not.
+		if current.Type == OpeningBalance {
+			return recordRequest{}, fmt.Errorf(
+				"%w: transaction %d is an opening balance; edit it as one", ErrTypeChangeNotAllowed, id)
+		}
+		if in.Type != Income && in.Type != Expense {
+			return recordRequest{}, fmt.Errorf(
+				"%w: a transaction can only be corrected to %s or %s", ErrTypeChangeNotAllowed, Income, Expense)
+		}
+
+		return recordRequest{
+			txType:          in.Type,
+			accountID:       in.AccountID,
+			amount:          in.Amount,
+			categoryID:      &in.CategoryID,
+			paymentMethodID: &in.PaymentMethodID,
+			description:     in.Description,
+			effectiveDate:   in.EffectiveDate,
+		}, nil
+	}, in.AllowCurrencyChange)
+	if err != nil {
+		return TransactionView{}, err
+	}
+	return *view, nil
+}
+
+// UpdateOpeningBalance corrects where an account started.
+//
+// Only the amount and the date can change. The account cannot: an opening
+// balance belongs to the account it opened, and moving it would mean that
+// account never had a starting point while another gained one it never had.
+func (s *Service) UpdateOpeningBalance(ctx context.Context, id int64, in UpdateOpeningBalanceInput) (TransactionView, error) {
+	view, err := s.update(ctx, id, func(ctx context.Context, exec database.DBTX, current Transaction) (recordRequest, error) {
+		if current.Type != OpeningBalance {
+			return recordRequest{}, fmt.Errorf(
+				"%w: transaction %d is a %s, not an opening balance", ErrTypeChangeNotAllowed, id, current.Type)
+		}
+
+		movement, err := NewRepository(exec).GetMovementFor(ctx, id)
+		if err != nil {
+			return recordRequest{}, err
+		}
+
+		return recordRequest{
+			txType: OpeningBalance,
+			// The account is taken from the existing movement, not from input:
+			// there is no field through which it could be changed.
+			accountID:     movement.AccountID,
+			amount:        in.Amount,
+			effectiveDate: in.EffectiveDate,
+		}, nil
+	}, false)
+	if err != nil {
+		return TransactionView{}, err
+	}
+	return *view, nil
+}
+
+// buildRequest turns an edit into the same shape a creation uses, after checking
+// whatever is specific to the transaction being edited.
+type buildRequest func(context.Context, database.DBTX, Transaction) (recordRequest, error)
+
+// update applies an edit inside one transaction.
+//
+// It deliberately reuses the validation a creation performs rather than
+// duplicating it: the two must not be able to disagree about what a valid
+// transaction is.
+func (s *Service) update(
+	ctx context.Context, id int64, build buildRequest, allowCurrencyChange bool,
+) (_ *TransactionView, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer func() {
+		if rerr := tx.Rollback(); rerr != nil && !errors.Is(rerr, sql.ErrTxDone) {
+			err = errors.Join(err, fmt.Errorf("rolling back the edit of transaction %d: %w", id, rerr))
+		}
+	}()
+
+	repo := NewRepository(tx)
+
+	current, err := repo.GetTransaction(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	movement, err := repo.GetMovementFor(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	request, err := build(ctx, tx, current)
+	if err != nil {
+		return nil, err
+	}
+
+	resolved, err := resolveRequest(ctx, tx, &request)
+	if err != nil {
+		return nil, err
+	}
+
+	// Moving a transaction between currencies reinterprets its amount rather
+	// than converting it, so it has to be asked for.
+	if !allowCurrencyChange && resolved.account.ID != movement.AccountID {
+		previous, err := account.NewRepository(tx).Get(ctx, movement.AccountID)
+		if err != nil {
+			return nil, fmt.Errorf("looking up the current account of transaction %d: %w", id, err)
+		}
+		if previous.CurrencyCode != resolved.account.CurrencyCode {
+			return nil, fmt.Errorf(
+				"%w: %q is in %s and %q is in %s, and %s does not convert between them",
+				ErrCurrencyChangeNotConfirmed, previous.Name, previous.CurrencyCode,
+				resolved.account.Name, resolved.account.CurrencyCode, "Finance Tracker")
+		}
+	}
+
+	// An edit cannot delete, so it cannot reduce a transaction to nothing.
+	if resolved.amountMinor == 0 {
+		return nil, fmt.Errorf(
+			"%w: an amount of zero would leave a transaction with no effect, and transactions cannot be deleted",
+			ErrInvalidAmount)
+	}
+
+	if err := repo.UpdateTransaction(ctx, Transaction{
+		ID:              id,
+		Type:            request.txType,
+		CategoryID:      request.categoryID,
+		PaymentMethodID: request.paymentMethodID,
+		Description:     request.description,
+		EffectiveDate:   resolved.effectiveDate,
+		UpdatedAt:       database.Now(),
+	}); err != nil {
+		return nil, err
+	}
+
+	// The movement's sign comes from the new type, never from the old row.
+	if err := repo.UpdateMovement(ctx, movement.ID, resolved.account.ID, resolved.amountMinor); err != nil {
+		return nil, err
+	}
+
+	view, err := repo.GetView(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("committing the edit of transaction %d: %w", id, err)
+	}
+	return &view, nil
 }

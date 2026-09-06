@@ -6,9 +6,11 @@ import (
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/account"
 	"github.com/MegaByteLombardo/finance-tracker/internal/application"
+	"github.com/MegaByteLombardo/finance-tracker/internal/backup"
 	"github.com/MegaByteLombardo/finance-tracker/internal/category"
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
+	"github.com/MegaByteLombardo/finance-tracker/internal/paymentmethod"
 	"github.com/MegaByteLombardo/finance-tracker/internal/web"
 )
 
@@ -156,6 +158,22 @@ func (a *ledgerAdapter) RecordOpeningBalance(ctx context.Context, in web.RecordO
 	return toWebTransactionView(view), nil
 }
 
+func (a *ledgerAdapter) UpdateTransaction(ctx context.Context, id int64, in web.UpdateTransactionInput) (web.TransactionView, error) {
+	view, err := a.svc.UpdateTransaction(ctx, id, toDomainUpdateTransactionInput(in))
+	if err != nil {
+		return web.TransactionView{}, TranslateLedgerError(err)
+	}
+	return *toWebTransactionView(&view), nil
+}
+
+func (a *ledgerAdapter) UpdateOpeningBalance(ctx context.Context, id int64, in web.UpdateOpeningBalanceInput) (web.TransactionView, error) {
+	view, err := a.svc.UpdateOpeningBalance(ctx, id, toDomainUpdateOpeningBalanceInput(in))
+	if err != nil {
+		return web.TransactionView{}, TranslateLedgerError(err)
+	}
+	return *toWebTransactionView(&view), nil
+}
+
 func (a *ledgerAdapter) ListTransactions(ctx context.Context, in web.ListTransactionsInput) ([]web.TransactionView, error) {
 	list, err := a.svc.ListTransactions(ctx, toDomainListTransactionsInput(in))
 	if err != nil {
@@ -210,22 +228,100 @@ func (a *applicationAdapter) OpenAccount(ctx context.Context, in web.OpenAccount
 	return toWebOpenAccountResult(res), nil
 }
 
+type paymentMethodAdapter struct {
+	svc *paymentmethod.Service
+}
+
+func (a *paymentMethodAdapter) List(ctx context.Context, in web.ListPaymentMethodsInput) ([]web.PaymentMethod, error) {
+	list, err := a.svc.List(ctx, toDomainListPaymentMethodsInput(in))
+	if err != nil {
+		return nil, TranslatePaymentMethodError(err)
+	}
+	return toWebPaymentMethods(list), nil
+}
+
+func (a *paymentMethodAdapter) Get(ctx context.Context, id int64) (web.PaymentMethod, error) {
+	m, err := a.svc.Get(ctx, id)
+	if err != nil {
+		return web.PaymentMethod{}, TranslatePaymentMethodError(err)
+	}
+	return toWebPaymentMethod(m), nil
+}
+
+func (a *paymentMethodAdapter) Create(ctx context.Context, in web.CreatePaymentMethodInput) (web.PaymentMethod, error) {
+	m, err := a.svc.Create(ctx, toDomainCreatePaymentMethodInput(in))
+	if err != nil {
+		return web.PaymentMethod{}, TranslatePaymentMethodError(err)
+	}
+	return toWebPaymentMethod(m), nil
+}
+
+func (a *paymentMethodAdapter) UpdateMetadata(
+	ctx context.Context, id int64, in web.UpdatePaymentMethodMetadataInput,
+) (web.PaymentMethod, error) {
+	m, err := a.svc.UpdateMetadata(ctx, id, toDomainUpdatePaymentMethodMetadataInput(in))
+	if err != nil {
+		return web.PaymentMethod{}, TranslatePaymentMethodError(err)
+	}
+	return toWebPaymentMethod(m), nil
+}
+
+func (a *paymentMethodAdapter) SetActive(ctx context.Context, id int64, isActive bool) (web.PaymentMethod, error) {
+	m, err := a.svc.SetActive(ctx, id, isActive)
+	if err != nil {
+		return web.PaymentMethod{}, TranslatePaymentMethodError(err)
+	}
+	return toWebPaymentMethod(m), nil
+}
+
+// Backup adapter
+
+type backupAdapter struct {
+	svc *backup.Service
+}
+
+func (a *backupAdapter) List(ctx context.Context) ([]web.Backup, error) {
+	if a.svc == nil {
+		return nil, nil
+	}
+	list, err := a.svc.List(ctx)
+	if err != nil {
+		return nil, TranslateBackupError(err)
+	}
+	return toWebBackups(list), nil
+}
+
+func (a *backupAdapter) CreateManual(ctx context.Context) (web.Backup, error) {
+	if a.svc == nil {
+		return web.Backup{}, web.ErrInvalidInput
+	}
+	b, err := a.svc.Create(ctx, backup.Manual)
+	if err != nil {
+		return web.Backup{}, TranslateBackupError(err)
+	}
+	return toWebBackup(b), nil
+}
+
 // Compile-time interface checks
 var (
-	_ web.CurrencyService    = (*currencyAdapter)(nil)
-	_ web.AccountService     = (*accountAdapter)(nil)
-	_ web.CategoryService    = (*categoryAdapter)(nil)
-	_ web.LedgerService      = (*ledgerAdapter)(nil)
-	_ web.ApplicationService = (*applicationAdapter)(nil)
+	_ web.CurrencyService      = (*currencyAdapter)(nil)
+	_ web.AccountService       = (*accountAdapter)(nil)
+	_ web.CategoryService      = (*categoryAdapter)(nil)
+	_ web.LedgerService        = (*ledgerAdapter)(nil)
+	_ web.BackupService        = (*backupAdapter)(nil)
+	_ web.ApplicationService   = (*applicationAdapter)(nil)
+	_ web.PaymentMethodService = (*paymentMethodAdapter)(nil)
 )
 
-// New builds the presentation layer's services over a real database.
-func New(db *sql.DB) *web.Services {
+// New builds the presentation layer's services over a real database and backup service.
+func New(db *sql.DB, backups *backup.Service) *web.Services {
 	return &web.Services{
 		Currencies:  &currencyAdapter{svc: currency.NewService(db)},
 		Accounts:    &accountAdapter{svc: account.NewService(db)},
 		Categories:  &categoryAdapter{svc: category.NewService(db)},
+		Methods:     &paymentMethodAdapter{svc: paymentmethod.NewService(db)},
 		Ledger:      &ledgerAdapter{svc: ledger.NewService(db)},
+		Backups:     &backupAdapter{svc: backups},
 		Application: &applicationAdapter{svc: application.NewService(db)},
 	}
 }

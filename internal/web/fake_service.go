@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,9 +19,12 @@ type FakeServices struct {
 	nextAcctID   int64
 	categories   map[int64]Category
 	nextCatID    int64
+	methods      map[int64]PaymentMethod
+	nextMethodID int64
 	transactions []TransactionView
 	nextTxID     int64
 	nextMovID    int64
+	backups      []Backup
 }
 
 func NewFakeServices() *FakeServices {
@@ -31,6 +35,13 @@ func NewFakeServices() *FakeServices {
 	now := time.Now().UTC()
 
 	fs := &FakeServices{
+		methods: map[int64]PaymentMethod{
+			1: {ID: 1, Name: "Bank transfer", IsActive: true, CreatedAt: now, UpdatedAt: now},
+			2: {ID: 2, Name: "Point of sale", IsActive: true, CreatedAt: now, UpdatedAt: now},
+			3: {ID: 3, Name: "Cash", IsActive: true, CreatedAt: now, UpdatedAt: now},
+			4: {ID: 4, Name: "Other", IsActive: true, CreatedAt: now, UpdatedAt: now},
+		},
+		nextMethodID: 5,
 		currencies: map[string]Currency{
 			"USD": {
 				Code:      "USD",
@@ -531,30 +542,38 @@ func (fs *FakeServices) RecordIncome(ctx context.Context, in RecordIncomeInput) 
 		}
 	}
 
-	pm := in.PaymentMethod
+	method, ok := fs.methods[in.PaymentMethodID]
+	if !ok {
+		return TransactionView{}, ErrPaymentMethodNotFound
+	}
+	if !method.IsActive {
+		return TransactionView{}, ErrPaymentMethodInactive
+	}
+	methodID, methodName := method.ID, method.Name
 	now := time.Now().UTC()
 
 	tx := TransactionView{
-		ID:              fs.nextTxID,
-		Type:            TransactionTypeIncome,
-		EffectiveDate:   effDate,
-		Description:     desc,
-		PaymentMethod:   &pm,
-		CategoryID:      &cat.ID,
-		CategoryName:    &cat.Name,
-		CategoryType:    &cat.Type,
-		MovementID:      fs.nextMovID,
-		AccountID:       acct.ID,
-		AccountName:     acct.Name,
-		AccountType:     acct.Type,
-		AccountSubtype:  acct.Subtype,
-		Institution:     acct.Institution,
-		CurrencyCode:    curr.Code,
-		CurrencySymbol:  curr.Symbol,
-		MinorUnit:       curr.MinorUnit,
-		AmountMinor:     minor,
-		AmountFormatted: formatAmount(minor, curr.MinorUnit),
-		CreatedAt:       now,
+		ID:                fs.nextTxID,
+		Type:              TransactionTypeIncome,
+		EffectiveDate:     effDate,
+		Description:       desc,
+		PaymentMethodID:   &methodID,
+		PaymentMethodName: &methodName,
+		CategoryID:        &cat.ID,
+		CategoryName:      &cat.Name,
+		CategoryType:      &cat.Type,
+		MovementID:        fs.nextMovID,
+		AccountID:         acct.ID,
+		AccountName:       acct.Name,
+		AccountType:       acct.Type,
+		AccountSubtype:    acct.Subtype,
+		Institution:       acct.Institution,
+		CurrencyCode:      curr.Code,
+		CurrencySymbol:    curr.Symbol,
+		MinorUnit:         curr.MinorUnit,
+		AmountMinor:       minor,
+		AmountFormatted:   formatAmount(minor, curr.MinorUnit),
+		CreatedAt:         now,
 	}
 
 	fs.nextTxID++
@@ -614,33 +633,41 @@ func (fs *FakeServices) RecordExpense(ctx context.Context, in RecordExpenseInput
 		}
 	}
 
-	pm := in.PaymentMethod
+	method, ok := fs.methods[in.PaymentMethodID]
+	if !ok {
+		return TransactionView{}, ErrPaymentMethodNotFound
+	}
+	if !method.IsActive {
+		return TransactionView{}, ErrPaymentMethodInactive
+	}
+	methodID, methodName := method.ID, method.Name
 	now := time.Now().UTC()
 
 	// Stored negative for expense
 	storedMinor := -minor
 
 	tx := TransactionView{
-		ID:              fs.nextTxID,
-		Type:            TransactionTypeExpense,
-		EffectiveDate:   effDate,
-		Description:     desc,
-		PaymentMethod:   &pm,
-		CategoryID:      &cat.ID,
-		CategoryName:    &cat.Name,
-		CategoryType:    &cat.Type,
-		MovementID:      fs.nextMovID,
-		AccountID:       acct.ID,
-		AccountName:     acct.Name,
-		AccountType:     acct.Type,
-		AccountSubtype:  acct.Subtype,
-		Institution:     acct.Institution,
-		CurrencyCode:    curr.Code,
-		CurrencySymbol:  curr.Symbol,
-		MinorUnit:       curr.MinorUnit,
-		AmountMinor:     storedMinor,
-		AmountFormatted: formatAmount(storedMinor, curr.MinorUnit),
-		CreatedAt:       now,
+		ID:                fs.nextTxID,
+		Type:              TransactionTypeExpense,
+		EffectiveDate:     effDate,
+		Description:       desc,
+		PaymentMethodID:   &methodID,
+		PaymentMethodName: &methodName,
+		CategoryID:        &cat.ID,
+		CategoryName:      &cat.Name,
+		CategoryType:      &cat.Type,
+		MovementID:        fs.nextMovID,
+		AccountID:         acct.ID,
+		AccountName:       acct.Name,
+		AccountType:       acct.Type,
+		AccountSubtype:    acct.Subtype,
+		Institution:       acct.Institution,
+		CurrencyCode:      curr.Code,
+		CurrencySymbol:    curr.Symbol,
+		MinorUnit:         curr.MinorUnit,
+		AmountMinor:       storedMinor,
+		AmountFormatted:   formatAmount(storedMinor, curr.MinorUnit),
+		CreatedAt:         now,
 	}
 
 	fs.nextTxID++
@@ -681,26 +708,27 @@ func (fs *FakeServices) RecordOpeningBalance(ctx context.Context, in RecordOpeni
 
 	now := time.Now().UTC()
 	tx := TransactionView{
-		ID:              fs.nextTxID,
-		Type:            TransactionTypeOpeningBalance,
-		EffectiveDate:   effDate,
-		Description:     nil,
-		PaymentMethod:   nil,
-		CategoryID:      nil,
-		CategoryName:    nil,
-		CategoryType:    nil,
-		MovementID:      fs.nextMovID,
-		AccountID:       acct.ID,
-		AccountName:     acct.Name,
-		AccountType:     acct.Type,
-		AccountSubtype:  acct.Subtype,
-		Institution:     acct.Institution,
-		CurrencyCode:    curr.Code,
-		CurrencySymbol:  curr.Symbol,
-		MinorUnit:       curr.MinorUnit,
-		AmountMinor:     minor,
-		AmountFormatted: formatAmount(minor, curr.MinorUnit),
-		CreatedAt:       now,
+		ID:                fs.nextTxID,
+		Type:              TransactionTypeOpeningBalance,
+		EffectiveDate:     effDate,
+		Description:       nil,
+		PaymentMethodID:   nil,
+		PaymentMethodName: nil,
+		CategoryID:        nil,
+		CategoryName:      nil,
+		CategoryType:      nil,
+		MovementID:        fs.nextMovID,
+		AccountID:         acct.ID,
+		AccountName:       acct.Name,
+		AccountType:       acct.Type,
+		AccountSubtype:    acct.Subtype,
+		Institution:       acct.Institution,
+		CurrencyCode:      curr.Code,
+		CurrencySymbol:    curr.Symbol,
+		MinorUnit:         curr.MinorUnit,
+		AmountMinor:       minor,
+		AmountFormatted:   formatAmount(minor, curr.MinorUnit),
+		CreatedAt:         now,
 	}
 
 	fs.nextTxID++
@@ -749,6 +777,164 @@ func (fs *FakeServices) GetTransaction(ctx context.Context, id int64) (Transacti
 		}
 	}
 	return TransactionView{}, ErrNotFound
+}
+
+func (fs *FakeServices) UpdateTransaction(ctx context.Context, id int64, in UpdateTransactionInput) (TransactionView, error) {
+	if err := ctx.Err(); err != nil {
+		return TransactionView{}, err
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	idx := -1
+	for i, t := range fs.transactions {
+		if t.ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return TransactionView{}, ErrNotFound
+	}
+	existing := fs.transactions[idx]
+	if existing.Type == TransactionTypeOpeningBalance || in.Type == TransactionTypeOpeningBalance {
+		return TransactionView{}, ErrTypeChangeNotAllowed
+	}
+	if in.Type != TransactionTypeIncome && in.Type != TransactionTypeExpense {
+		return TransactionView{}, ErrInvalidInput
+	}
+
+	acct, ok := fs.accounts[in.AccountID]
+	if !ok {
+		return TransactionView{}, ErrAccountNotFound
+	}
+	if !acct.IsActive {
+		return TransactionView{}, ErrAccountInactive
+	}
+
+	if acct.CurrencyCode != existing.CurrencyCode && !in.AllowCurrencyChange {
+		return TransactionView{}, ErrCurrencyChangeNotConfirmed
+	}
+
+	cat, ok := fs.categories[in.CategoryID]
+	if !ok {
+		return TransactionView{}, ErrCategoryNotFound
+	}
+	if !cat.IsActive {
+		return TransactionView{}, ErrCategoryInactive
+	}
+	if (in.Type == TransactionTypeIncome && cat.Type != CategoryTypeIncome) ||
+		(in.Type == TransactionTypeExpense && cat.Type != CategoryTypeExpense) {
+		return TransactionView{}, ErrCategoryTypeMismatch
+	}
+
+	method, ok := fs.methods[in.PaymentMethodID]
+	if !ok {
+		return TransactionView{}, ErrPaymentMethodNotFound
+	}
+	if !method.IsActive {
+		return TransactionView{}, ErrPaymentMethodInactive
+	}
+
+	curr := fs.currencies[acct.CurrencyCode]
+	if strings.HasPrefix(strings.TrimSpace(in.Amount), "-") {
+		return TransactionView{}, ErrInvalidAmount
+	}
+	minor, err := parseAmount(in.Amount, curr.MinorUnit)
+	if err != nil || minor <= 0 {
+		return TransactionView{}, ErrInvalidAmount
+	}
+
+	effDate, err := time.Parse("2006-01-02", in.EffectiveDate)
+	if err != nil {
+		return TransactionView{}, ErrInvalidInput
+	}
+
+	var desc *string
+	if in.Description != nil {
+		d := strings.TrimSpace(*in.Description)
+		if d != "" {
+			if len(d) > 255 {
+				return TransactionView{}, ErrInvalidInput
+			}
+			desc = &d
+		}
+	}
+
+	storedMinor := minor
+	if in.Type == TransactionTypeExpense {
+		storedMinor = -minor
+	}
+
+	methodID, methodName := method.ID, method.Name
+	updated := TransactionView{
+		ID:                existing.ID,
+		Type:              in.Type,
+		EffectiveDate:     effDate,
+		Description:       desc,
+		PaymentMethodID:   &methodID,
+		PaymentMethodName: &methodName,
+		CategoryID:        &cat.ID,
+		CategoryName:      &cat.Name,
+		CategoryType:      &cat.Type,
+		MovementID:        existing.MovementID,
+		AccountID:         acct.ID,
+		AccountName:       acct.Name,
+		AccountType:       acct.Type,
+		AccountSubtype:    acct.Subtype,
+		Institution:       acct.Institution,
+		CurrencyCode:      curr.Code,
+		CurrencySymbol:    curr.Symbol,
+		MinorUnit:         curr.MinorUnit,
+		AmountMinor:       storedMinor,
+		AmountFormatted:   formatAmount(storedMinor, curr.MinorUnit),
+		CreatedAt:         existing.CreatedAt,
+	}
+
+	fs.transactions[idx] = updated
+	return updated, nil
+}
+
+func (fs *FakeServices) UpdateOpeningBalance(ctx context.Context, id int64, in UpdateOpeningBalanceInput) (TransactionView, error) {
+	if err := ctx.Err(); err != nil {
+		return TransactionView{}, err
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	idx := -1
+	for i, t := range fs.transactions {
+		if t.ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return TransactionView{}, ErrNotFound
+	}
+	existing := fs.transactions[idx]
+	if existing.Type != TransactionTypeOpeningBalance {
+		return TransactionView{}, ErrTypeChangeNotAllowed
+	}
+
+	curr := fs.currencies[existing.CurrencyCode]
+	minor, err := parseAmount(in.Amount, curr.MinorUnit)
+	if err != nil || minor == 0 {
+		return TransactionView{}, ErrInvalidAmount
+	}
+
+	effDate, err := time.Parse("2006-01-02", in.EffectiveDate)
+	if err != nil {
+		return TransactionView{}, ErrInvalidInput
+	}
+
+	updated := existing
+	updated.EffectiveDate = effDate
+	updated.AmountMinor = minor
+	updated.AmountFormatted = formatAmount(minor, curr.MinorUnit)
+
+	fs.transactions[idx] = updated
+	return updated, nil
 }
 
 func (fs *FakeServices) GetAccountBalance(ctx context.Context, accountID int64) (AccountBalance, error) {
@@ -968,7 +1154,9 @@ func (fs *FakeServices) BuildServices() *Services {
 		Currencies:  fs,
 		Accounts:    fakeAccountService{fs},
 		Categories:  fakeCategoryService{fs},
+		Methods:     fakePaymentMethodService{fs},
 		Ledger:      fs,
+		Backups:     fakeBackupService{fs},
 		Application: fs,
 	}
 }
@@ -985,6 +1173,7 @@ func (fs *FakeServices) Reset() {
 	fs.transactions = make([]TransactionView, 0)
 	fs.nextTxID = 1
 	fs.nextMovID = 1
+	fs.backups = nil
 }
 
 // SeedSampleData helper for testing or quick dev
@@ -1031,11 +1220,11 @@ func (fs *FakeServices) SeedSampleData(ctx context.Context) error {
 
 	// Income $500
 	_, err = fs.RecordIncome(ctx, RecordIncomeInput{
-		AccountID:     res.Account.ID,
-		CategoryID:    salaryCat.ID,
-		Amount:        "500.00",
-		PaymentMethod: PaymentMethodBankTransfer,
-		EffectiveDate: today,
+		AccountID:       res.Account.ID,
+		CategoryID:      salaryCat.ID,
+		Amount:          "500.00",
+		PaymentMethodID: 1,
+		EffectiveDate:   today,
 	})
 	if err != nil {
 		return err
@@ -1044,12 +1233,12 @@ func (fs *FakeServices) SeedSampleData(ctx context.Context) error {
 	// Expense $25
 	desc := "Supermarket"
 	_, err = fs.RecordExpense(ctx, RecordExpenseInput{
-		AccountID:     res.Account.ID,
-		CategoryID:    groceriesCat.ID,
-		Amount:        "25.00",
-		PaymentMethod: PaymentMethodPOS,
-		Description:   &desc,
-		EffectiveDate: today,
+		AccountID:       res.Account.ID,
+		CategoryID:      groceriesCat.ID,
+		Amount:          "25.00",
+		PaymentMethodID: 2,
+		Description:     &desc,
+		EffectiveDate:   today,
 	})
 	if err != nil {
 		return err
@@ -1068,4 +1257,190 @@ func FormatDate(t time.Time) string {
 
 func StringPtr(s string) *string {
 	return &s
+}
+
+// --- payment methods ---------------------------------------------------------
+//
+// Seeded with the four M3 migrated from M2's fixed enumeration, so a fake-backed
+// run shows what a freshly upgraded database shows.
+
+func (fs *FakeServices) ListPaymentMethods(ctx context.Context, in ListPaymentMethodsInput) ([]PaymentMethod, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+
+	methods := make([]PaymentMethod, 0, len(fs.methods))
+	for _, m := range fs.methods {
+		if !in.IncludeInactive && !m.IsActive {
+			continue
+		}
+		methods = append(methods, m)
+	}
+	sort.Slice(methods, func(i, j int) bool {
+		if methods[i].Name != methods[j].Name {
+			return methods[i].Name < methods[j].Name
+		}
+		return methods[i].ID < methods[j].ID
+	})
+	return methods, nil
+}
+
+func (fs *FakeServices) GetPaymentMethod(ctx context.Context, id int64) (PaymentMethod, error) {
+	if err := ctx.Err(); err != nil {
+		return PaymentMethod{}, err
+	}
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+
+	m, ok := fs.methods[id]
+	if !ok {
+		return PaymentMethod{}, ErrNotFound
+	}
+	return m, nil
+}
+
+func (fs *FakeServices) CreatePaymentMethod(ctx context.Context, in CreatePaymentMethodInput) (PaymentMethod, error) {
+	if err := ctx.Err(); err != nil {
+		return PaymentMethod{}, err
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" || len([]rune(name)) > 60 {
+		return PaymentMethod{}, ErrInvalidInput
+	}
+
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	// Exact uniqueness, matching the real service.
+	for _, m := range fs.methods {
+		if m.Name == name {
+			return PaymentMethod{}, ErrConflict
+		}
+	}
+
+	now := time.Now().UTC()
+	m := PaymentMethod{ID: fs.nextMethodID, Name: name, IsActive: true, CreatedAt: now, UpdatedAt: now}
+	fs.methods[m.ID] = m
+	fs.nextMethodID++
+	return m, nil
+}
+
+func (fs *FakeServices) UpdatePaymentMethodMetadata(
+	ctx context.Context, id int64, in UpdatePaymentMethodMetadataInput,
+) (PaymentMethod, error) {
+	if err := ctx.Err(); err != nil {
+		return PaymentMethod{}, err
+	}
+	name := strings.TrimSpace(in.Name)
+	if name == "" || len([]rune(name)) > 60 {
+		return PaymentMethod{}, ErrInvalidInput
+	}
+
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	m, ok := fs.methods[id]
+	if !ok {
+		return PaymentMethod{}, ErrNotFound
+	}
+	for otherID, other := range fs.methods {
+		if otherID != id && other.Name == name {
+			return PaymentMethod{}, ErrConflict
+		}
+	}
+
+	m.Name = name
+	m.UpdatedAt = time.Now().UTC()
+	fs.methods[id] = m
+	return m, nil
+}
+
+func (fs *FakeServices) SetPaymentMethodActive(ctx context.Context, id int64, isActive bool) (PaymentMethod, error) {
+	if err := ctx.Err(); err != nil {
+		return PaymentMethod{}, err
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	m, ok := fs.methods[id]
+	if !ok {
+		return PaymentMethod{}, ErrNotFound
+	}
+	m.IsActive = isActive
+	m.UpdatedAt = time.Now().UTC()
+	fs.methods[id] = m
+	return m, nil
+}
+
+// fakePaymentMethodService adapts the method names above to the interface, the
+// same shape the account and category fakes use.
+type fakePaymentMethodService struct{ *FakeServices }
+
+func (s fakePaymentMethodService) List(ctx context.Context, in ListPaymentMethodsInput) ([]PaymentMethod, error) {
+	return s.ListPaymentMethods(ctx, in)
+}
+
+func (s fakePaymentMethodService) Get(ctx context.Context, id int64) (PaymentMethod, error) {
+	return s.GetPaymentMethod(ctx, id)
+}
+
+func (s fakePaymentMethodService) Create(ctx context.Context, in CreatePaymentMethodInput) (PaymentMethod, error) {
+	return s.CreatePaymentMethod(ctx, in)
+}
+
+func (s fakePaymentMethodService) UpdateMetadata(
+	ctx context.Context, id int64, in UpdatePaymentMethodMetadataInput,
+) (PaymentMethod, error) {
+	return s.UpdatePaymentMethodMetadata(ctx, id, in)
+}
+
+func (s fakePaymentMethodService) SetActive(ctx context.Context, id int64, isActive bool) (PaymentMethod, error) {
+	return s.SetPaymentMethodActive(ctx, id, isActive)
+}
+
+// --- backups -----------------------------------------------------------------
+
+func (fs *FakeServices) ListBackups(ctx context.Context) ([]Backup, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+
+	out := make([]Backup, len(fs.backups))
+	copy(out, fs.backups)
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	return out, nil
+}
+
+func (fs *FakeServices) CreateManualBackup(ctx context.Context) (Backup, error) {
+	if err := ctx.Err(); err != nil {
+		return Backup{}, err
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	now := time.Now().UTC()
+	b := Backup{
+		Name:      fmt.Sprintf("backup_%s_manual.db", now.Format("20060102_150405")),
+		Reason:    "manual",
+		CreatedAt: now,
+		SizeBytes: 40960,
+	}
+	fs.backups = append(fs.backups, b)
+	return b, nil
+}
+
+type fakeBackupService struct{ *FakeServices }
+
+func (s fakeBackupService) List(ctx context.Context) ([]Backup, error) {
+	return s.ListBackups(ctx)
+}
+
+func (s fakeBackupService) CreateManual(ctx context.Context) (Backup, error) {
+	return s.CreateManualBackup(ctx)
 }

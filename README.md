@@ -4,9 +4,10 @@ A local, single-user web application for managing personal finances. Go +
 SQLite, server-rendered, run on your own machine with Docker Compose. No cloud,
 no accounts, no telemetry.
 
-**This repository is at milestone M1.** It starts, migrates its schema, and can
-model currencies and accounts. There is no user interface yet — the domain is
-exercised through its Go API and its tests. See [Scope](#scope) below.
+**This repository is at milestone M3.** It records income and expenses across
+accounts in several currencies, derives every balance from the ledger, lets you
+correct what you entered, and takes backups you can restore from. See
+[Scope](#scope) below.
 
 ## Requirements
 
@@ -54,6 +55,8 @@ involved. `.env` is git-ignored.
 | `HTTP_ADDR` | `:8080`              | Listen address as `host:port`. Empty host means all interfaces. |
 | `DB_PATH`   | `./data/finance.db`  | SQLite file. Its parent directory is created on startup.     |
 | `LOG_LEVEL` | `info`               | `debug`, `info`, `warn` or `error`.                          |
+| `BACKUP_DIR` | `./backups`         | Where snapshots are written. `/backups` under Compose.       |
+| `BACKUP_RETENTION` | `10`          | Shutdown snapshots to keep. `0` keeps every one.             |
 | `HTTP_PORT` | `8080`               | Host port published by Compose. Read by `compose.yaml` only. |
 
 An invalid value is reported by name at startup and the process exits non-zero.
@@ -93,21 +96,59 @@ The database is never in the container's writable layer, so:
 | ----------------------- | ---------------------------------------------------- |
 | `docker compose down`   | Containers removed, **volume kept**. Data survives.   |
 | `docker compose up`     | The same volume is reattached. Data is still there.   |
-| `docker compose down -v`| **Destroys the volume and the database. Irreversible.** |
+| `docker compose up -d --build` | Rebuilds the image, **keeps the volume**. This is how to pick up code changes. |
+| `docker compose down -v`| **Destroys the volume and the database.** Recoverable only from a backup. |
+
+`docker volume prune` and `docker system prune --volumes` will also remove the
+volume once the container is gone. Both are easy to run without meaning to.
 
 SQLite runs in WAL mode, so alongside `finance.db` you may see `finance.db-wal`
 and `finance.db-shm`. They are SQLite's own working files, not something to
 manage by hand.
 
-### Backups
+## Backups
 
-Not implemented — backups are out of scope for M0. When they are added:
+Snapshots go to **`./backups/` on your machine**, not into the Docker volume.
+That is the whole point: `docker compose down -v` destroys volumes, so a backup
+kept in one would die with the database it exists to protect.
 
-- With the application **stopped cleanly**, copying the database file is enough.
-- With the application **running**, copying the file by hand is not safe. The
-  correct mechanism is SQLite's Online Backup API or
-  `VACUUM INTO '/path/to/backup.db'`, both of which produce a consistent copy
-  without stopping the service.
+They are taken automatically:
+
+- **before migrations**, whenever a schema that already holds data is about to
+  change;
+- **on shutdown**, after requests drain and before the database closes — including
+  the shutdown that `docker compose down` performs before destroying anything;
+- **on request**, from the application.
+
+Only shutdown snapshots are ever deleted, keeping the most recent
+`BACKUP_RETENTION` (default 10). Manual and pre-migration snapshots are kept
+indefinitely.
+
+Each one is a complete SQLite database taken with `VACUUM INTO` and verified with
+`PRAGMA integrity_check` before it counts. You can open one directly:
+
+```sh
+sqlite3 backups/finance-20260905T183045Z-manual.db "SELECT count(*) FROM transactions"
+```
+
+### Restoring
+
+Restore is deliberately an **offline** operation — replacing the database while
+the server is running would pull the file out from under it:
+
+```sh
+docker compose stop
+docker compose run --rm app restore --file finance-20260905T183045Z-manual.db
+docker compose up -d
+```
+
+It validates the snapshot first, takes a snapshot of what it is replacing so the
+restore itself can be undone, and leaves everything untouched if anything fails.
+A snapshot from an older schema is fine: the next normal start migrates it
+forward.
+
+`docs/operations.md` has the full procedure, including how to rehearse a recovery
+on a throwaway project.
 
 ## Tests
 
@@ -144,13 +185,22 @@ HTTP  →  Application / Services  →  Repository  →  SQLite
 ```
 
 ```
-cmd/web/             composition root: config → database → migrations → server
-internal/config/     environment loading and validation
-internal/database/   SQLite: DSN, PRAGMAs, connection pool, time convention
-internal/migrations/ schema, as embedded SQL migrations
-internal/currency/   currencies: model, repository, service
-internal/account/    accounts: model, repository, service
-internal/httpserver/ HTTP server, timeouts, routes
+cmd/web/                composition root; `serve` (default) and `restore`
+internal/config/        environment loading and validation
+internal/database/      SQLite: DSN, PRAGMAs, pool, time and date conventions
+internal/migrations/    schema, as embedded SQL migrations
+internal/backup/        snapshots and restore
+internal/money/         exact decimal string ↔ integer minor units
+internal/currency/      currencies
+internal/account/       accounts
+internal/category/      income and expense categories
+internal/paymentmethod/ payment channels
+internal/ledger/        transactions and account movements; balances
+internal/application/   cross-domain workflows (open account + opening balance)
+internal/httpserver/    HTTP server, timeouts, /healthz
+internal/web/           handlers, templates, view models
+internal/web/adapter/   translation between the web layer and the domain
+web/                    templates and static assets
 ```
 
 Domain packages hold their own model, repository and service — organised by
@@ -190,21 +240,43 @@ service. Accounts and currencies are archived, never deleted.
 
 All of it is covered by tests running against real SQLite.
 
+**M2 — the ledger.** Categories, transactions and account movements, with every
+balance derived from `SUM(account_movements.amount_minor)` rather than stored.
+Amounts are exact integer minor units end to end — no float anywhere in parsing,
+storage, summation or formatting. Opening balances are ledger facts, not columns.
+Plus the server-rendered interface: dashboard, accounts, categories and
+transactions.
+
+**M3 — data safety, editing and payment methods.** Backups taken automatically
+before migrations and on shutdown, written to the host rather than the Docker
+volume, with an offline restore. Payment methods became rows you administer
+instead of four fixed values. Transactions and opening balances can be corrected,
+revalidated against exactly the same rules as a creation.
+
+All of it is covered by tests running against real SQLite, and the disaster
+recovery path has been rehearsed against real Docker.
+
 ### Not built yet
 
-There is **no user interface**. Currencies and accounts exist in the database and
-in the Go API, but nothing renders them; the domain is exercised through its
-tests. HTML, htmx, templates and CSS are a later milestone.
+Everything below is deliberately absent, and none of it is described anywhere in
+this README as though it existed:
 
-There are also **no balances and no amounts anywhere**. `accounts` deliberately
-has no balance column: balances will be derived from the movement ledger that
-arrives with transactions, so a stored balance would be a denormalised value that
-can silently disagree with its own history.
+**No deleting.** Accounts, categories, payment methods and transactions are
+archived or corrected, never removed. Cancelling a transaction is an accounting
+decision that has not been made yet.
 
-Everything else remains a later milestone and is deliberately absent:
-authentication, users, income, expenses, categories, transfers, net worth,
-exchange rates and FX conversion, credits, cards, loans, instalments, financial
-calendar, charts, dashboards, automatic backups, Excel import, export, cloud
-deployment and CI/CD.
+**No history of edits.** M3 supports editing current records; it does not keep
+previous versions of them. The undo is a backup.
 
-Nothing in this README describes a feature that does not exist yet.
+**No currency conversion.** Accounts in USD, EUR and VES are shown side by side
+and never summed together. Exchange rates, a reporting currency and consolidated
+net worth belong to a later milestone.
+
+**No transfers between your own accounts.** A payment method named "Bank
+transfer" describes how money moved with the outside world, which is a different
+thing.
+
+Also absent: authentication and users, historical net worth, credit cards, loans,
+instalments, a financial calendar, recurring transactions, budgets, tags,
+hierarchical categories, charts and analytics, scheduled backups, Excel import,
+export, cloud deployment and CI/CD.

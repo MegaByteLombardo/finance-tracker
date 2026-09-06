@@ -1,0 +1,44 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>New Payment Method</h1>
+    <p class="page-subtitle">Add a payment channel for transactions</p>
+  </div>
+  <div class="page-actions">
+    <a href="/payment-methods" class="btn btn-secondary">&larr; Back to Payment Methods</a>
+  </div>
+</div>
+
+<div class="form-card">
+  {{ if .Errors.general }}
+  <div class="alert alert-danger" role="alert">
+    <div>{{ .Errors.general }}</div>
+  </div>
+  {{ end }}
+
+  <form action="/payment-methods" method="POST">
+    <div class="form-group">
+      <label class="form-label" for="name">
+        Method Name <span class="required-indicator">*</span>
+      </label>
+      <input type="text"
+             class="form-control {{ if .HasError "name" }}is-invalid{{ end }}"
+             id="name"
+             name="name"
+             value="{{ .Name }}"
+             placeholder="e.g. Zelle, Pago móvil, PayPal, Debit Card"
+             maxlength="60"
+             required>
+      {{ if .HasError "name" }}
+      <div class="form-error">{{ .Error "name" }}</div>
+      {{ end }}
+      <div class="form-help">Maximum 60 characters. Method names are case-sensitive.</div>
+    </div>
+
+    <div class="form-actions">
+      <a href="/payment-methods" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">Create Payment Method</button>
+    </div>
+  </form>
+</div>
+{{ end }}

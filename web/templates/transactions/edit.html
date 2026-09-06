@@ -1,0 +1,205 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Edit Transaction</h1>
+    <p class="page-subtitle">Update movement details in the ledger</p>
+  </div>
+  <div class="page-actions">
+    <a href="/transactions" class="btn btn-secondary">&larr; Back to Transactions</a>
+  </div>
+</div>
+
+<div class="form-card">
+  {{ if .NeedsCurrencyConfirmation }}
+  <div class="alert alert-warning" role="alert" style="margin-bottom: var(--space-4);">
+    <div style="font-weight: 700; margin-bottom: 4px; font-size: 1rem;">Confirmación de cambio de moneda requerida</div>
+    <p style="margin: 0 0 8px 0; font-size: 0.95rem;">
+      <strong>El importe {{ .Amount }} se interpretará como {{ .Amount }} {{ .TargetCurrencyCode }}, no se convertirá</strong>
+    </p>
+    <p style="margin: 0; font-size: 0.85rem; color: var(--text-muted);">
+      Mover esta transacción a una cuenta con moneda <strong>{{ .TargetCurrencyCode }}</strong> (la cuenta previa usaba <strong>{{ .OriginalCurrencyCode }}</strong>) reinterpreta el importe nominal directamente en la nueva divisa. Finance Tracker no aplica tasas de conversión. Haz clic en "Confirmar y Guardar" para confirmar el cambio.
+    </p>
+  </div>
+  {{ end }}
+
+  {{ if .Errors.general }}
+  <div class="alert alert-danger" role="alert">
+    <div>{{ .Errors.general }}</div>
+  </div>
+  {{ end }}
+
+  <form action="/transactions/{{ .ID }}" method="POST">
+    {{ if .NeedsCurrencyConfirmation }}
+    <input type="hidden" name="allow_currency_change" value="true">
+    {{ else }}
+    <input type="hidden" name="allow_currency_change" value="{{ if .AllowCurrencyChange }}true{{ else }}false{{ end }}">
+    {{ end }}
+
+    <!-- Type Selection -->
+    <div class="form-group">
+      <label class="form-label" for="type">
+        Transaction Type <span class="required-indicator">*</span>
+      </label>
+      <select class="form-control {{ if .HasError "type" }}is-invalid{{ end }}"
+              id="type"
+              name="type"
+              hx-get="/transactions/category-options"
+              hx-target="#category-container"
+              hx-swap="innerHTML"
+              required>
+        <option value="EXPENSE" {{ if eq .Type "EXPENSE" }}selected{{ end }}>EXPENSE</option>
+        <option value="INCOME" {{ if eq .Type "INCOME" }}selected{{ end }}>INCOME</option>
+      </select>
+      {{ if .HasError "type" }}
+      <div class="form-error">{{ .Error "type" }}</div>
+      {{ end }}
+      <div class="form-help">Opening balance cannot be selected here. Switching type automatically updates available categories.</div>
+    </div>
+
+    <!-- Account Selection -->
+    <div class="form-group">
+      <label class="form-label" for="account_id">
+        Account <span class="required-indicator">*</span>
+      </label>
+      <select class="form-control {{ if .HasError "account_id" }}is-invalid{{ end }}"
+              id="account_id"
+              name="account_id"
+              hx-get="/transactions/account-info"
+              hx-target="#currency-display-container"
+              hx-swap="innerHTML"
+              required>
+        <option value="">Select account...</option>
+        {{ range .Accounts }}
+        <option value="{{ .ID }}" {{ if eq $.AccountID .ID }}selected{{ end }}>
+          {{ .Name }} ({{ .CurrencyCode }}){{ if .Institution }} &middot; {{ derefString .Institution }}{{ end }}
+        </option>
+        {{ end }}
+      </select>
+      {{ if .HasError "account_id" }}
+      <div class="form-error">{{ .Error "account_id" }}</div>
+      {{ end }}
+    </div>
+
+    <!-- Currency Display (Read-only, derived from Account) -->
+    <div id="currency-display-container">
+      <div id="currency-display-box" class="form-group">
+        <label class="form-label">Currency (Read-only)</label>
+        <input type="text"
+               class="form-control"
+               value="{{ if .SelectedCurrencyCode }}{{ .SelectedCurrencyCode }}{{ if .SelectedCurrencySymbol }} ({{ derefString .SelectedCurrencySymbol }}){{ end }}{{ else }}Select an account to view currency{{ end }}"
+               readonly>
+        <div class="form-help">Transaction currency is strictly derived from the selected account. Moving to an account with a different currency requires explicit confirmation.</div>
+      </div>
+    </div>
+
+    <!-- Amount & Effective Date -->
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="amount">
+          Amount <span class="required-indicator">*</span>
+        </label>
+        <input type="text"
+               class="form-control {{ if .HasError "amount" }}is-invalid{{ end }}"
+               id="amount"
+               name="amount"
+               value="{{ .Amount }}"
+               placeholder="e.g. 25.50"
+               data-type="currency"
+               data-minor-unit="{{ .SelectedCurrencyMinorUnit }}"
+               inputmode="decimal"
+               autocomplete="off"
+               required>
+        {{ if .HasError "amount" }}
+        <div class="form-error">{{ .Error "amount" }}</div>
+        {{ end }}
+        <div class="form-help">Always enter a positive amount. The system signs it based on type.</div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="effective_date">
+          Effective Date <span class="required-indicator">*</span>
+        </label>
+        <input type="date"
+               class="form-control {{ if .HasError "effective_date" }}is-invalid{{ end }}"
+               id="effective_date"
+               name="effective_date"
+               value="{{ .EffectiveDate }}"
+               required>
+        {{ if .HasError "effective_date" }}
+        <div class="form-error">{{ .Error "effective_date" }}</div>
+        {{ end }}
+      </div>
+    </div>
+
+    <!-- Category Selection -->
+    <div id="category-container">
+      <div id="category-group" class="form-group">
+        <label class="form-label" for="category_id">
+          Category ({{ .Type }}) <span class="required-indicator">*</span>
+        </label>
+        <select class="form-control {{ if .HasError "category_id" }}is-invalid{{ end }}"
+                id="category_id"
+                name="category_id"
+                required>
+          <option value="">Select {{ .Type }} category...</option>
+          {{ range .Categories }}
+          <option value="{{ .ID }}" {{ if eq $.CategoryID .ID }}selected{{ end }}>
+            {{ .Name }}
+          </option>
+          {{ end }}
+        </select>
+        {{ if .HasError "category_id" }}
+        <div class="form-error">{{ .Error "category_id" }}</div>
+        {{ end }}
+        {{ if not .Categories }}
+        <div class="form-help" style="color: var(--danger);">
+          No active {{ .Type }} categories available. <a href="/categories/new" target="_blank" style="color: var(--accent); text-decoration: underline;">Create category</a>
+        </div>
+        {{ end }}
+      </div>
+    </div>
+
+    <!-- Payment Method -->
+    <div class="form-group">
+      <label class="form-label" for="payment_method_id">
+        Payment method <span class="required-indicator">*</span>
+      </label>
+      <select class="form-control {{ if .HasError "payment_method_id" }}is-invalid{{ end }}"
+              id="payment_method_id"
+              name="payment_method_id"
+              required>
+        {{ range .Methods }}
+        <option value="{{ .ID }}" {{ if eq $.PaymentMethodID .ID }}selected{{ end }}>{{ .Name }}</option>
+        {{ end }}
+      </select>
+      {{ if .HasError "payment_method_id" }}
+      <div class="form-error">{{ .Error "payment_method_id" }}</div>
+      {{ end }}
+    </div>
+
+    <!-- Description -->
+    <div class="form-group">
+      <label class="form-label" for="description">
+        Description
+      </label>
+      <input type="text"
+             class="form-control {{ if .HasError "description" }}is-invalid{{ end }}"
+             id="description"
+             name="description"
+             value="{{ .Description }}"
+             placeholder="e.g. Grocery shopping, monthly salary (optional)"
+             maxlength="255">
+      {{ if .HasError "description" }}
+      <div class="form-error">{{ .Error "description" }}</div>
+      {{ end }}
+    </div>
+
+    <div class="form-actions">
+      <a href="/transactions" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn {{ if .NeedsCurrencyConfirmation }}btn-warning{{ else }}btn-primary{{ end }}">
+        {{ if .NeedsCurrencyConfirmation }}Confirmar y Guardar{{ else }}Save Changes{{ end }}
+      </button>
+    </div>
+  </form>
+</div>
+{{ end }}

@@ -38,20 +38,14 @@ func NewRenderer(templateFS fs.FS) *Renderer {
 			}
 			return t.Format("Jan 02, 2006")
 		},
-		"paymentMethodLabel": func(m any) string {
-			switch v := m.(type) {
-			case PaymentMethod:
-				return PaymentMethodLabel(v)
-			case *PaymentMethod:
-				if v != nil {
-					return PaymentMethodLabel(*v)
-				}
-				return "-"
-			case string:
-				return PaymentMethodLabel(PaymentMethod(v))
-			default:
+		// Payment method names come from the database now, so there is nothing
+		// to map: this only turns "no method" -- an opening balance -- into
+		// something readable.
+		"paymentMethodLabel": func(name *string) string {
+			if name == nil || *name == "" {
 				return "-"
 			}
+			return *name
 		},
 		"isBank": func(t AccountType) bool {
 			return t == AccountTypeBank
@@ -94,6 +88,24 @@ func NewRenderer(templateFS fs.FS) *Renderer {
 		"upper": strings.ToUpper,
 		"seq": func(a, b any) bool {
 			return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+		},
+		"formatDateTime": func(t time.Time) string {
+			if t.IsZero() {
+				return ""
+			}
+			return t.Format("2006-01-02 15:04:05 UTC")
+		},
+		"formatBytes": func(b int64) string {
+			const unit = 1024
+			if b < unit {
+				return fmt.Sprintf("%d B", b)
+			}
+			div, exp := int64(unit), 0
+			for n := b / unit; n >= unit; n /= unit {
+				div *= unit
+				exp++
+			}
+			return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 		},
 	}
 

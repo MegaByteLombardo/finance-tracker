@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # that path, ownership included. Shipping an empty /data owned by the runtime
 # user is what allows the non-root process to write to the volume; without it
 # the volume would be created root-owned and every write would fail.
-RUN mkdir -p /out/data
+RUN mkdir -p /out/data /out/backups
 
 # --- runtime -----------------------------------------------------------------
 # distroless/static: no shell, no package manager, non-root by default. The
@@ -36,13 +36,19 @@ FROM gcr.io/distroless/static-debian13:nonroot
 # numerically because COPY --chown resolves names against the target image.
 COPY --from=build /out/finance-tracker /usr/local/bin/finance-tracker
 COPY --from=build --chown=65532:65532 /out/data /data
+# /backups is normally a bind mount from the host, which shadows this. It is
+# shipped owned by the runtime user anyway so that mounting a named volume there
+# instead also works: a volume inherits the image directory's ownership, and one
+# created over a path the image does not have would be root-owned and unwritable.
+COPY --from=build --chown=65532:65532 /out/backups /backups
 COPY --from=build /src/web /web
 
 USER 65532:65532
 WORKDIR /
 
 ENV HTTP_ADDR=":8080" \
-    DB_PATH="/data/finance.db"
+    DB_PATH="/data/finance.db" \
+    BACKUP_DIR="/backups"
 
 EXPOSE 8080
 

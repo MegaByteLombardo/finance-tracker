@@ -1,29 +1,45 @@
 package adapter_test
 
 import (
+	"database/sql"
 	"errors"
+	"io"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/account"
+	"github.com/MegaByteLombardo/finance-tracker/internal/backup"
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/dbtest"
 	"github.com/MegaByteLombardo/finance-tracker/internal/web"
 	"github.com/MegaByteLombardo/finance-tracker/internal/web/adapter"
 )
 
-// 1. Compile-time assertions for all 5 consumer interfaces
+func newTestServices(t *testing.T, db *sql.DB) *web.Services {
+	t.Helper()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	backups, err := backup.NewService(db, t.TempDir(), 5, logger)
+	if err != nil {
+		t.Fatalf("creating backup service: %v", err)
+	}
+	return adapter.New(db, backups)
+}
+
+// 1. Compile-time assertions for all consumer interfaces
 func TestCompilationAssertions(t *testing.T) {
 	t.Parallel()
 
 	db := dbtest.New(t)
-	svcs := adapter.New(db)
+	svcs := newTestServices(t, db)
 
 	var _ web.CurrencyService = svcs.Currencies
 	var _ web.AccountService = svcs.Accounts
 	var _ web.CategoryService = svcs.Categories
+	var _ web.PaymentMethodService = svcs.Methods
 	var _ web.LedgerService = svcs.Ledger
+	var _ web.BackupService = svcs.Backups
 	var _ web.ApplicationService = svcs.Application
 }
 
@@ -33,7 +49,7 @@ func TestErrorTranslations(t *testing.T) {
 
 	ctx := t.Context()
 	db := dbtest.New(t)
-	svcs := adapter.New(db)
+	svcs := newTestServices(t, db)
 
 	assertError := func(t *testing.T, err error, targetSentinel error, expectedSubstring string) {
 		t.Helper()
@@ -158,31 +174,31 @@ func TestErrorTranslations(t *testing.T) {
 
 	// ledger.ErrInvalidInput -> web.ErrInvalidInput (invalid date)
 	_, err = svcs.Ledger.RecordIncome(ctx, web.RecordIncomeInput{
-		AccountID:     acctUSD.ID,
-		CategoryID:    catSalary.ID,
-		Amount:        "100.00",
-		PaymentMethod: web.PaymentMethodBankTransfer,
-		EffectiveDate: "2026-02-31", // impossible date
+		AccountID:       acctUSD.ID,
+		CategoryID:      catSalary.ID,
+		Amount:          "100.00",
+		PaymentMethodID: 1,
+		EffectiveDate:   "2026-02-31", // impossible date
 	})
 	assertError(t, err, web.ErrInvalidInput, "date")
 
 	// ledger.ErrInvalidAmount -> web.ErrInvalidAmount (negative on income)
 	_, err = svcs.Ledger.RecordIncome(ctx, web.RecordIncomeInput{
-		AccountID:     acctUSD.ID,
-		CategoryID:    catSalary.ID,
-		Amount:        "-50.00",
-		PaymentMethod: web.PaymentMethodBankTransfer,
-		EffectiveDate: "2026-09-05",
+		AccountID:       acctUSD.ID,
+		CategoryID:      catSalary.ID,
+		Amount:          "-50.00",
+		PaymentMethodID: 1,
+		EffectiveDate:   "2026-09-05",
 	})
 	assertError(t, err, web.ErrInvalidAmount, "amount")
 
 	// ledger.ErrAccountNotFound -> web.ErrAccountNotFound
 	_, err = svcs.Ledger.RecordIncome(ctx, web.RecordIncomeInput{
-		AccountID:     999999,
-		CategoryID:    catSalary.ID,
-		Amount:        "50.00",
-		PaymentMethod: web.PaymentMethodBankTransfer,
-		EffectiveDate: "2026-09-05",
+		AccountID:       999999,
+		CategoryID:      catSalary.ID,
+		Amount:          "50.00",
+		PaymentMethodID: 1,
+		EffectiveDate:   "2026-09-05",
 	})
 	assertError(t, err, web.ErrAccountNotFound, "account not found")
 
@@ -192,11 +208,11 @@ func TestErrorTranslations(t *testing.T) {
 		t.Fatalf("archiving account: %v", err)
 	}
 	_, err = svcs.Ledger.RecordIncome(ctx, web.RecordIncomeInput{
-		AccountID:     acctUSD.ID,
-		CategoryID:    catSalary.ID,
-		Amount:        "50.00",
-		PaymentMethod: web.PaymentMethodBankTransfer,
-		EffectiveDate: "2026-09-05",
+		AccountID:       acctUSD.ID,
+		CategoryID:      catSalary.ID,
+		Amount:          "50.00",
+		PaymentMethodID: 1,
+		EffectiveDate:   "2026-09-05",
 	})
 	assertError(t, err, web.ErrAccountInactive, "inactive")
 
@@ -205,11 +221,11 @@ func TestErrorTranslations(t *testing.T) {
 
 	// ledger.ErrCategoryNotFound -> web.ErrCategoryNotFound
 	_, err = svcs.Ledger.RecordIncome(ctx, web.RecordIncomeInput{
-		AccountID:     acctUSD.ID,
-		CategoryID:    999999,
-		Amount:        "50.00",
-		PaymentMethod: web.PaymentMethodBankTransfer,
-		EffectiveDate: "2026-09-05",
+		AccountID:       acctUSD.ID,
+		CategoryID:      999999,
+		Amount:          "50.00",
+		PaymentMethodID: 1,
+		EffectiveDate:   "2026-09-05",
 	})
 	assertError(t, err, web.ErrCategoryNotFound, "category not found")
 
@@ -219,11 +235,11 @@ func TestErrorTranslations(t *testing.T) {
 		t.Fatalf("archiving category: %v", err)
 	}
 	_, err = svcs.Ledger.RecordIncome(ctx, web.RecordIncomeInput{
-		AccountID:     acctUSD.ID,
-		CategoryID:    catSalary.ID,
-		Amount:        "50.00",
-		PaymentMethod: web.PaymentMethodBankTransfer,
-		EffectiveDate: "2026-09-05",
+		AccountID:       acctUSD.ID,
+		CategoryID:      catSalary.ID,
+		Amount:          "50.00",
+		PaymentMethodID: 1,
+		EffectiveDate:   "2026-09-05",
 	})
 	assertError(t, err, web.ErrCategoryInactive, "inactive")
 
@@ -233,11 +249,11 @@ func TestErrorTranslations(t *testing.T) {
 	// ledger.ErrCategoryTypeMismatch -> web.ErrCategoryTypeMismatch
 	// Filing income with expense category (Groceries)
 	_, err = svcs.Ledger.RecordIncome(ctx, web.RecordIncomeInput{
-		AccountID:     acctUSD.ID,
-		CategoryID:    catGroceries.ID,
-		Amount:        "50.00",
-		PaymentMethod: web.PaymentMethodBankTransfer,
-		EffectiveDate: "2026-09-05",
+		AccountID:       acctUSD.ID,
+		CategoryID:      catGroceries.ID,
+		Amount:          "50.00",
+		PaymentMethodID: 1,
+		EffectiveDate:   "2026-09-05",
 	})
 	assertError(t, err, web.ErrCategoryTypeMismatch, "match")
 }
@@ -248,7 +264,7 @@ func TestEndToEndFlowOnRealDB(t *testing.T) {
 
 	ctx := t.Context()
 	db := dbtest.New(t)
-	svcs := adapter.New(db)
+	svcs := newTestServices(t, db)
 
 	// 1. Create categories
 	catSalary, err := svcs.Categories.Create(ctx, web.CreateCategoryInput{
@@ -300,12 +316,12 @@ func TestEndToEndFlowOnRealDB(t *testing.T) {
 	// 3. Record income +$500
 	descInc := "Biweekly paycheck"
 	txInc, err := svcs.Ledger.RecordIncome(ctx, web.RecordIncomeInput{
-		AccountID:     acctID,
-		CategoryID:    catSalary.ID,
-		Amount:        "500.00",
-		PaymentMethod: web.PaymentMethodBankTransfer,
-		Description:   &descInc,
-		EffectiveDate: today,
+		AccountID:       acctID,
+		CategoryID:      catSalary.ID,
+		Amount:          "500.00",
+		PaymentMethodID: 1,
+		Description:     &descInc,
+		EffectiveDate:   today,
 	})
 	if err != nil {
 		t.Fatalf("recording income: %v", err)
@@ -317,12 +333,12 @@ func TestEndToEndFlowOnRealDB(t *testing.T) {
 	// 4. Record expense -$25
 	descExp := "Restaurant"
 	txExp, err := svcs.Ledger.RecordExpense(ctx, web.RecordExpenseInput{
-		AccountID:     acctID,
-		CategoryID:    catDinner.ID,
-		Amount:        "25.00",
-		PaymentMethod: web.PaymentMethodPOS,
-		Description:   &descExp,
-		EffectiveDate: today,
+		AccountID:       acctID,
+		CategoryID:      catDinner.ID,
+		Amount:          "25.00",
+		PaymentMethodID: 2,
+		Description:     &descExp,
+		EffectiveDate:   today,
 	})
 	if err != nil {
 		t.Fatalf("recording expense: %v", err)
@@ -371,7 +387,7 @@ func TestZeroAndEmptyOpeningBalance(t *testing.T) {
 
 	ctx := t.Context()
 	db := dbtest.New(t)
-	svcs := adapter.New(db)
+	svcs := newTestServices(t, db)
 
 	stChecking := web.AccountSubtypeChecking
 
@@ -438,5 +454,118 @@ func TestZeroAndEmptyOpeningBalance(t *testing.T) {
 	}
 	if bal.BalanceMinor != 0 || bal.BalanceFormatted != "0.00" {
 		t.Errorf("expected balance 0.00, got %s (minor %d)", bal.BalanceFormatted, bal.BalanceMinor)
+	}
+}
+
+// 5. M3 Adapter operations tests over real SQLite
+func TestAdapterM3Operations(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db := dbtest.New(t)
+	svcs := newTestServices(t, db)
+
+	// Test Backups adapter
+	backups, err := svcs.Backups.List(ctx)
+	if err != nil {
+		t.Fatalf("listing backups: %v", err)
+	}
+	initialBackupCount := len(backups)
+
+	createdBackup, err := svcs.Backups.CreateManual(ctx)
+	if err != nil {
+		t.Fatalf("creating manual backup: %v", err)
+	}
+	if createdBackup.Reason != "manual" {
+		t.Errorf("expected reason 'manual', got %q", createdBackup.Reason)
+	}
+
+	backupsAfter, err := svcs.Backups.List(ctx)
+	if err != nil {
+		t.Fatalf("listing backups after creation: %v", err)
+	}
+	if len(backupsAfter) != initialBackupCount+1 {
+		t.Errorf("expected %d backups, got %d", initialBackupCount+1, len(backupsAfter))
+	}
+
+	// Test UpdateTransaction & UpdateOpeningBalance
+	sub := web.AccountSubtypeChecking
+	bal := "200.00"
+	openRes, err := svcs.Application.OpenAccount(ctx, web.OpenAccountInput{
+		Account: web.CreateAccountInput{
+			Name: "Adapter USD Acct", Type: web.AccountTypeBank,
+			Subtype: &sub, CurrencyCode: "USD",
+		},
+		OpeningBalance:     &bal,
+		OpeningBalanceDate: "2026-09-01",
+	})
+	if err != nil {
+		t.Fatalf("opening account: %v", err)
+	}
+
+	// Update opening balance
+	updatedOpening, err := svcs.Ledger.UpdateOpeningBalance(ctx, openRes.OpeningBalance.ID, web.UpdateOpeningBalanceInput{
+		Amount:        "300.00",
+		EffectiveDate: "2026-09-02",
+	})
+	if err != nil {
+		t.Fatalf("updating opening balance: %v", err)
+	}
+	if updatedOpening.AmountFormatted != "300.00" {
+		t.Errorf("expected amount 300.00, got %q", updatedOpening.AmountFormatted)
+	}
+
+	// Create category & record expense
+	catFood, _ := svcs.Categories.Create(ctx, web.CreateCategoryInput{Name: "Food", Type: web.CategoryTypeExpense})
+	catSalary, _ := svcs.Categories.Create(ctx, web.CreateCategoryInput{Name: "Salary", Type: web.CategoryTypeIncome})
+
+	txExp, err := svcs.Ledger.RecordExpense(ctx, web.RecordExpenseInput{
+		AccountID:       openRes.Account.ID,
+		CategoryID:      catFood.ID,
+		Amount:          "50.00",
+		PaymentMethodID: 1,
+		EffectiveDate:   "2026-09-03",
+	})
+	if err != nil {
+		t.Fatalf("recording expense: %v", err)
+	}
+
+	// Update regular transaction
+	desc := "Updated grocery expense"
+	updatedTx, err := svcs.Ledger.UpdateTransaction(ctx, txExp.ID, web.UpdateTransactionInput{
+		AccountID:           openRes.Account.ID,
+		Type:                web.TransactionTypeExpense,
+		CategoryID:          catFood.ID,
+		PaymentMethodID:     2,
+		Amount:              "75.00",
+		Description:         &desc,
+		EffectiveDate:       "2026-09-04",
+		AllowCurrencyChange: false,
+	})
+	if err != nil {
+		t.Fatalf("updating transaction: %v", err)
+	}
+	if updatedTx.AmountFormatted != "-75.00" {
+		t.Errorf("expected amount -75.00, got %q", updatedTx.AmountFormatted)
+	}
+	if updatedTx.Description == nil || *updatedTx.Description != desc {
+		t.Errorf("expected description %q, got %+v", desc, updatedTx.Description)
+	}
+
+	// Switch to INCOME
+	updatedIncome, err := svcs.Ledger.UpdateTransaction(ctx, txExp.ID, web.UpdateTransactionInput{
+		AccountID:           openRes.Account.ID,
+		Type:                web.TransactionTypeIncome,
+		CategoryID:          catSalary.ID,
+		PaymentMethodID:     1,
+		Amount:              "120.00",
+		EffectiveDate:       "2026-09-05",
+		AllowCurrencyChange: false,
+	})
+	if err != nil {
+		t.Fatalf("switching transaction to income: %v", err)
+	}
+	if updatedIncome.Type != web.TransactionTypeIncome || updatedIncome.AmountFormatted != "120.00" {
+		t.Errorf("expected +120.00 INCOME, got %s %s", updatedIncome.Type, updatedIncome.AmountFormatted)
 	}
 }

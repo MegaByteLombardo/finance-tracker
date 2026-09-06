@@ -3,9 +3,11 @@ package adapter
 import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/account"
 	"github.com/MegaByteLombardo/finance-tracker/internal/application"
+	"github.com/MegaByteLombardo/finance-tracker/internal/backup"
 	"github.com/MegaByteLombardo/finance-tracker/internal/category"
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
+	"github.com/MegaByteLombardo/finance-tracker/internal/paymentmethod"
 	"github.com/MegaByteLombardo/finance-tracker/internal/web"
 )
 
@@ -178,20 +180,44 @@ func toWebTransactionType(t ledger.TransactionType) web.TransactionType {
 	return web.TransactionType(t)
 }
 
-func toWebPaymentMethod(m ledger.PaymentMethod) web.PaymentMethod {
-	return web.PaymentMethod(m)
+// Payment method conversions
+//
+// A payment method is a row now, not an enum value, so a transaction carries an
+// id and the listing resolves the name for display.
+
+func toWebPaymentMethod(m paymentmethod.PaymentMethod) web.PaymentMethod {
+	return web.PaymentMethod{
+		ID:        m.ID,
+		Name:      m.Name,
+		IsActive:  m.IsActive,
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
+	}
 }
 
-func toDomainPaymentMethod(m web.PaymentMethod) ledger.PaymentMethod {
-	return ledger.PaymentMethod(m)
-}
-
-func toWebPaymentMethodPtr(m *ledger.PaymentMethod) *web.PaymentMethod {
-	if m == nil {
+func toWebPaymentMethods(ms []paymentmethod.PaymentMethod) []web.PaymentMethod {
+	if ms == nil {
 		return nil
 	}
-	pm := web.PaymentMethod(*m)
-	return &pm
+	res := make([]web.PaymentMethod, len(ms))
+	for i, m := range ms {
+		res[i] = toWebPaymentMethod(m)
+	}
+	return res
+}
+
+func toDomainListPaymentMethodsInput(in web.ListPaymentMethodsInput) paymentmethod.ListInput {
+	return paymentmethod.ListInput{IncludeInactive: in.IncludeInactive}
+}
+
+func toDomainCreatePaymentMethodInput(in web.CreatePaymentMethodInput) paymentmethod.CreateInput {
+	return paymentmethod.CreateInput{Name: in.Name}
+}
+
+func toDomainUpdatePaymentMethodMetadataInput(
+	in web.UpdatePaymentMethodMetadataInput,
+) paymentmethod.UpdateMetadataInput {
+	return paymentmethod.UpdateMetadataInput{Name: in.Name}
 }
 
 func toWebTransactionView(v *ledger.TransactionView) *web.TransactionView {
@@ -199,26 +225,27 @@ func toWebTransactionView(v *ledger.TransactionView) *web.TransactionView {
 		return nil
 	}
 	return &web.TransactionView{
-		ID:              v.ID,
-		Type:            toWebTransactionType(v.Type),
-		EffectiveDate:   v.EffectiveDate,
-		Description:     v.Description,
-		PaymentMethod:   toWebPaymentMethodPtr(v.PaymentMethod),
-		CategoryID:      v.CategoryID,
-		CategoryName:    v.CategoryName,
-		CategoryType:    toWebCategoryTypePtr(v.CategoryType),
-		MovementID:      v.MovementID,
-		AccountID:       v.AccountID,
-		AccountName:     v.AccountName,
-		AccountType:     toWebAccountType(v.AccountType),
-		AccountSubtype:  toWebAccountSubtype(v.AccountSubtype),
-		Institution:     v.Institution,
-		CurrencyCode:    v.CurrencyCode,
-		CurrencySymbol:  v.CurrencySymbol,
-		MinorUnit:       v.MinorUnit,
-		AmountMinor:     v.AmountMinor,
-		AmountFormatted: v.AmountFormatted,
-		CreatedAt:       v.CreatedAt,
+		ID:                v.ID,
+		Type:              toWebTransactionType(v.Type),
+		EffectiveDate:     v.EffectiveDate,
+		Description:       v.Description,
+		PaymentMethodID:   v.PaymentMethodID,
+		PaymentMethodName: v.PaymentMethodName,
+		CategoryID:        v.CategoryID,
+		CategoryName:      v.CategoryName,
+		CategoryType:      toWebCategoryTypePtr(v.CategoryType),
+		MovementID:        v.MovementID,
+		AccountID:         v.AccountID,
+		AccountName:       v.AccountName,
+		AccountType:       toWebAccountType(v.AccountType),
+		AccountSubtype:    toWebAccountSubtype(v.AccountSubtype),
+		Institution:       v.Institution,
+		CurrencyCode:      v.CurrencyCode,
+		CurrencySymbol:    v.CurrencySymbol,
+		MinorUnit:         v.MinorUnit,
+		AmountMinor:       v.AmountMinor,
+		AmountFormatted:   v.AmountFormatted,
+		CreatedAt:         v.CreatedAt,
 	}
 }
 
@@ -285,23 +312,23 @@ func toWebCurrencyTotals(ts []ledger.CurrencyTotal) []web.CurrencyTotal {
 
 func toDomainRecordIncomeInput(in web.RecordIncomeInput) ledger.RecordIncomeInput {
 	return ledger.RecordIncomeInput{
-		AccountID:     in.AccountID,
-		CategoryID:    in.CategoryID,
-		Amount:        in.Amount,
-		PaymentMethod: toDomainPaymentMethod(in.PaymentMethod),
-		Description:   in.Description,
-		EffectiveDate: in.EffectiveDate,
+		AccountID:       in.AccountID,
+		CategoryID:      in.CategoryID,
+		Amount:          in.Amount,
+		PaymentMethodID: in.PaymentMethodID,
+		Description:     in.Description,
+		EffectiveDate:   in.EffectiveDate,
 	}
 }
 
 func toDomainRecordExpenseInput(in web.RecordExpenseInput) ledger.RecordExpenseInput {
 	return ledger.RecordExpenseInput{
-		AccountID:     in.AccountID,
-		CategoryID:    in.CategoryID,
-		Amount:        in.Amount,
-		PaymentMethod: toDomainPaymentMethod(in.PaymentMethod),
-		Description:   in.Description,
-		EffectiveDate: in.EffectiveDate,
+		AccountID:       in.AccountID,
+		CategoryID:      in.CategoryID,
+		Amount:          in.Amount,
+		PaymentMethodID: in.PaymentMethodID,
+		Description:     in.Description,
+		EffectiveDate:   in.EffectiveDate,
 	}
 }
 
@@ -334,4 +361,50 @@ func toWebOpenAccountResult(res application.OpenAccountResult) web.OpenAccountRe
 		Account:        toWebAccount(res.Account),
 		OpeningBalance: toWebTransactionView(res.OpeningBalance),
 	}
+}
+
+func toDomainUpdateTransactionInput(in web.UpdateTransactionInput) ledger.UpdateTransactionInput {
+	return ledger.UpdateTransactionInput{
+		AccountID:           in.AccountID,
+		Type:                toDomainTransactionType(in.Type),
+		CategoryID:          in.CategoryID,
+		PaymentMethodID:     in.PaymentMethodID,
+		Amount:              in.Amount,
+		Description:         in.Description,
+		EffectiveDate:       in.EffectiveDate,
+		AllowCurrencyChange: in.AllowCurrencyChange,
+	}
+}
+
+func toDomainTransactionType(t web.TransactionType) ledger.TransactionType {
+	return ledger.TransactionType(t)
+}
+
+func toDomainUpdateOpeningBalanceInput(in web.UpdateOpeningBalanceInput) ledger.UpdateOpeningBalanceInput {
+	return ledger.UpdateOpeningBalanceInput{
+		Amount:        in.Amount,
+		EffectiveDate: in.EffectiveDate,
+	}
+}
+
+// Backup conversions
+
+func toWebBackup(b backup.Backup) web.Backup {
+	return web.Backup{
+		Name:      b.Name,
+		Reason:    string(b.Reason),
+		CreatedAt: b.CreatedAt,
+		SizeBytes: b.SizeBytes,
+	}
+}
+
+func toWebBackups(bs []backup.Backup) []web.Backup {
+	if bs == nil {
+		return nil
+	}
+	res := make([]web.Backup, len(bs))
+	for i, b := range bs {
+		res[i] = toWebBackup(b)
+	}
+	return res
 }

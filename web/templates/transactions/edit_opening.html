@@ -1,0 +1,82 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Edit Opening Balance</h1>
+    <p class="page-subtitle">Update initial balance amount or effective date</p>
+  </div>
+  <div class="page-actions">
+    <a href="/transactions" class="btn btn-secondary">&larr; Back to Transactions</a>
+  </div>
+</div>
+
+<div class="form-card">
+  {{ if .Errors.general }}
+  <div class="alert alert-danger" role="alert">
+    <div>{{ .Errors.general }}</div>
+  </div>
+  {{ end }}
+
+  <form action="/transactions/{{ .ID }}" method="POST">
+    <div class="form-group">
+      <label class="form-label">
+        Account (Read-only)
+      </label>
+      <input type="text"
+             class="form-control"
+             value="{{ .AccountName }} ({{ .CurrencyCode }})"
+             readonly
+             disabled
+             style="background-color: var(--bg-surface); cursor: not-allowed;">
+      <div class="form-help">The account for an opening balance cannot be changed.</div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="amount">
+          Amount <span class="required-indicator">*</span>
+        </label>
+        <div class="input-prefix-group">
+          {{ if .CurrencySymbol }}
+          <span class="input-prefix">{{ derefString .CurrencySymbol }}</span>
+          {{ end }}
+          <input type="text"
+                 class="form-control {{ if .HasError "amount" }}is-invalid{{ end }}"
+                 id="amount"
+                 name="amount"
+                 value="{{ .Amount }}"
+                 placeholder="0.00"
+                 data-type="currency"
+                 data-minor-unit="{{ .CurrencyMinorUnit }}"
+                 inputmode="decimal"
+                 autocomplete="off"
+                 required>
+        </div>
+        {{ if .HasError "amount" }}
+        <div class="form-error">{{ .Error "amount" }}</div>
+        {{ end }}
+        <div class="form-help">Opening balance cannot be zero. Positive or negative amounts are permitted.</div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="effective_date">
+          Effective Date <span class="required-indicator">*</span>
+        </label>
+        <input type="date"
+               class="form-control {{ if .HasError "effective_date" }}is-invalid{{ end }}"
+               id="effective_date"
+               name="effective_date"
+               value="{{ .EffectiveDate }}"
+               required>
+        {{ if .HasError "effective_date" }}
+        <div class="form-error">{{ .Error "effective_date" }}</div>
+        {{ end }}
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <a href="/transactions" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+    </div>
+  </form>
+</div>
+{{ end }}

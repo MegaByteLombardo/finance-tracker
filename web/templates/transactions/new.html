@@ -80,13 +80,14 @@
                value="{{ .Amount }}"
                placeholder="e.g. 25.50"
                data-type="currency"
+               data-minor-unit="{{ .SelectedCurrencyMinorUnit }}"
                inputmode="decimal"
                autocomplete="off"
                required>
         {{ if .HasError "amount" }}
         <div class="form-error">{{ .Error "amount" }}</div>
         {{ end }}
-        <div class="form-help">Enter positive digits with up to 2 decimal places.</div>
+        <div class="form-help">Enter a positive amount, at the precision the selected currency uses.</div>
       </div>
 
       <div class="form-group">
@@ -135,21 +136,19 @@
 
     <!-- Payment Method -->
     <div class="form-group">
-      <label class="form-label" for="payment_method">
-        Payment Method / Channel <span class="required-indicator">*</span>
+      <label class="form-label" for="payment_method_id">
+        Payment method <span class="required">*</span>
       </label>
-      <select class="form-control {{ if .HasError "payment_method" }}is-invalid{{ end }}"
-              id="payment_method"
-              name="payment_method"
+      <select class="form-control {{ if .HasError "payment_method_id" }}is-invalid{{ end }}"
+              id="payment_method_id"
+              name="payment_method_id"
               required>
-        <option value="">Select payment method...</option>
-        <option value="BANK_TRANSFER" {{ if eq .PaymentMethod "BANK_TRANSFER" }}selected{{ end }}>Bank transfer</option>
-        <option value="POS" {{ if eq .PaymentMethod "POS" }}selected{{ end }}>Point of sale</option>
-        <option value="CASH" {{ if eq .PaymentMethod "CASH" }}selected{{ end }}>Cash</option>
-        <option value="OTHER" {{ if eq .PaymentMethod "OTHER" }}selected{{ end }}>Other</option>
+        {{ range .Methods }}
+        <option value="{{ .ID }}" {{ if eq $.PaymentMethodID .ID }}selected{{ end }}>{{ .Name }}</option>
+        {{ end }}
       </select>
-      {{ if .HasError "payment_method" }}
-      <div class="form-error">{{ .Error "payment_method" }}</div>
+      {{ if .HasError "payment_method_id" }}
+      <div class="form-error">{{ .Error "payment_method_id" }}</div>
       {{ end }}
       <div class="form-help">
         “Bank transfer” describe cómo se realizó este movimiento con el exterior. Las transferencias internas entre cuentas propias aún no existen en M2.

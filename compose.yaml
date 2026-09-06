@@ -5,6 +5,12 @@ services:
     build: .
     image: finance-tracker:local
     restart: unless-stopped
+
+    # The default is 10s, which is what shutdown gets before SIGKILL. That was
+    # enough when shutting down meant draining HTTP; it is not now that a
+    # snapshot is taken afterwards. 30s leaves room for both budgets in
+    # cmd/web/main.go and still fails fast if the process wedges.
+    stop_grace_period: 30s
     ports:
       # Only the host port is configurable; inside the container the address is
       # fixed. Set HTTP_PORT in .env to move it.
@@ -16,8 +22,33 @@ services:
       # The database always lives on the volume, never in the container's
       # writable layer, so it survives `docker compose down`.
       DB_PATH: /data/finance.db
+      # Snapshots go to the host, NOT to a named volume. `docker compose down -v`
+      # destroys every volume in the project, so backups kept in one would die
+      # alongside the database they exist to protect -- which is precisely how
+      # this project lost data once already.
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION: ${BACKUP_RETENTION:-10}
     volumes:
       - finance_data:/data
+      # Long syntax so create_host_path can be disabled. Without it, a missing
+      # ./backups is silently created by Docker as root, and the non-root
+      # process (uid 65532) then cannot write to it. Failing to start is the
+      # better outcome: `backups/.gitkeep` is tracked, so the directory is there
+      # in any checkout, and its absence means something is genuinely wrong.
+      #
+      # On Windows a bind mount is presented 0777 and any uid can write to it.
+      # On a Linux host it keeps the host's ownership, so ./backups may need to
+      # be chown'd to 65532. See docs/operations.md.
+      #
+      # BACKUP_HOST_DIR overrides where on the host they land. The default is
+      # right for normal use; it exists so that a disaster-recovery rehearsal
+      # can point a throwaway project somewhere else and destroy its volume
+      # without touching the real backups.
+      - type: bind
+        source: ${BACKUP_HOST_DIR:-./backups}
+        target: /backups
+        bind:
+          create_host_path: false
 
 volumes:
   finance_data:

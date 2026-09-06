@@ -23,6 +23,12 @@ import (
 // It splits statements on ";" rather than reusing goose's parser, which is
 // naive but sufficient: no Down here contains a semicolon inside a string
 // literal. If one ever does, this fails loudly rather than silently skipping.
+//
+// 00008 and 00009 are deliberately absent. They are forward-only: after M3 a
+// transaction can reference a payment method M2's four-value enumeration cannot
+// spell, so no Down could put the schema back without discarding information.
+// Their refusal to roll back is covered by TestM3MigrationsAreForwardOnly, and
+// the supported way back is restoring the pre-migration snapshot.
 func TestDownStatementsRollBackCleanly(t *testing.T) {
 	t.Parallel()
 

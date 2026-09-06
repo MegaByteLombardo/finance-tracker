@@ -1,16 +1,16 @@
 # Data model
 
-Current schema version: **7** (M2). Migrations live in
+Current schema version: **9** (M3). Migrations live in
 [`internal/migrations/`](../internal/migrations) and are applied automatically at startup.
 
 ```
-currencies                     categories
-  code (PK)                      id (PK)
-     │ 1                            │ 1
-     │                              │
-     │ N                            │ 0..N
-  currency_code (FK, NOT NULL)   category_id (FK, NULL)
-accounts                       transactions
+currencies                     categories        payment_methods
+  code (PK)                      id (PK)           id (PK)
+     │ 1                            │ 1               │ 1
+     │                              │                 │
+     │ N                            │ 0..N            │ 0..N
+  currency_code (FK, NOT NULL)   category_id       payment_method_id
+accounts                       └──── transactions ────┘
      │ 1                            │ 1
      │                              │
      │ 0..N                         │ 1..N
@@ -229,6 +229,81 @@ simply cannot classify anything new.
 
 ---
 
+## `payment_methods` *(M3)*
+
+The channels money moves through: a bank transfer, a card at a point of sale,
+cash, "Pago móvil", "Zelle". Created by the user; **nothing beyond the four
+migrated from M2 is seeded**.
+
+`CREATE TABLE payment_methods (...) STRICT;`
+
+| Column | Type | Null | Default | Constraints |
+| --- | --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | rowid | **PRIMARY KEY** (rowid alias) |
+| `name` | `TEXT` | NOT NULL | — | `CHECK (length(trim(name)) BETWEEN 1 AND 60)` |
+| `is_active` | `INTEGER` | NOT NULL | `1` | `CHECK (is_active IN (0,1))` |
+| `created_at` | `TEXT` | NOT NULL | `strftime(…)` | timestamp `GLOB` |
+| `updated_at` | `TEXT` | NOT NULL | same | timestamp `GLOB` |
+
+```sql
+CREATE UNIQUE INDEX idx_payment_methods_name ON payment_methods(name);
+```
+
+### Migrated from M2
+
+Migration `00008` seeds exactly the four values M2 held in a `CHECK` constraint,
+under the names the interface already displayed for them, so upgrading changes
+nothing anyone can see. `00009` then rewrites every existing transaction to point
+at the matching row.
+
+| M2 value | M3 row |
+| --- | --- |
+| `BANK_TRANSFER` | Bank transfer |
+| `POS` | Point of sale |
+| `CASH` | Cash |
+| `OTHER` | Other |
+
+### Uniqueness is exact — and diverges from `categories`
+
+`payment_methods` uses a plain `UNIQUE(name)`. `categories` uses
+`UNIQUE(category_type, name COLLATE NOCASE)`. **This inconsistency is deliberate
+and worth stating rather than leaving to be discovered.**
+
+`NOCASE` folds ASCII only. It treats "Zelle" and "zelle" as the same name while
+treating "Café" and "CAFÉ" as different — case-insensitive uniqueness for half the
+alphabet, which is worse than not claiming it at all. Importing ICU to do it
+properly is a dependency this application will not carry for one index.
+
+M2 made the other choice for categories, and changing it now would mean a further
+destructive migration for no functional gain. So the two differ: categories fold
+ASCII case, payment methods do not. Both are documented; neither is an oversight.
+
+The domain trims the name before comparing, so the only remaining difference
+between the two tables is letter case.
+
+### Renaming rewrites how history reads
+
+A payment method is a **label for a channel**, not a fact captured at the moment
+of the transaction. Renaming "Point of sale" to "Punto de venta" therefore changes
+how every past transaction that used it is displayed — and that is intended, the
+same choice `categories.name` already makes.
+
+**What must not be done** is reusing a row for a different meaning: renaming
+"Zelle" to "PayPal" instead of creating a second method silently rewrites what
+past transactions claim about themselves. No constraint can prevent this; it
+belongs with the other invariants not enforced by the database, below.
+
+### Lifecycle
+
+Create → rename → archive / restore. There is no delete: `transactions`
+references methods with `ON DELETE RESTRICT`.
+
+An archived method **still holds its name**, so un-archiving it cannot collide
+with something created in the meantime, and transactions already recorded against
+it keep displaying it.
+
+---
+
 ## `transactions` *(M2)*
 
 The financial **event**. It holds no amount and names no account — that is
@@ -241,15 +316,16 @@ The financial **event**. It holds no amount and names no account — that is
 | `id` | `INTEGER` | NOT NULL | rowid | **PRIMARY KEY** (rowid alias) |
 | `transaction_type` | `TEXT` | NOT NULL | — | `CHECK (… IN ('INCOME','EXPENSE','OPENING_BALANCE'))` |
 | `category_id` | `INTEGER` | **NULL** | — | **FK** → `categories(id)`, `RESTRICT` both ways |
-| `payment_method` | `TEXT` | **NULL** | — | `CHECK (… IN ('BANK_TRANSFER','POS','CASH','OTHER'))` |
+| `payment_method_id` | `INTEGER` | **NULL** | — | **FK** → `payment_methods(id)`, `RESTRICT` both ways |
 | `description` | `TEXT` | **NULL** | — | `CHECK (… length(trim(description)) BETWEEN 1 AND 255)` |
 | `effective_date` | `TEXT` | NOT NULL | — | date `GLOB` **and** `date(x) IS x` (below) |
 | `created_at` | `TEXT` | NOT NULL | `strftime(…)` | timestamp `GLOB` |
 | `updated_at` | `TEXT` | NOT NULL | same | timestamp `GLOB` |
 
 ```sql
-CREATE INDEX idx_transactions_effective_date ON transactions(effective_date, id);
-CREATE INDEX idx_transactions_category_id    ON transactions(category_id);
+CREATE INDEX idx_transactions_effective_date    ON transactions(effective_date, id);
+CREATE INDEX idx_transactions_category_id       ON transactions(category_id);
+CREATE INDEX idx_transactions_payment_method_id ON transactions(payment_method_id);
 ```
 
 **The shape of each type is a table constraint**, not only a service rule:
@@ -257,10 +333,10 @@ CREATE INDEX idx_transactions_category_id    ON transactions(category_id);
 ```sql
 CHECK (
     (transaction_type IN ('INCOME', 'EXPENSE')
-        AND category_id IS NOT NULL AND payment_method IS NOT NULL)
+        AND category_id IS NOT NULL AND payment_method_id IS NOT NULL)
     OR
     (transaction_type = 'OPENING_BALANCE'
-        AND category_id IS NULL AND payment_method IS NULL)
+        AND category_id IS NULL AND payment_method_id IS NULL)
 )
 ```
 
@@ -276,11 +352,15 @@ combinations are covered by tests.
 service, inside the same transaction as the insert — the same treatment "an
 account's currency must be active" gets.
 
-**`payment_method`** — The **channel** an operation with the outside world used.
-It is not a transfer between the user's own accounts: `BANK_TRANSFER` means "this
-external operation moved through a bank transfer", whereas a future
-`transaction_type` of `TRANSFER` will mean "money moved between two accounts we
-own". The same four values apply to income and expenses alike.
+**`payment_method_id`** *(M3)* — The **channel** an operation with the outside
+world used, as a reference to a row the user administers. In M2 this was a `TEXT`
+column with a four-value `CHECK`; see [TD-036](technical-decisions.md) for why it
+changed and `payment_methods` below for the table.
+
+It is not a transfer between the user's own accounts: a method named "Bank
+transfer" means "this external operation moved through a bank transfer", whereas
+a future `transaction_type` of `TRANSFER` will mean "money moved between two
+accounts we own".
 
 **`description`** — Optional free text. The `CHECK` keeps `''` out, so "no
 description" has exactly one representation, matching `institution` and `symbol`.
@@ -288,9 +368,9 @@ description" has exactly one representation, matching `institution` and `symbol`
 **`effective_date`** — When it happened **financially**, which is not when it was
 recorded. See [Dates](#dates) below and [TD-028](technical-decisions.md).
 
-**`updated_at`** — Present for convention and for the editing a later milestone
-will add. No M2 operation changes a transaction, so today it always equals
-`created_at`.
+**`updated_at`** — Changes when a transaction is corrected. M3 added editing;
+`created_at` stays at the moment the row was first written, because when
+something was recorded does not change because its contents were fixed.
 
 **There is no `currency_code` column**, deliberately. A transaction's currency is
 its account's; a column here could only ever disagree with it.
@@ -308,7 +388,23 @@ its account's; a column here could only ever disagree with it.
 
 ### Lifecycle
 
-Create. That is all: M2 has no operation that edits or deletes a transaction.
+Create → correct → (never delete).
+
+M3 added editing. An edit runs **exactly the same validation as a creation** —
+the account exists and is active, the category matches the type, the payment
+method is active, the amount is positive and within the currency's precision —
+because an edit that could produce a state a creation would refuse would be a
+second door into every invariant here. The transaction and its movement are
+rewritten in one `sql.Tx`, so a balance is never briefly wrong.
+
+`INCOME` and `EXPENSE` convert freely between each other, and the movement's sign
+is recomputed from the new type rather than carried over. Converting to or from
+`OPENING_BALANCE` is refused: it states where an account started rather than
+recording an operation.
+
+**M3 does not preserve previous versions of edited records.** There is no audit
+log and no history table; the undo is a backup. See
+[TD-039](technical-decisions.md).
 
 ---
 
@@ -410,8 +506,8 @@ Create. Movements are immutable and are never deleted.
 - **Every foreign key's child column is indexed.** SQLite does not do this
   automatically, so without it every `RESTRICT` check scans the whole child
   table, as does any join. That is `accounts.currency_code`,
-  `transactions.category_id`, `account_movements.account_id` and
-  `account_movements.transaction_id`.
+  `transactions.category_id`, `transactions.payment_method_id`,
+  `account_movements.account_id` and `account_movements.transaction_id`.
 
 The same `RESTRICT` rule now covers the ledger: a category with transactions
 filed under it cannot be deleted, an account with movements cannot be deleted,
@@ -426,6 +522,8 @@ Two legitimate and reachable states that queries must not assume away:
 - **An active transaction whose category is inactive.** Archiving a category
   stops it classifying *new* transactions; the ones already filed under it keep
   it and keep displaying it.
+- **An active transaction whose payment method is inactive.** The same reasoning,
+  for the same reason.
 
 ---
 
@@ -583,9 +681,31 @@ constraint, each inside the same transaction as the write they guard:
   Same reasoning: archived is a fact about the row, not a property that
   invalidates the history pointing at it.
 
+**A payment method row must not be repurposed.** Renaming one to correct its
+wording is intended and changes how history reads; renaming it to mean something
+else — "Zelle" becoming "PayPal" rather than a second method being created —
+silently rewrites what past transactions claim. Nothing in SQLite can tell the
+two apart, so this is a rule rather than a constraint.
+
 Everything a `CHECK` *can* express — the subtype dependency, the shape of each
 transaction type, non-zero amounts, date validity — is expressed as one, so that
 a hand-written `INSERT` cannot get past it either.
+
+---
+
+## Backups
+
+The schema is not the only thing that has to survive. From M3 the database is
+snapshotted with `VACUUM INTO` — before migrations, on shutdown, and on demand —
+to a directory **outside** the Docker volume, because `docker compose down -v`
+destroys volumes and that is exactly what happened to this project once.
+
+Backups are an operational concern rather than a schema one, so the mechanism,
+the retention policy and the restore procedure live in
+[operations.md](operations.md). What matters here is that a snapshot is a
+complete SQLite database at the schema version it was taken at, validated with
+`PRAGMA integrity_check`, and that restoring an older one is expected: the next
+ordinary start migrates it forward.
 
 ---
 

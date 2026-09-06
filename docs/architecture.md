@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the architecture **as actually implemented at M1**.
+This document describes the architecture **as actually implemented at M3**.
 Layers that do not exist yet are marked as such and are not described as if they
 did.
 
@@ -27,21 +27,23 @@ operational surface without adding capability.
 | Packaging | Docker, multi-stage build |
 | Runtime image | `gcr.io/distroless/static-debian13:nonroot`, uid 65532 |
 
-There are exactly two direct dependencies: `modernc.org/sqlite` and
-`github.com/pressly/goose/v3`. No web framework, no router, no ORM, no
+There are still exactly two direct dependencies: `modernc.org/sqlite` and
+`github.com/pressly/goose/v3`. M3 added backups, restore and a new domain without
+adding a third. No web framework, no router, no ORM, no
 configuration library, no dependency-injection container.
 
 ## Dependency direction
 
 ```text
-cmd/web
+cmd/web                         serve (default) | restore
    ↓
 HTTP                    (internal/httpserver, internal/web)
    ↓
 cross-domain workflows  (internal/application)
    ↓
 domain services         (internal/currency, internal/account,
-                         internal/category, internal/ledger)
+                         internal/category, internal/paymentmethod,
+                         internal/ledger)
    ↓
 repositories            (same packages)
    ↓
@@ -50,6 +52,8 @@ database                (internal/database, internal/migrations)
 SQLite
 
 internal/money is a leaf: it depends on nothing and everything above may use it.
+internal/backup sits beside the database layer -- it snapshots and restores the
+file rather than reading the domain.
 ```
 
 Dependencies point downward only. HTTP does not build SQL; the database layer
@@ -67,14 +71,20 @@ exactly one workflow and is not a general application layer; see
 [TD-030](technical-decisions.md).
 
 **The presentation layer is built against a written contract, not against the
-packages directly.** M2 is delivered by two agents working in parallel, so the
+packages directly.** M2 was delivered by two agents working in parallel, so the
 boundary between the domain services and `internal/web` is specified in
 [m2-contract.md](m2-contract.md) and frozen for the milestone: the service
 methods, their inputs and outputs, the enumerations, the money and date
 semantics, and the sentinel errors the handlers match on.
+[m3-contract.md](m3-contract.md) extends it and records what M3 breaks.
 
-That document is the interface. If the two sides disagree, the contract is what
+Those documents are the interface. If the two sides disagree, the contract is what
 they are both wrong or right against.
+
+`internal/web/adapter` is what makes that possible in practice. `internal/web`
+defines its own vocabulary rather than importing the domain packages, so the
+adapter translates in both directions and maps each domain sentinel to the web
+one. It is the only place that knows both languages.
 
 ## Packages
 
@@ -82,10 +92,19 @@ they are both wrong or right against.
 
 The **composition root**, and the only place that wires packages together.
 
-It loads configuration, builds the logger, opens the database, runs migrations,
-creates the listener, starts the server, waits for a signal, and shuts everything
-down in order. Every failure is a returned error — there is no `panic` on an
-ordinary error path and no `os.Exit` buried in a helper.
+It dispatches on the subcommand -- no arguments means `serve`, which is what the
+container does -- then loads configuration, builds the logger, opens the database,
+takes a pre-migration snapshot if one is warranted, runs migrations, creates the
+listener, starts the server, waits for a signal, and shuts everything down in
+order, snapshotting once more on the way out.
+
+The one other subcommand is `restore`, which replaces the database from a
+snapshot and exits. It lives in this binary rather than a second one because it
+needs exactly what this binary already has, and the container's ENTRYPOINT is the
+binary, so `docker compose run --rm app restore …` works unchanged. See TD-035.
+
+Every failure is a returned error — there is no `panic` on an ordinary error path
+and no `os.Exit` buried in a helper.
 
 The startup and shutdown logic lives in a `run` function that takes its
 environment and output stream as parameters, which is what makes a full
@@ -93,8 +112,9 @@ startup/shutdown cycle testable.
 
 ### `internal/config`
 
-Loads and validates configuration from the environment. Four variables:
-`APP_ENV`, `HTTP_ADDR`, `DB_PATH`, `LOG_LEVEL`, each with a working default.
+Loads and validates configuration from the environment: `APP_ENV`, `HTTP_ADDR`,
+`DB_PATH`, `LOG_LEVEL`, `BACKUP_DIR` and `BACKUP_RETENTION`, each with a working
+default.
 
 Validation collects every problem and reports them together, so a misconfigured
 deployment reveals all of its mistakes in one startup attempt instead of one per
@@ -135,8 +155,33 @@ goose discovers migrations by globbing `*.sql` at the **root** of the filesystem
 it is given, which is why the package and its SQL share a directory and no
 `fs.Sub` is needed.
 
-**This is the only package that imports goose.** Everything else sees one
-function, `Up`.
+**This is the only package that imports goose.** Everything else sees `Up`, plus
+two questions the rest of the system needs answered without knowing how
+migrations work: `PendingOnExistingSchema`, which decides whether startup takes a
+snapshot first, and `ExpectedTables`, which lets a backup be validated against the
+schema version it was actually taken at.
+
+### `internal/backup`
+
+Snapshots of the operational database, and putting one back.
+
+It is infrastructure rather than a domain: it has no financial model and no money
+rules, and it knows about SQLite files rather than about accounts. Snapshots are
+taken with `VACUUM INTO` against the live database, validated before they are
+given a real name, and written to a directory **outside** the Docker volume --
+because `docker compose down -v` destroys volumes, and that is how this project
+lost data once. See TD-032 to TD-035.
+
+`Restore` is a package-level function rather than a method on the service: it
+operates on files with the database closed, which is the opposite of what a
+service holding an open pool would do.
+
+### `internal/paymentmethod`
+
+The channels money moves through, as rows the user administers. It mirrors
+`internal/category` exactly -- model, repository, service, archive rather than
+delete -- because it is the same shape of problem. M2 held these four values in a
+`CHECK` constraint; TD-036 covers why they became data.
 
 ### `internal/money`
 

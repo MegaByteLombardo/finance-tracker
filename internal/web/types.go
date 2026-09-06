@@ -61,38 +61,18 @@ func TransactionTypes() []TransactionType {
 	return []TransactionType{TransactionTypeIncome, TransactionTypeExpense, TransactionTypeOpeningBalance}
 }
 
-type PaymentMethod string
-
-const (
-	PaymentMethodBankTransfer PaymentMethod = "BANK_TRANSFER"
-	PaymentMethodPOS          PaymentMethod = "POS"
-	PaymentMethodCash         PaymentMethod = "CASH"
-	PaymentMethodOther        PaymentMethod = "OTHER"
-)
-
-func PaymentMethods() []PaymentMethod {
-	return []PaymentMethod{
-		PaymentMethodBankTransfer,
-		PaymentMethodPOS,
-		PaymentMethodCash,
-		PaymentMethodOther,
-	}
-}
-
-// PaymentMethodLabel provides user-friendly text for payment methods.
-func PaymentMethodLabel(m PaymentMethod) string {
-	switch m {
-	case PaymentMethodBankTransfer:
-		return "Bank transfer"
-	case PaymentMethodPOS:
-		return "Point of sale"
-	case PaymentMethodCash:
-		return "Cash"
-	case PaymentMethodOther:
-		return "Other"
-	default:
-		return string(m)
-	}
+// PaymentMethod is a channel money moved through, as administered by the user.
+//
+// M3 replaced M2's fixed enumeration with rows in a table: real use produced
+// "Pago móvil", "Zelle" and "Débito", and adding one should not need a
+// deployment. The id is the identifier; the name is display text the user can
+// change, so it must never be cached or compared as a key.
+type PaymentMethod struct {
+	ID        int64
+	Name      string
+	IsActive  bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Models
@@ -133,7 +113,10 @@ type TransactionView struct {
 	Type          TransactionType
 	EffectiveDate time.Time
 	Description   *string
-	PaymentMethod *PaymentMethod
+
+	// Absent for an opening balance. The name is for display only.
+	PaymentMethodID   *int64
+	PaymentMethodName *string
 
 	CategoryID   *int64
 	CategoryName *string
@@ -215,21 +198,33 @@ type ListCategoriesInput struct {
 }
 
 type RecordIncomeInput struct {
-	AccountID     int64
-	CategoryID    int64
-	Amount        string
-	PaymentMethod PaymentMethod
-	Description   *string
-	EffectiveDate string
+	AccountID       int64
+	CategoryID      int64
+	Amount          string
+	PaymentMethodID int64
+	Description     *string
+	EffectiveDate   string
 }
 
 type RecordExpenseInput struct {
-	AccountID     int64
-	CategoryID    int64
-	Amount        string
-	PaymentMethod PaymentMethod
-	Description   *string
-	EffectiveDate string
+	AccountID       int64
+	CategoryID      int64
+	Amount          string
+	PaymentMethodID int64
+	Description     *string
+	EffectiveDate   string
+}
+
+type CreatePaymentMethodInput struct {
+	Name string
+}
+
+type UpdatePaymentMethodMetadataInput struct {
+	Name string
+}
+
+type ListPaymentMethodsInput struct {
+	IncludeInactive bool
 }
 
 type RecordOpeningBalanceInput struct {
@@ -240,6 +235,29 @@ type RecordOpeningBalanceInput struct {
 
 type ListTransactionsInput struct {
 	Limit int
+}
+
+type UpdateTransactionInput struct {
+	AccountID           int64
+	Type                TransactionType
+	CategoryID          int64
+	PaymentMethodID     int64
+	Amount              string
+	Description         *string
+	EffectiveDate       string
+	AllowCurrencyChange bool
+}
+
+type UpdateOpeningBalanceInput struct {
+	Amount        string
+	EffectiveDate string
+}
+
+type Backup struct {
+	Name      string
+	Reason    string
+	CreatedAt time.Time
+	SizeBytes int64
 }
 
 type OpenAccountInput struct {
@@ -253,7 +271,7 @@ type OpenAccountResult struct {
 	OpeningBalance *TransactionView
 }
 
-// Errors as specified in docs/m2-contract.md
+// Errors as specified in docs/m2-contract.md and docs/m3-contract.md
 var (
 	ErrNotFound             = errors.New("not found")
 	ErrInvalidInput         = errors.New("invalid input")
@@ -266,4 +284,10 @@ var (
 	ErrCategoryNotFound     = errors.New("category not found")
 	ErrCategoryInactive     = errors.New("category is inactive")
 	ErrCategoryTypeMismatch = errors.New("category type mismatch")
+
+	ErrPaymentMethodNotFound = errors.New("payment method not found")
+	ErrPaymentMethodInactive = errors.New("payment method is inactive")
+
+	ErrTypeChangeNotAllowed       = errors.New("type change not allowed")
+	ErrCurrencyChangeNotConfirmed = errors.New("currency change not confirmed")
 )

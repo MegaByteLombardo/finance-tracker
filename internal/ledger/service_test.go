@@ -12,9 +12,19 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/dbtest"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
+	"github.com/MegaByteLombardo/finance-tracker/internal/paymentmethod"
 )
 
 const today = "2026-09-05"
+
+// The payment methods migrated from M2's fixed enumeration, by id. They are
+// seeded by migration 00008, so every test database has them.
+const (
+	methodBankTransfer int64 = 1
+	methodPOS          int64 = 2
+	methodCash         int64 = 3
+	methodOther        int64 = 4
+)
 
 func ptr(s string) *string { return &s }
 
@@ -120,12 +130,12 @@ func TestRecordIncomeStoresAPositiveMovement(t *testing.T) {
 	w := newWorld(t)
 
 	view, err := w.ledger.RecordIncome(t.Context(), ledger.RecordIncomeInput{
-		AccountID:     w.usdAccount,
-		CategoryID:    w.salary,
-		Amount:        "1500.50",
-		PaymentMethod: ledger.BankTransfer,
-		Description:   ptr("Sueldo de septiembre"),
-		EffectiveDate: today,
+		AccountID:       w.usdAccount,
+		CategoryID:      w.salary,
+		Amount:          "1500.50",
+		PaymentMethodID: methodBankTransfer,
+		Description:     ptr("Sueldo de septiembre"),
+		EffectiveDate:   today,
 	})
 	if err != nil {
 		t.Fatalf("RecordIncome: %v", err)
@@ -140,8 +150,11 @@ func TestRecordIncomeStoresAPositiveMovement(t *testing.T) {
 	if view.Type != ledger.Income {
 		t.Errorf("Type = %q, want %q", view.Type, ledger.Income)
 	}
-	if view.PaymentMethod == nil || *view.PaymentMethod != ledger.BankTransfer {
-		t.Errorf("PaymentMethod = %v, want %q", view.PaymentMethod, ledger.BankTransfer)
+	if view.PaymentMethodID == nil || *view.PaymentMethodID != methodBankTransfer {
+		t.Errorf("PaymentMethodID = %v, want %d", view.PaymentMethodID, methodBankTransfer)
+	}
+	if view.PaymentMethodName == nil || *view.PaymentMethodName != "Bank transfer" {
+		t.Errorf("PaymentMethodName = %v, want %q", view.PaymentMethodName, "Bank transfer")
 	}
 	if view.CategoryID == nil || *view.CategoryID != w.salary {
 		t.Errorf("CategoryID = %v, want %d", view.CategoryID, w.salary)
@@ -170,11 +183,11 @@ func TestRecordExpenseStoresANegativeMovement(t *testing.T) {
 
 	// The caller sends a positive amount. The sign belongs to the operation.
 	view, err := w.ledger.RecordExpense(t.Context(), ledger.RecordExpenseInput{
-		AccountID:     w.usdAccount,
-		CategoryID:    w.food,
-		Amount:        "25.99",
-		PaymentMethod: ledger.POS,
-		EffectiveDate: today,
+		AccountID:       w.usdAccount,
+		CategoryID:      w.food,
+		Amount:          "25.99",
+		PaymentMethodID: methodPOS,
+		EffectiveDate:   today,
 	})
 	if err != nil {
 		t.Fatalf("RecordExpense: %v", err)
@@ -202,7 +215,7 @@ func TestSignedAmountsAreRejectedForIncomeAndExpenses(t *testing.T) {
 
 	_, err := w.ledger.RecordExpense(ctx, ledger.RecordExpenseInput{
 		AccountID: w.usdAccount, CategoryID: w.food, Amount: "-25.99",
-		PaymentMethod: ledger.POS, EffectiveDate: today,
+		PaymentMethodID: methodPOS, EffectiveDate: today,
 	})
 	if !errors.Is(err, ledger.ErrInvalidAmount) {
 		t.Errorf("RecordExpense with a negative amount = %v, want ErrInvalidAmount", err)
@@ -210,7 +223,7 @@ func TestSignedAmountsAreRejectedForIncomeAndExpenses(t *testing.T) {
 
 	_, err = w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
 		AccountID: w.usdAccount, CategoryID: w.salary, Amount: "-1500",
-		PaymentMethod: ledger.BankTransfer, EffectiveDate: today,
+		PaymentMethodID: methodBankTransfer, EffectiveDate: today,
 	})
 	if !errors.Is(err, ledger.ErrInvalidAmount) {
 		t.Errorf("RecordIncome with a negative amount = %v, want ErrInvalidAmount", err)
@@ -220,7 +233,7 @@ func TestSignedAmountsAreRejectedForIncomeAndExpenses(t *testing.T) {
 	for _, amount := range []string{"0", "0.00"} {
 		_, err = w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
 			AccountID: w.usdAccount, CategoryID: w.salary, Amount: amount,
-			PaymentMethod: ledger.BankTransfer, EffectiveDate: today,
+			PaymentMethodID: methodBankTransfer, EffectiveDate: today,
 		})
 		if !errors.Is(err, ledger.ErrInvalidAmount) {
 			t.Errorf("RecordIncome(%q) = %v, want ErrInvalidAmount", amount, err)
@@ -253,7 +266,7 @@ func TestRecordRejectsInvalidAmounts(t *testing.T) {
 			w := newWorld(t)
 			_, err := w.ledger.RecordIncome(t.Context(), ledger.RecordIncomeInput{
 				AccountID: w.usdAccount, CategoryID: w.salary, Amount: amount,
-				PaymentMethod: ledger.BankTransfer, EffectiveDate: today,
+				PaymentMethodID: methodBankTransfer, EffectiveDate: today,
 			})
 			if !errors.Is(err, ledger.ErrInvalidAmount) {
 				t.Fatalf("RecordIncome(%q) = %v, want ErrInvalidAmount", amount, err)
@@ -276,7 +289,7 @@ func TestOverPreciseAmountsAreRejectedRatherThanRounded(t *testing.T) {
 
 	_, err := w.ledger.RecordExpense(t.Context(), ledger.RecordExpenseInput{
 		AccountID: w.usdAccount, CategoryID: w.food, Amount: "10.005",
-		PaymentMethod: ledger.POS, EffectiveDate: today,
+		PaymentMethodID: methodPOS, EffectiveDate: today,
 	})
 	if !errors.Is(err, ledger.ErrInvalidAmount) {
 		t.Fatalf("RecordExpense with three decimals = %v, want ErrInvalidAmount", err)
@@ -312,7 +325,7 @@ func TestRecordRejectsInvalidDates(t *testing.T) {
 			w := newWorld(t)
 			_, err := w.ledger.RecordIncome(t.Context(), ledger.RecordIncomeInput{
 				AccountID: w.usdAccount, CategoryID: w.salary, Amount: "100",
-				PaymentMethod: ledger.BankTransfer, EffectiveDate: date,
+				PaymentMethodID: methodBankTransfer, EffectiveDate: date,
 			})
 			if !errors.Is(err, ledger.ErrInvalidInput) {
 				t.Fatalf("RecordIncome with date %q = %v, want ErrInvalidInput", date, err)
@@ -330,7 +343,7 @@ func TestEffectiveDateIsIndependentOfCreatedAt(t *testing.T) {
 
 	view, err := w.ledger.RecordExpense(t.Context(), ledger.RecordExpenseInput{
 		AccountID: w.usdAccount, CategoryID: w.food, Amount: "40",
-		PaymentMethod: ledger.POS, EffectiveDate: "2026-09-03",
+		PaymentMethodID: methodPOS, EffectiveDate: "2026-09-03",
 	})
 	if err != nil {
 		t.Fatalf("RecordExpense: %v", err)
@@ -347,27 +360,49 @@ func TestEffectiveDateIsIndependentOfCreatedAt(t *testing.T) {
 	}
 }
 
-func TestRecordRejectsInvalidPaymentMethods(t *testing.T) {
+// A payment method is a row now, so an id nobody defined is a lookup failure
+// rather than a value outside an enumeration.
+func TestRecordRejectsUnknownAndInactivePaymentMethods(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
 	ctx := t.Context()
 
-	for _, method := range []ledger.PaymentMethod{"", "ZELLE", "pos ", "TRANSFER"} {
+	for _, method := range []int64{0, -1, 9999} {
 		_, err := w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
 			AccountID: w.usdAccount, CategoryID: w.salary, Amount: "100",
-			PaymentMethod: method, EffectiveDate: today,
+			PaymentMethodID: method, EffectiveDate: today,
 		})
-		// " pos " normalises to POS and is accepted; the rest are not.
-		if method == "pos " {
-			if err != nil {
-				t.Errorf("payment method %q should normalise: %v", method, err)
-			}
-			continue
+		if !errors.Is(err, ledger.ErrPaymentMethodNotFound) {
+			t.Errorf("payment method %d = %v, want ErrPaymentMethodNotFound", method, err)
 		}
-		if !errors.Is(err, ledger.ErrInvalidInput) {
-			t.Errorf("payment method %q = %v, want ErrInvalidInput", method, err)
-		}
+	}
+
+	// The method package's error must not leak: a transaction handler should
+	// not have to import paymentmethod to interpret what the ledger returned.
+	_, err := w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
+		AccountID: w.usdAccount, CategoryID: w.salary, Amount: "100",
+		PaymentMethodID: 9999, EffectiveDate: today,
+	})
+	if errors.Is(err, paymentmethod.ErrNotFound) {
+		t.Error("paymentmethod.ErrNotFound leaked out of the ledger")
+	}
+
+	// An archived method cannot classify new money.
+	methods := paymentmethod.NewService(w.db)
+	if _, err := methods.SetActive(ctx, methodPOS, false); err != nil {
+		t.Fatalf("archiving the method: %v", err)
+	}
+	_, err = w.ledger.RecordExpense(ctx, ledger.RecordExpenseInput{
+		AccountID: w.usdAccount, CategoryID: w.food, Amount: "100",
+		PaymentMethodID: methodPOS, EffectiveDate: today,
+	})
+	if !errors.Is(err, ledger.ErrPaymentMethodInactive) {
+		t.Errorf("an archived payment method = %v, want ErrPaymentMethodInactive", err)
+	}
+
+	if transactions, _ := w.counts(t); transactions != 0 {
+		t.Errorf("rejected operations wrote %d transactions, want 0", transactions)
 	}
 }
 
@@ -378,18 +413,18 @@ func TestEveryPaymentMethodWorksForBothDirections(t *testing.T) {
 	ctx := t.Context()
 
 	// Money can arrive by transfer or in cash just as it can leave that way.
-	for _, method := range ledger.PaymentMethods() {
+	for _, method := range []int64{methodBankTransfer, methodPOS, methodCash, methodOther} {
 		if _, err := w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
 			AccountID: w.usdAccount, CategoryID: w.salary, Amount: "10",
-			PaymentMethod: method, EffectiveDate: today,
+			PaymentMethodID: method, EffectiveDate: today,
 		}); err != nil {
-			t.Errorf("income by %s was rejected: %v", method, err)
+			t.Errorf("income by method %d was rejected: %v", method, err)
 		}
 		if _, err := w.ledger.RecordExpense(ctx, ledger.RecordExpenseInput{
 			AccountID: w.usdAccount, CategoryID: w.food, Amount: "10",
-			PaymentMethod: method, EffectiveDate: today,
+			PaymentMethodID: method, EffectiveDate: today,
 		}); err != nil {
-			t.Errorf("expense by %s was rejected: %v", method, err)
+			t.Errorf("expense by method %d was rejected: %v", method, err)
 		}
 	}
 }
@@ -403,7 +438,7 @@ func TestDescriptionMustBeAbsentRatherThanEmpty(t *testing.T) {
 	for _, description := range []string{"", "   "} {
 		_, err := w.ledger.RecordExpense(ctx, ledger.RecordExpenseInput{
 			AccountID: w.usdAccount, CategoryID: w.food, Amount: "10",
-			PaymentMethod: ledger.POS, Description: ptr(description), EffectiveDate: today,
+			PaymentMethodID: methodPOS, Description: ptr(description), EffectiveDate: today,
 		})
 		if !errors.Is(err, ledger.ErrInvalidInput) {
 			t.Errorf("description %q = %v, want ErrInvalidInput", description, err)
@@ -412,7 +447,7 @@ func TestDescriptionMustBeAbsentRatherThanEmpty(t *testing.T) {
 
 	_, err := w.ledger.RecordExpense(ctx, ledger.RecordExpenseInput{
 		AccountID: w.usdAccount, CategoryID: w.food, Amount: "10",
-		PaymentMethod: ledger.POS, Description: ptr(strings.Repeat("x", 256)), EffectiveDate: today,
+		PaymentMethodID: methodPOS, Description: ptr(strings.Repeat("x", 256)), EffectiveDate: today,
 	})
 	if !errors.Is(err, ledger.ErrInvalidInput) {
 		t.Errorf("an overlong description = %v, want ErrInvalidInput", err)
@@ -421,7 +456,7 @@ func TestDescriptionMustBeAbsentRatherThanEmpty(t *testing.T) {
 	// Absent is nil, and it survives the round trip as NULL.
 	view, err := w.ledger.RecordExpense(ctx, ledger.RecordExpenseInput{
 		AccountID: w.usdAccount, CategoryID: w.food, Amount: "10",
-		PaymentMethod: ledger.POS, EffectiveDate: today,
+		PaymentMethodID: methodPOS, EffectiveDate: today,
 	})
 	if err != nil {
 		t.Fatalf("RecordExpense: %v", err)
@@ -433,7 +468,7 @@ func TestDescriptionMustBeAbsentRatherThanEmpty(t *testing.T) {
 	// A description that needs trimming is trimmed, not rejected.
 	view, err = w.ledger.RecordExpense(ctx, ledger.RecordExpenseInput{
 		AccountID: w.usdAccount, CategoryID: w.food, Amount: "10",
-		PaymentMethod: ledger.POS, Description: ptr("  Almuerzo  "), EffectiveDate: today,
+		PaymentMethodID: methodPOS, Description: ptr("  Almuerzo  "), EffectiveDate: today,
 	})
 	if err != nil {
 		t.Fatalf("RecordExpense: %v", err)
@@ -453,7 +488,7 @@ func TestRecordRejectsUnknownAndInactiveAccounts(t *testing.T) {
 
 	_, err := w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
 		AccountID: 4242, CategoryID: w.salary, Amount: "100",
-		PaymentMethod: ledger.BankTransfer, EffectiveDate: today,
+		PaymentMethodID: methodBankTransfer, EffectiveDate: today,
 	})
 	if !errors.Is(err, ledger.ErrAccountNotFound) {
 		t.Errorf("an unknown account = %v, want ErrAccountNotFound", err)
@@ -469,7 +504,7 @@ func TestRecordRejectsUnknownAndInactiveAccounts(t *testing.T) {
 
 	_, err = w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
 		AccountID: w.usdAccount, CategoryID: w.salary, Amount: "100",
-		PaymentMethod: ledger.BankTransfer, EffectiveDate: today,
+		PaymentMethodID: methodBankTransfer, EffectiveDate: today,
 	})
 	if !errors.Is(err, ledger.ErrAccountInactive) {
 		t.Errorf("an archived account = %v, want ErrAccountInactive", err)
@@ -488,7 +523,7 @@ func TestRecordRejectsUnknownAndInactiveCategories(t *testing.T) {
 
 	_, err := w.ledger.RecordExpense(ctx, ledger.RecordExpenseInput{
 		AccountID: w.usdAccount, CategoryID: 4242, Amount: "100",
-		PaymentMethod: ledger.POS, EffectiveDate: today,
+		PaymentMethodID: methodPOS, EffectiveDate: today,
 	})
 	if !errors.Is(err, ledger.ErrCategoryNotFound) {
 		t.Errorf("an unknown category = %v, want ErrCategoryNotFound", err)
@@ -503,7 +538,7 @@ func TestRecordRejectsUnknownAndInactiveCategories(t *testing.T) {
 
 	_, err = w.ledger.RecordExpense(ctx, ledger.RecordExpenseInput{
 		AccountID: w.usdAccount, CategoryID: w.food, Amount: "100",
-		PaymentMethod: ledger.POS, EffectiveDate: today,
+		PaymentMethodID: methodPOS, EffectiveDate: today,
 	})
 	if !errors.Is(err, ledger.ErrCategoryInactive) {
 		t.Errorf("an archived category = %v, want ErrCategoryInactive", err)
@@ -523,7 +558,7 @@ func TestCategoryTypeMustMatchTheTransactionType(t *testing.T) {
 
 	_, err := w.ledger.RecordExpense(ctx, ledger.RecordExpenseInput{
 		AccountID: w.usdAccount, CategoryID: w.salary, Amount: "100",
-		PaymentMethod: ledger.POS, EffectiveDate: today,
+		PaymentMethodID: methodPOS, EffectiveDate: today,
 	})
 	if !errors.Is(err, ledger.ErrCategoryTypeMismatch) {
 		t.Errorf("an expense under an income category = %v, want ErrCategoryTypeMismatch", err)
@@ -531,7 +566,7 @@ func TestCategoryTypeMustMatchTheTransactionType(t *testing.T) {
 
 	_, err = w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
 		AccountID: w.usdAccount, CategoryID: w.food, Amount: "100",
-		PaymentMethod: ledger.BankTransfer, EffectiveDate: today,
+		PaymentMethodID: methodBankTransfer, EffectiveDate: today,
 	})
 	if !errors.Is(err, ledger.ErrCategoryTypeMismatch) {
 		t.Errorf("income under an expense category = %v, want ErrCategoryTypeMismatch", err)
@@ -557,7 +592,7 @@ func TestAnArchivedCurrencyDoesNotBlockMovements(t *testing.T) {
 
 	if _, err := w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
 		AccountID: w.usdAccount, CategoryID: w.salary, Amount: "100",
-		PaymentMethod: ledger.BankTransfer, EffectiveDate: today,
+		PaymentMethodID: methodBankTransfer, EffectiveDate: today,
 	}); err != nil {
 		t.Errorf("archiving a currency froze an existing account: %v", err)
 	}
@@ -590,8 +625,11 @@ func TestRecordOpeningBalance(t *testing.T) {
 	if view.CategoryID != nil {
 		t.Errorf("CategoryID = %v, want nil", *view.CategoryID)
 	}
-	if view.PaymentMethod != nil {
-		t.Errorf("PaymentMethod = %v, want nil", *view.PaymentMethod)
+	if view.PaymentMethodID != nil {
+		t.Errorf("PaymentMethodID = %v, want nil", *view.PaymentMethodID)
+	}
+	if view.PaymentMethodName != nil {
+		t.Errorf("PaymentMethodName = %v, want nil", *view.PaymentMethodName)
 	}
 	w.assertNoOrphanTransactions(t)
 }
@@ -671,13 +709,13 @@ func TestBalanceIsTheSumOfMovements(t *testing.T) {
 	}
 	if _, err := w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
 		AccountID: w.usdAccount, CategoryID: w.salary, Amount: "1500.50",
-		PaymentMethod: ledger.BankTransfer, EffectiveDate: today,
+		PaymentMethodID: methodBankTransfer, EffectiveDate: today,
 	}); err != nil {
 		t.Fatalf("income: %v", err)
 	}
 	if _, err := w.ledger.RecordExpense(ctx, ledger.RecordExpenseInput{
 		AccountID: w.usdAccount, CategoryID: w.food, Amount: "25.99",
-		PaymentMethod: ledger.POS, EffectiveDate: today,
+		PaymentMethodID: methodPOS, EffectiveDate: today,
 	}); err != nil {
 		t.Fatalf("expense: %v", err)
 	}
@@ -833,7 +871,7 @@ func TestCurrencyTotalsSumSeveralAccountsAndMovements(t *testing.T) {
 	for _, accountID := range []int64{w.usdAccount, w.usdAccount, second} {
 		if _, err := w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
 			AccountID: accountID, CategoryID: w.salary, Amount: "100",
-			PaymentMethod: ledger.BankTransfer, EffectiveDate: today,
+			PaymentMethodID: methodBankTransfer, EffectiveDate: today,
 		}); err != nil {
 			t.Fatalf("income: %v", err)
 		}
@@ -909,7 +947,7 @@ func TestListTransactionsOrdering(t *testing.T) {
 	for _, date := range dates {
 		view, err := w.ledger.RecordExpense(ctx, ledger.RecordExpenseInput{
 			AccountID: w.usdAccount, CategoryID: w.food, Amount: "10",
-			PaymentMethod: ledger.POS, EffectiveDate: date,
+			PaymentMethodID: methodPOS, EffectiveDate: date,
 		})
 		if err != nil {
 			t.Fatalf("expense on %s: %v", date, err)
@@ -955,7 +993,7 @@ func TestListTransactionsLimit(t *testing.T) {
 	for range 5 {
 		if _, err := w.ledger.RecordExpense(ctx, ledger.RecordExpenseInput{
 			AccountID: w.usdAccount, CategoryID: w.food, Amount: "10",
-			PaymentMethod: ledger.POS, EffectiveDate: today,
+			PaymentMethodID: methodPOS, EffectiveDate: today,
 		}); err != nil {
 			t.Fatalf("expense: %v", err)
 		}
@@ -995,7 +1033,7 @@ func TestListTransactionsCarriesTheWholeRow(t *testing.T) {
 
 	if _, err := w.ledger.RecordExpense(t.Context(), ledger.RecordExpenseInput{
 		AccountID: w.usdAccount, CategoryID: w.food, Amount: "25.99",
-		PaymentMethod: ledger.POS, Description: ptr("Almuerzo"), EffectiveDate: today,
+		PaymentMethodID: methodPOS, Description: ptr("Almuerzo"), EffectiveDate: today,
 	}); err != nil {
 		t.Fatalf("RecordExpense: %v", err)
 	}
@@ -1022,7 +1060,8 @@ func TestListTransactionsCarriesTheWholeRow(t *testing.T) {
 		{"MinorUnit", row.MinorUnit == 2},
 		{"CategoryName", row.CategoryName != nil && *row.CategoryName == "Comida"},
 		{"CategoryType", row.CategoryType != nil && *row.CategoryType == category.Expense},
-		{"PaymentMethod", row.PaymentMethod != nil && *row.PaymentMethod == ledger.POS},
+		{"PaymentMethodID", row.PaymentMethodID != nil && *row.PaymentMethodID == methodPOS},
+		{"PaymentMethodName", row.PaymentMethodName != nil && *row.PaymentMethodName == "Point of sale"},
 		{"Description", row.Description != nil && *row.Description == "Almuerzo"},
 		{"AmountMinor", row.AmountMinor == -2599},
 		{"AmountFormatted", row.AmountFormatted == "-25.99"},
@@ -1047,14 +1086,14 @@ func TestCurrencyIsDerivedFromTheAccount(t *testing.T) {
 
 	usdView, err := w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
 		AccountID: w.usdAccount, CategoryID: w.salary, Amount: "100",
-		PaymentMethod: ledger.BankTransfer, EffectiveDate: today,
+		PaymentMethodID: methodBankTransfer, EffectiveDate: today,
 	})
 	if err != nil {
 		t.Fatalf("income into USD: %v", err)
 	}
 	vesView, err := w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
 		AccountID: ves, CategoryID: w.salary, Amount: "100",
-		PaymentMethod: ledger.BankTransfer, EffectiveDate: today,
+		PaymentMethodID: methodBankTransfer, EffectiveDate: today,
 	})
 	if err != nil {
 		t.Fatalf("income into VES: %v", err)
@@ -1098,7 +1137,7 @@ func TestGetTransaction(t *testing.T) {
 
 	created, err := w.ledger.RecordIncome(t.Context(), ledger.RecordIncomeInput{
 		AccountID: w.usdAccount, CategoryID: w.salary, Amount: "100",
-		PaymentMethod: ledger.BankTransfer, EffectiveDate: today,
+		PaymentMethodID: methodBankTransfer, EffectiveDate: today,
 	})
 	if err != nil {
 		t.Fatalf("RecordIncome: %v", err)
@@ -1137,7 +1176,7 @@ func TestOperationsRespectContextCancellation(t *testing.T) {
 	}
 	if _, err := w.ledger.RecordIncome(ctx, ledger.RecordIncomeInput{
 		AccountID: w.usdAccount, CategoryID: w.salary, Amount: "100",
-		PaymentMethod: ledger.BankTransfer, EffectiveDate: today,
+		PaymentMethodID: methodBankTransfer, EffectiveDate: today,
 	}); err == nil {
 		t.Error("RecordIncome succeeded with a cancelled context")
 	}

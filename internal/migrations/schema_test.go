@@ -36,8 +36,11 @@ func TestTablesHaveExactlyTheExpectedColumns(t *testing.T) {
 			"id", "name", "category_type", "is_active", "created_at", "updated_at",
 		},
 		"transactions": {
-			"id", "transaction_type", "category_id", "payment_method", "description",
+			"id", "transaction_type", "category_id", "payment_method_id", "description",
 			"effective_date", "created_at", "updated_at",
+		},
+		"payment_methods": {
+			"id", "name", "is_active", "created_at", "updated_at",
 		},
 		"account_movements": {
 			"id", "transaction_id", "account_id", "amount_minor", "created_at",
@@ -522,8 +525,16 @@ func TestCategoryNameIsUniquePerTypeCaseInsensitively(t *testing.T) {
 // --- transactions -----------------------------------------------------------
 
 const insertTransaction = `INSERT INTO transactions
-                           (transaction_type, category_id, payment_method, description, effective_date)
+                           (transaction_type, category_id, payment_method_id, description, effective_date)
                            VALUES (?, ?, ?, ?, ?)`
+
+// The payment methods migrated from M2's fixed enumeration, by id.
+const (
+	methodBankTransfer = 1
+	methodPOS          = 2
+	methodCash         = 3
+	methodOther        = 4
+)
 
 // seedCategory returns the id of a category of the given type.
 func seedCategory(t *testing.T, db *sql.DB, name, categoryType string) int64 {
@@ -567,20 +578,22 @@ func TestTransactionShapePerType(t *testing.T) {
 		method      any
 		accepted    bool
 	}{
-		{"INCOME", true, "BANK_TRANSFER", true},
-		{"INCOME", true, "POS", true},
-		{"INCOME", true, "CASH", true},
-		{"INCOME", true, "OTHER", true},
-		{"INCOME", false, "POS", false},
+		{"INCOME", true, methodBankTransfer, true},
+		{"INCOME", true, methodPOS, true},
+		{"INCOME", true, methodCash, true},
+		{"INCOME", true, methodOther, true},
+		{"INCOME", false, methodPOS, false},
 		{"INCOME", true, nil, false},
 		{"INCOME", false, nil, false},
-		{"EXPENSE", true, "POS", true},
-		{"EXPENSE", false, "POS", false},
+		{"EXPENSE", true, methodPOS, true},
+		{"EXPENSE", false, methodPOS, false},
 		{"EXPENSE", true, nil, false},
 		{"OPENING_BALANCE", false, nil, true},
 		{"OPENING_BALANCE", true, nil, false},
-		{"OPENING_BALANCE", false, "CASH", false},
-		{"OPENING_BALANCE", true, "CASH", false},
+		{"OPENING_BALANCE", false, methodCash, false},
+		{"OPENING_BALANCE", true, methodCash, false},
+		// The column is a foreign key now, so an id nobody defined is refused.
+		{"INCOME", true, 9999, false},
 	}
 
 	for _, tc := range cases {
@@ -621,6 +634,7 @@ func TestTransactionConstraints(t *testing.T) {
 		effectiveDate any
 	}{
 		"unknown type":            {"REFUND", nil, nil, "2026-09-05"},
+		"unknown payment method":  {"OPENING_BALANCE", 9999, nil, "2026-09-05"},
 		"lowercase type":          {"opening_balance", nil, nil, "2026-09-05"},
 		"null type":               {nil, nil, nil, "2026-09-05"},
 		"empty description":       {"OPENING_BALANCE", nil, "", "2026-09-05"},
@@ -674,7 +688,7 @@ func TestCategoryInUseCannotBeDeleted(t *testing.T) {
 
 	id := seedCategory(t, db, "Comida", "EXPENSE")
 	if _, err := db.ExecContext(ctx, insertTransaction,
-		"EXPENSE", id, "POS", nil, "2026-09-05"); err != nil {
+		"EXPENSE", id, methodPOS, nil, "2026-09-05"); err != nil {
 		t.Fatalf("creating the transaction: %v", err)
 	}
 
@@ -866,7 +880,9 @@ func TestNoStoredBalanceAnywhere(t *testing.T) {
 	}
 }
 
-var businessTables = []string{"currencies", "accounts", "categories", "transactions", "account_movements"}
+var businessTables = []string{
+	"currencies", "accounts", "categories", "payment_methods", "transactions", "account_movements",
+}
 
 func TestExpectedIndexesExist(t *testing.T) {
 	t.Parallel()
@@ -878,8 +894,10 @@ func TestExpectedIndexesExist(t *testing.T) {
 	want := []string{
 		"idx_accounts_currency_code",
 		"idx_categories_type_name",
+		"idx_payment_methods_name",
 		"idx_transactions_effective_date",
 		"idx_transactions_category_id",
+		"idx_transactions_payment_method_id",
 		"idx_account_movements_account_id",
 		"idx_account_movements_transaction_id",
 	}

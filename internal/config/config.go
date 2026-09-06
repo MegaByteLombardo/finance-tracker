@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"strings"
 )
 
@@ -30,6 +31,21 @@ const (
 	DefaultHTTPAddr = ":8080"
 	DefaultDBPath   = "./data/finance.db"
 	DefaultLogLevel = slog.LevelInfo
+
+	// DefaultBackupDir sits beside the default database so that a bare
+	// `go run ./cmd/web` has somewhere usable to write snapshots. Under Docker
+	// it is overridden to /backups, which is a bind mount to the host -- the
+	// database's named volume would be destroyed by the same `down -v` that
+	// makes backups worth having.
+	DefaultBackupDir = "./backups"
+
+	// DefaultBackupRetention is how many SHUTDOWN backups are kept. Only that
+	// kind is pruned: they are produced by the process lifecycle rather than by
+	// anyone's intent, and in development there are dozens of near-identical
+	// ones. Manual, pre-migration and pre-restore snapshots are never pruned.
+	//
+	// Zero disables pruning entirely.
+	DefaultBackupRetention = 10
 )
 
 // Config is the fully validated configuration of a single process.
@@ -38,6 +54,14 @@ type Config struct {
 	HTTPAddr string
 	DBPath   string
 	LogLevel slog.Level
+
+	// BackupDir is where snapshots are written. It must not be inside the
+	// directory holding the database: the point of a backup is to survive the
+	// destruction of the operational store.
+	BackupDir string
+
+	// BackupRetention bounds how many shutdown backups are kept. Zero keeps all.
+	BackupRetention int
 }
 
 // Load reads the configuration through getenv.
@@ -51,10 +75,12 @@ type Config struct {
 // its mistakes in a single startup attempt rather than one per restart.
 func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		Env:      DefaultEnv,
-		HTTPAddr: DefaultHTTPAddr,
-		DBPath:   DefaultDBPath,
-		LogLevel: DefaultLogLevel,
+		Env:             DefaultEnv,
+		HTTPAddr:        DefaultHTTPAddr,
+		DBPath:          DefaultDBPath,
+		LogLevel:        DefaultLogLevel,
+		BackupDir:       DefaultBackupDir,
+		BackupRetention: DefaultBackupRetention,
 	}
 
 	var errs []error
@@ -85,6 +111,27 @@ func Load(getenv func(string) string) (Config, error) {
 			errs = append(errs, errors.New(`DB_PATH: must not be blank`))
 		} else {
 			cfg.DBPath = raw
+		}
+	}
+
+	if raw, set := lookup(getenv, "BACKUP_DIR"); set {
+		if raw == "" {
+			errs = append(errs, errors.New(`BACKUP_DIR: must not be blank`))
+		} else {
+			cfg.BackupDir = raw
+		}
+	}
+
+	if raw, set := lookup(getenv, "BACKUP_RETENTION"); set {
+		switch n, err := strconv.Atoi(raw); {
+		case err != nil:
+			errs = append(errs, fmt.Errorf(
+				"BACKUP_RETENTION=%q: must be a whole number", raw))
+		case n < 0:
+			errs = append(errs, fmt.Errorf(
+				"BACKUP_RETENTION=%d: must not be negative; use 0 to keep every backup", n))
+		default:
+			cfg.BackupRetention = n
 		}
 	}
 

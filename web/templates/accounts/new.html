@@ -134,6 +134,7 @@
                value="{{ .InitialBalance }}"
                placeholder="e.g. 1,000.00"
                data-type="currency"
+               data-minor-unit="{{ .MinorUnit }}"
                inputmode="decimal"
                autocomplete="off">
         {{ if .HasError "initial_balance" }}

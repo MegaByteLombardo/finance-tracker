@@ -4,9 +4,11 @@ import (
 	"errors"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/account"
+	"github.com/MegaByteLombardo/finance-tracker/internal/backup"
 	"github.com/MegaByteLombardo/finance-tracker/internal/category"
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
+	"github.com/MegaByteLombardo/finance-tracker/internal/paymentmethod"
 	"github.com/MegaByteLombardo/finance-tracker/internal/web"
 )
 
@@ -90,6 +92,22 @@ func TranslateCurrencyError(err error) error {
 	}
 }
 
+func TranslatePaymentMethodError(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, paymentmethod.ErrNotFound):
+		return translateError(web.ErrNotFound, err)
+	case errors.Is(err, paymentmethod.ErrInvalidInput):
+		return translateError(web.ErrInvalidInput, err)
+	case errors.Is(err, paymentmethod.ErrConflict):
+		return translateError(web.ErrConflict, err)
+	default:
+		return err
+	}
+}
+
 func TranslateLedgerError(err error) error {
 	if err == nil {
 		return nil
@@ -111,6 +129,28 @@ func TranslateLedgerError(err error) error {
 		return translateError(web.ErrCategoryInactive, err)
 	case errors.Is(err, ledger.ErrCategoryTypeMismatch):
 		return translateError(web.ErrCategoryTypeMismatch, err)
+	case errors.Is(err, ledger.ErrPaymentMethodNotFound):
+		return translateError(web.ErrPaymentMethodNotFound, err)
+	case errors.Is(err, ledger.ErrPaymentMethodInactive):
+		return translateError(web.ErrPaymentMethodInactive, err)
+	case errors.Is(err, ledger.ErrTypeChangeNotAllowed):
+		return translateError(web.ErrTypeChangeNotAllowed, err)
+	case errors.Is(err, ledger.ErrCurrencyChangeNotConfirmed):
+		return translateError(web.ErrCurrencyChangeNotConfirmed, err)
+	default:
+		return err
+	}
+}
+
+func TranslateBackupError(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, backup.ErrNotFound):
+		return translateError(web.ErrNotFound, err)
+	case errors.Is(err, backup.ErrInvalidName), errors.Is(err, backup.ErrInvalidBackup):
+		return translateError(web.ErrInvalidInput, err)
 	default:
 		return err
 	}

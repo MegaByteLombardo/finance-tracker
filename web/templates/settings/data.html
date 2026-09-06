@@ -1,0 +1,68 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Data &amp; Backups</h1>
+    <p class="page-subtitle">Database snapshots and disaster recovery</p>
+  </div>
+  <div class="page-actions">
+    <form action="/settings/data" method="POST" style="display: inline;">
+      <button type="submit" class="btn btn-primary">Create backup now</button>
+    </form>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: var(--space-6);">
+  <div class="card-header">
+    <h2 class="card-title" style="font-size: 1rem;">Offline Restore Instructions</h2>
+  </div>
+  <div class="card-body" style="padding: var(--space-4); font-size: 0.875rem; color: var(--text-muted); line-height: 1.5;">
+    <p style="margin: 0 0 var(--space-2) 0;">
+      For data safety and filesystem consistency, restoring a database snapshot cannot be initiated while the web service is actively running. Use the command line:
+    </p>
+    <pre style="background: var(--bg-surface); padding: var(--space-3); border-radius: 6px; overflow-x: auto; font-family: monospace; font-size: 0.85rem; margin: var(--space-2) 0;">docker compose stop
+docker compose run --rm app restore --file &lt;snapshot-filename&gt;
+docker compose up -d</pre>
+    <p style="margin: var(--space-2) 0 0 0;">
+      Refer to <code>docs/operations.md</code> for complete operational procedures and retention details.
+    </p>
+  </div>
+</div>
+
+{{ if not .Backups }}
+<div class="empty-state">
+  <div class="empty-state-icon">💾</div>
+  <h3 class="empty-state-title">No backups found</h3>
+  <p class="empty-state-text">No database snapshots have been recorded yet. Click the button above to create one.</p>
+  <form action="/settings/data" method="POST">
+    <button type="submit" class="btn btn-primary">Create backup now</button>
+  </form>
+</div>
+{{ else }}
+<div class="table-container">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Snapshot Name</th>
+        <th>Reason</th>
+        <th>Created At</th>
+        <th class="cell-right">Size</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .Backups }}
+      <tr>
+        <td class="cell-mono" style="font-weight: 500;">{{ .Name }}</td>
+        <td>
+          <span class="badge {{ if eq .Reason "manual" }}badge-neutral{{ else }}badge-other{{ end }}">
+            {{ .Reason }}
+          </span>
+        </td>
+        <td class="cell-mono" style="white-space: nowrap;">{{ formatDateTime .CreatedAt }}</td>
+        <td class="cell-right cell-mono" style="white-space: nowrap;">{{ formatBytes .SizeBytes }}</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{ end }}
+{{ end }}

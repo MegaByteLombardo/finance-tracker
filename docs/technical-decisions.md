@@ -997,3 +997,370 @@ construction, and the schema refuses a category on one.
 from `INCOME` to `EXPENSE` would reinterpret every transaction already filed
 under it. As with those, it is enforced by the absence of any code path rather
 than by a trigger (TD-022).
+
+---
+
+## TD-032 — Backups live on the host, never in the volume they protect
+
+**Status:** Accepted · **Milestone:** M3
+
+**Decision.** The operational database stays in the `finance_data` named volume.
+Snapshots go to a **bind mount** from the host, `./backups:/backups`, declared in
+long syntax with `create_host_path: false`.
+
+**Rationale.** M2 shipped a working ledger whose only copy lived in that volume,
+and the volume was destroyed. The investigation was unambiguous: persistence
+worked correctly — the volume was recreated at the same second as the container,
+two seconds after the image was built — and there was simply nothing else to fall
+back on.
+
+A second *volume* would not have helped. `docker compose down -v` destroys every
+volume in the project, and `docker volume prune` removes any volume whose
+container is gone. Backups have to leave Docker's lifecycle entirely to survive
+the command that makes them necessary.
+
+**Verified, not assumed.** Two things were tested against real containers before
+this was written:
+
+- A bind mount on Windows is presented as `drwxrwxrwx`, so the non-root runtime
+  user (uid 65532) can write to it.
+- A **fresh named volume is `drwxr-xr-x` and root-owned**, and uid 65532 cannot
+  write to it. `/data` works only because the image ships that directory owned by
+  65532 and a volume inherits the image's ownership. A backups volume would have
+  needed the same trick — and would still have been destroyed by `down -v`.
+
+**The caveat, stated rather than discovered.** On a Linux host a bind mount keeps
+the host's ownership, so `./backups` may need `chown 65532` there. The behaviour
+that makes this effortless on Windows is Docker Desktop's, not Docker's.
+
+`create_host_path: false` is deliberate: if `./backups` is missing, the container
+fails to start instead of Docker silently creating it as root and leaving every
+write to fail. `backups/.gitkeep` is tracked so the directory exists in any
+checkout.
+
+**Alternatives considered.** A second named volume — destroyed by the same
+command. Writing snapshots inside `/data` — destroyed with the database. An
+external object store — a network dependency for a local-first application.
+
+---
+
+## TD-033 — Snapshots are taken with VACUUM INTO and validated before they count
+
+**Status:** Accepted · **Milestone:** M3
+
+**Decision.** `VACUUM INTO` against the live database. The result is written under
+a `.partial` name, validated with `PRAGMA integrity_check` and a schema check,
+and only then renamed to its final name. A snapshot that fails validation is
+deleted.
+
+**Rationale.** `VACUUM INTO` produces a consistent, compacted copy of a database
+that is being used, without stopping the service and without depending on the
+`-wal` being complete. `docs/operations.md` had named it as the intended approach
+since M0; M3 implements it.
+
+Copying `finance.db`, `finance.db-wal` and `finance.db-shm` together is the
+common advice and it is wrong here: `-shm` holds no persistent state, and a set
+copied by hand mid-write can be internally inconsistent.
+
+**`integrity_check`, not `quick_check`.** `quick_check` skips verifying that
+index contents agree with table contents — exactly the silent corruption a backup
+exists to rule out. At this scale the difference is milliseconds, and the file
+may be opened in anger years from now.
+
+**A backup that does not validate is removed rather than kept.** A file that
+looks recoverable and is not is worse than no file: it is discovered at the
+moment it is needed, which is the worst possible moment.
+
+**Version-aware validation.** A snapshot is checked against the table set that
+belonged to *its* schema version, not today's. A pre-migration backup taken at
+version 7 has no `payment_methods` table and is perfectly good — restoring one
+and letting migrations bring it forward is the entire point of keeping it.
+
+**Naming.** `finance-20260905T183045Z-manual.db`. No colons, because the primary
+development host is Windows. Collisions within a second are resolved by an
+incremental suffix rather than sub-second precision or a UUID — it stays readable
+and only appears when it is needed.
+
+One bug found by testing is worth recording: pruning **deletes files, which frees
+their names**, and the first implementation chose names by checking the directory
+alone. A snapshot taken in the same second as a pruned one reused its name, so a
+new file sorted as old — which would then have corrupted which snapshot pruning
+believed was oldest. Sequence numbers are now monotonic within the process as
+well as checked against the directory.
+
+---
+
+## TD-034 — Retention applies only to shutdown backups
+
+**Status:** Accepted · **Milestone:** M3
+
+**Decision.** Only snapshots taken on shutdown are pruned, keeping the most
+recent `BACKUP_RETENTION` (default 10). Manual, pre-migration and pre-restore
+snapshots are **never** removed automatically. `BACKUP_RETENTION=0` disables
+pruning entirely.
+
+**Rationale.** The three kinds are not comparable.
+
+Shutdown snapshots are produced by the process lifecycle rather than by anyone's
+intent; a development day generates dozens of near-identical ones, and the value
+of the tenth-oldest is close to zero.
+
+Pre-migration snapshots are rare — one per schema change, seven in this project's
+entire life — and they are the only thing standing between a bad migration and
+lost data. Pruning them by count would delete the M3 one after ten restarts.
+
+Manual and pre-restore snapshots exist because someone decided they should. A
+retention policy that quietly removes those is a policy nobody can trust, and an
+untrusted backup system is not a backup system.
+
+This is why the reason is part of the **filename**: the policy is only
+expressible because the file says what it is.
+
+**Alternatives considered.** No retention — the directory grows without bound
+during development. A single count across all kinds — deletes the irreplaceable
+to make room for the disposable. Age-based expiry — the same problem, with a
+clock attached.
+
+---
+
+## TD-035 — Restore is an offline subcommand of the same binary
+
+**Status:** Accepted · **Milestone:** M3
+
+**Decision.** `finance-tracker restore --file <name>`, run with the server
+stopped. No second binary, and no button in the web interface.
+
+```
+docker compose stop
+docker compose run --rm app restore --file finance-20260905T183045Z-manual.db
+docker compose up -d
+```
+
+**Rationale.** Restoring replaces the database file. Doing that while handlers
+hold it open would leave them reading a file that no longer exists. Making it an
+offline operation is not a limitation; it is the only version that is safe.
+
+The same binary because it already has everything the job needs — the
+configuration, the database conventions, the backup package — and the container's
+ENTRYPOINT is the binary, so `docker compose run --rm app restore …` works with
+no image change. A second binary would have to be built, shipped and kept in step
+for nothing.
+
+**Ordering, and why it is what it is.**
+
+```
+validate the snapshot        -- before anything is touched
+snapshot what is there now   -- so the restore itself is reversible
+copy the backup alongside    -- the live file is still untouched
+move the live file aside     -- with its -wal and -shm, as a group
+move the copy into place
+discard what was moved aside
+```
+
+The journal files travel **with** the database, as a group. A `-wal` belongs to
+the file it was written for: leaving a stale one beside a freshly restored
+database is the one combination that can corrupt the result, and deleting it
+while keeping the old database would strip that database of its most recent
+transactions. Moving all three keeps the rollback exact.
+
+Nothing is ever renamed onto an existing path — Windows fails that and POSIX
+silently overwrites, and depending on either is depending on the platform.
+
+**Restore does not run migrations.** It replaces and stops. The next ordinary
+start does `Open → Up → serve`, which is what lets a schema 7 snapshot be brought
+forward to 9 by the same code path that migrates anything else.
+
+**Path safety by construction.** `--file` accepts a **bare filename** and nothing
+else: absolute paths, volume names, and both separators are refused on every
+platform, before the name is joined to the backup directory. A prefix comparison
+against the resolved directory would have to be right about symlinks, case
+folding, UNC paths and `..`; refusing to accept a path at all is a smaller thing
+to be right about. Note that a backslash is an ordinary filename character on
+Linux, so `C:\evil\x.db` is a single valid filename there — which is why both
+separators are rejected regardless of where the container runs.
+
+---
+
+## TD-036 — Payment methods became an entity
+
+**Status:** Accepted · **Milestone:** M3 · **Supersedes part of** TD-026's M2 shape
+
+**Decision.** `transactions.payment_method TEXT` with a four-value `CHECK`
+becomes `payment_method_id INTEGER` referencing a new `payment_methods` table
+that the user administers. The four M2 values are migrated as rows, under the
+names the interface already displayed.
+
+**Rationale.** M2's fixed set was right while it was small and stable. Real use
+produced "Pago móvil", "Zelle" and "Débito", and adding one meant writing a
+migration and redeploying — which a personal finance application should not need
+in order to record how someone paid for lunch.
+
+**Seeded with the display names, not the codes.** `BANK_TRANSFER` becomes "Bank
+transfer" because that is the string the interface already showed for it, so
+upgrading changes nothing anyone can see. Nothing else is seeded: the user
+creates their own, for the same reason categories have no seed.
+
+**Uniqueness is exact, not `NOCASE`** — and this diverges from `categories`,
+knowingly. SQLite's `NOCASE` folds ASCII only, so it would treat "Zelle" and
+"zelle" as the same while treating "Café" and "CAFÉ" as different. Claiming
+case-insensitive uniqueness while delivering it for half the alphabet is worse
+than not claiming it, and importing ICU to do it properly is a dependency this
+application will not carry for one index. Changing `categories` to match would
+mean another destructive migration for no functional gain, so M2's choice stands
+there and both are documented in data-model.md.
+
+**Renaming changes history, deliberately.** A payment method is a label for a
+channel, not a fact captured at the moment of the transaction, so correcting
+"Point of sale" to "Punto de venta" should follow every past transaction that
+used it. This is the same choice `category.Name` already makes. What must not be
+done is reusing a row for a different meaning — renaming "Zelle" to "PayPal"
+rather than creating a second method — because that silently rewrites what past
+transactions claim. No schema can prevent it; it is recorded as a rule.
+
+**No version history.** See TD-039.
+
+---
+
+## TD-037 — A parent table is rebuilt by rebuilding its child first
+
+**Status:** Accepted · **Milestone:** M3
+
+**Decision.** Migration `00009` rebuilds `transactions` **and**
+`account_movements`, drops the old child before the old parent, and runs as an
+ordinary transactional goose migration with `foreign_keys` on throughout.
+
+**Rationale.** SQLite cannot alter a `CHECK` constraint, so replacing
+`transactions.payment_method` means rebuilding the table. But `transactions` is a
+parent: `account_movements` references it, and dropping a parent while children
+point at it fails.
+
+Three approaches were tested against real SQLite:
+
+1. **Rebuild `transactions` alone.** `DROP TABLE` fails with
+   `FOREIGN KEY constraint failed`.
+2. **Add `PRAGMA defer_foreign_keys = ON`.** Also fails — at `COMMIT`. Dropping
+   the parent increments the deferred-violation counter once per child row, and
+   renaming a new table into its place does **not** decrement it. The data ends
+   up consistent, `PRAGMA foreign_key_check` reports nothing, and the transaction
+   is refused anyway.
+3. **`PRAGMA foreign_keys = OFF` around the rebuild.** Works. But the pragma is
+   connection-scoped and a no-op inside a transaction, so it forces the migration
+   out of goose's transaction and leaves the connection in a state the rest of
+   the schema depends on being restored.
+
+What is done instead needs none of that. Rebuild the child as well, and **drop
+the old child first**: with `account_movements` gone, nothing references the old
+`transactions`, so dropping it is ordinary. The new child is created pointing at
+`transactions_new`, and renaming the new parent into place makes SQLite rewrite
+the child's `REFERENCES` clause to follow it — verified in the resulting schema.
+
+Foreign keys stay on for the entire operation, and the migration stays a normal
+transactional one. It was rehearsed against a schema 7 database carrying accounts,
+categories, transactions and movements using all four payment methods before it
+was written, and again against the real database on this machine.
+
+**Note for later.** The instinct when a rebuild hits a foreign key is to switch
+foreign keys off. It is worth remembering that reordering the drops removes the
+need.
+
+---
+
+## TD-038 — The M3 migrations are forward-only
+
+**Status:** Accepted · **Milestone:** M3
+
+**Decision.** `00008` and `00009` have no working `Down`. Their Down sections
+contain a statement that fails loudly and names the alternative. The supported
+way back is restoring the pre-migration snapshot.
+
+**Rationale.** After M3 a transaction can reference a payment method that M2's
+four-value enumeration cannot spell. A `Down` would have to discard those rows or
+collapse them into `OTHER`, and both destroy information about where money
+actually went. This project does not invent lossy mappings.
+
+The rollback path is better than a `Down` anyway, and it exists because of this
+milestone: startup takes a snapshot automatically before applying migrations to a
+database that already has a schema.
+
+```
+pre-migration snapshot (schema 7) → apply M3 → if needed: restore that snapshot
+```
+
+**Why the Down fails rather than doing nothing.** An empty Down would let goose
+mark the migration as rolled back while the schema stayed exactly as it was —
+a lie recorded in `goose_db_version`. A statement that errors is honest.
+
+`rollback_test.go`, which exercises the reversible migrations, skips these two by
+name, and a separate test asserts they refuse to run.
+
+---
+
+## TD-039 — Editing overwrites; there is no history of edited records
+
+**Status:** Accepted · **Milestone:** M3
+
+**Decision.** M3 supports editing accounts, categories, transactions and opening
+balances. It does **not** preserve previous versions. There is no audit log, no
+history table and no event sourcing.
+
+**Rationale.** The need is real and small: a transaction entered against the wrong
+account, an expense entered as income, a typo in an amount. Correcting those is
+what the user asked for. Recording *that they were corrected* is a different
+feature with a different cost — a second write path, a second schema, and a
+retention question of its own — and nobody has asked for it.
+
+For a single-user personal application the undo that matters is the one that
+already exists: the whole database, from a backup. M3 makes that reliable in the
+same milestone that makes editing possible, which is not a coincidence.
+
+**Stated plainly in the documentation** so it is a known property rather than a
+discovered one:
+
+> M3 supports editing current records. M3 does not preserve previous versions of
+> edited records.
+
+Revisitable if a real need appears. It would arrive as its own decision.
+
+**What editing does NOT relax.** An edit runs exactly the same validation a
+creation does — the account exists and is active, the category matches the type,
+the payment method is active, the amount is positive and within the currency's
+precision. Creation and editing share one code path for this, because an edit
+that could produce a state a creation would refuse would be a second door into
+every invariant this ledger maintains. The transaction and its movement are
+rewritten in one `sql.Tx`, so a balance is never briefly wrong.
+
+---
+
+## TD-040 — Moving a transaction across currencies requires explicit confirmation
+
+**Status:** Accepted · **Milestone:** M3
+
+**Decision.** Editing a transaction onto an account denominated in a different
+currency is allowed only when the caller sets `AllowCurrencyChange`. Otherwise
+the service returns `ErrCurrencyChangeNotConfirmed` and writes nothing.
+
+**Rationale.** The amount is a decimal string, parsed at the destination
+account's `minor_unit`. Moving "100.00" from a USD account to a VES account does
+not convert it — it reinterprets it as a different sum of money. M3 has no
+exchange rates and must not invent one.
+
+Three options were considered:
+
+- **Refuse the move entirely.** Safe, and wrong: picking the wrong account is a
+  normal mistake, and forcing archive-and-recreate to fix it is worse than the
+  mistake.
+- **Allow it silently.** The amount changes meaning without anyone saying so,
+  which is the exact class of error the money rules exist to prevent.
+- **Require the caller to say so.** One boolean, defaulting to false, that the UI
+  can only set after showing which currency the amount will be read in.
+
+The flag is deliberately not something a handler sets unconditionally, and the
+contract says so. `ErrCurrencyChangeNotConfirmed` is the only error in the ledger
+that means "ask the user and try again" rather than "the input was wrong".
+
+Moving between accounts of the **same** currency needs no confirmation: nothing
+is reinterpreted.
+
+The currency is still derived from the account. No `currency_code` column was
+added to `transactions` or `account_movements`, and none will be — a second
+column could only ever disagree with the account.

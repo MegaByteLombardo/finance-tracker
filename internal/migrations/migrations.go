@@ -39,6 +39,33 @@ func Up(ctx context.Context, db *sql.DB, logger *slog.Logger) error {
 	return up(ctx, db, migrationsFS, logger)
 }
 
+// PendingOnExistingSchema reports whether there are migrations to apply to a
+// database that already has a schema.
+//
+// Both halves matter, and they are asked together because the answer is only
+// useful as one question: "is a schema this database already has about to
+// change?"
+//
+//   - No applied version means the database is brand new. Everything is about
+//     to be created, and a snapshot of nothing is a file nobody will ever want.
+//   - No pending migrations means nothing is about to change, so there is
+//     nothing to take a snapshot before.
+//
+// It is what decides whether startup takes a pre-migration backup.
+func PendingOnExistingSchema(ctx context.Context, db *sql.DB, logger *slog.Logger) (bool, error) {
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db, migrationsFS, goose.WithSlog(logger))
+	if err != nil {
+		return false, fmt.Errorf("creating migration provider: %w", err)
+	}
+	// Deliberately no provider.Close(): it closes the *sql.DB the caller owns.
+
+	current, target, err := provider.GetVersions(ctx)
+	if err != nil {
+		return false, fmt.Errorf("reading schema versions: %w", err)
+	}
+	return current >= 1 && current < target, nil
+}
+
 // up is Up with the migration source injected, so that tests can exercise the
 // failure path with a deliberately broken migration without shipping one.
 func up(ctx context.Context, db *sql.DB, fsys fs.FS, logger *slog.Logger) error {

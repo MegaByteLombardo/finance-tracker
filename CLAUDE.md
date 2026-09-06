@@ -119,19 +119,47 @@ A `Money` type does not exist yet. When it is introduced, it enforces this.
 
 ## Current scope
 
-**M0 (closed): foundation.** Config, SQLite, `/healthz`, graceful shutdown,
-Docker, tests, docs.
+**M0–M2 (closed).** Foundation; currencies and accounts; the ledger, categories,
+money, opening balances and the server-rendered interface.
 
-**M1 (closed): currencies and accounts.** Migrations, the `currencies` and
-`accounts` tables, and the `internal/currency` and `internal/account` packages.
+**M3 (in progress): data safety, editing and payment methods.**
 
-**Not built yet, and not to be added opportunistically:**
+- **Backups.** `internal/backup` snapshots the live database with `VACUUM INTO`,
+  validates each one with `PRAGMA integrity_check` before it counts, and writes
+  to a bind mount on the **host** — never to the Docker volume, because
+  `docker compose down -v` destroys volumes and this project lost data that way
+  once. Restore is an offline subcommand of the same binary.
+- **Payment methods** are rows the user administers, not a fixed enumeration.
+- **Editing** exists for accounts, categories, transactions and opening balances.
+  An edit runs the **same validation as a creation** — they share one code path,
+  because an edit that could produce a state a creation would refuse is a second
+  door into every invariant.
 
-- **No UI.** No HTML, htmx, templates or CSS. The domain services have no HTTP
-  surface; `/healthz` is still the only route.
-- **No amounts anywhere.** `accounts` has no balance column and there is no
-  `Money` type. Balances will be derived from the movement ledger.
-- **No transactions, categories, transfers, exchange rates, FX, credit,
-  instalments or calendar.**
+**Not built, and not to be added opportunistically:**
+
+- **No delete of anything.** Archive or correct.
+- **No history of edited records.** M3 overwrites. The undo is a backup.
+- **No FX, exchange rates, reporting currency or consolidated net worth.**
+  Currencies are shown separately and never summed.
+- **No transfers between the user's own accounts.** A payment method named "Bank
+  transfer" is a channel to the outside world, not an internal transfer.
+- No credit, loans, instalments, calendar, recurring transactions, budgets, tags,
+  hierarchical categories, authentication or public API.
 
 Do not implement a future milestone's domain because it seems convenient.
+
+## Things that were got wrong once
+
+Short list, because each cost real time and each is easy to repeat.
+
+- **A `CHECK` that can evaluate to NULL does not constrain anything.** SQLite
+  rejects a row only when the expression is *false*; `NULL` passes. Guard every
+  nullable column with `IS NULL` / `IS NOT NULL` (TD-025).
+- **Rebuilding a table that has children:** drop the old **child** first, then the
+  old parent. `PRAGMA defer_foreign_keys` does not help — it fails at COMMIT
+  (TD-037).
+- **A fresh named volume is root-owned** and a non-root process cannot write to
+  it unless the image ships that directory pre-owned. A bind mount on Windows is
+  world-writable; on Linux it keeps the host's ownership (TD-032).
+- **Pruning frees filenames.** Anything that picks a name by checking the
+  directory must also remember what it already issued (TD-033).

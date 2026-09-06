@@ -79,3 +79,66 @@ func TestUpRejectsAnEmptyMigrationSource(t *testing.T) {
 		t.Error("expected an error when there are no migrations at all")
 	}
 }
+
+// PendingOnExistingSchema decides whether startup takes a pre-migration
+// snapshot, so its three answers are worth pinning down exactly.
+func TestPendingOnExistingSchema(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a brand-new database has nothing worth snapshotting", func(t *testing.T) {
+		t.Parallel()
+
+		db := newRawDB(t)
+
+		pending, err := PendingOnExistingSchema(t.Context(), db, slog.New(slog.DiscardHandler))
+		if err != nil {
+			t.Fatalf("PendingOnExistingSchema: %v", err)
+		}
+		if pending {
+			t.Error("a database with no applied migrations reported that it needs a snapshot")
+		}
+	})
+
+	t.Run("a fully migrated database is not about to change", func(t *testing.T) {
+		t.Parallel()
+
+		db := newRawDB(t)
+		if err := Up(t.Context(), db, slog.New(slog.DiscardHandler)); err != nil {
+			t.Fatalf("Up: %v", err)
+		}
+
+		pending, err := PendingOnExistingSchema(t.Context(), db, slog.New(slog.DiscardHandler))
+		if err != nil {
+			t.Fatalf("PendingOnExistingSchema: %v", err)
+		}
+		if pending {
+			t.Error("an up-to-date database reported that it needs a snapshot")
+		}
+	})
+
+	// The case the snapshot exists for: a schema that already holds data, about
+	// to be altered. Built by applying a smaller migration source first, which
+	// leaves the database at a version the real source is ahead of.
+	t.Run("an older schema with migrations waiting", func(t *testing.T) {
+		t.Parallel()
+
+		db := newRawDB(t)
+
+		partial := fstest.MapFS{
+			"00001_create_currencies.sql": {Data: []byte(
+				"-- +goose Up\nCREATE TABLE currencies (code TEXT NOT NULL PRIMARY KEY) STRICT;\n" +
+					"-- +goose Down\nDROP TABLE currencies;\n")},
+		}
+		if err := up(t.Context(), db, partial, slog.New(slog.DiscardHandler)); err != nil {
+			t.Fatalf("applying the partial source: %v", err)
+		}
+
+		pending, err := PendingOnExistingSchema(t.Context(), db, slog.New(slog.DiscardHandler))
+		if err != nil {
+			t.Fatalf("PendingOnExistingSchema: %v", err)
+		}
+		if !pending {
+			t.Error("an existing schema with migrations waiting reported that no snapshot is needed")
+		}
+	})
+}

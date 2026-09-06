@@ -21,6 +21,13 @@ coverage.*
 *.db-wal
 *.db-shm
 
+# Backups are snapshots of that same personal data, so they are just as
+# sensitive. The directory itself IS tracked, through backups/.gitkeep: it must
+# exist in a checkout because compose bind-mounts it with create_host_path
+# disabled, which stops Docker creating it as root.
+/backups/*
+!/backups/.gitkeep
+
 # Editors / OS
 .idea/
 .vscode/

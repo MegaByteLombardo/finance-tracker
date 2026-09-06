@@ -31,6 +31,7 @@
         <th>Account</th>
         <th>Payment Method</th>
         <th class="cell-right">Amount</th>
+        <th class="cell-right">Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -71,12 +72,15 @@
           </div>
         </td>
         <td>
-          {{ paymentMethodLabel .PaymentMethod }}
+          {{ paymentMethodLabel .PaymentMethodName }}
         </td>
         <td class="cell-right cell-mono" style="white-space: nowrap;">
           <span class="{{ if eq .Type "INCOME" }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else }}amount-opening{{ end }}">
             {{ formatSignedAmount . }} {{ .CurrencyCode }}
           </span>
+        </td>
+        <td class="cell-right">
+          <a href="/transactions/{{ .ID }}/edit" class="btn btn-sm btn-secondary">Edit</a>
         </td>
       </tr>
       {{ end }}

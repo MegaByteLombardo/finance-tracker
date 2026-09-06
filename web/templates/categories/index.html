@@ -45,6 +45,7 @@
               {{ end }}
             </td>
             <td class="cell-right">
+              <a href="/categories/{{ .ID }}/edit" class="btn btn-sm btn-secondary" style="margin-right: 4px;">Edit</a>
               <form action="/categories/{{ .ID }}/toggle" method="POST" style="display: inline;">
                 <button type="submit" class="btn btn-sm btn-secondary">
                   {{ if .IsActive }}Archive{{ else }}Activate{{ end }}
@@ -94,6 +95,7 @@
               {{ end }}
             </td>
             <td class="cell-right">
+              <a href="/categories/{{ .ID }}/edit" class="btn btn-sm btn-secondary" style="margin-right: 4px;">Edit</a>
               <form action="/categories/{{ .ID }}/toggle" method="POST" style="display: inline;">
                 <button type="submit" class="btn btn-sm btn-secondary">
                   {{ if .IsActive }}Archive{{ else }}Activate{{ end }}

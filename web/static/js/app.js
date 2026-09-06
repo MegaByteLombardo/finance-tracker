@@ -1,10 +1,34 @@
 ﻿// Finance Tracker - Presentation JavaScript
-// Auto-formatting for currency amount inputs (separates thousands and decimals)
+//
+// Auto-formatting for currency amount inputs. Groups thousands for display and
+// pads the decimals, then submits the CANONICAL format the backend expects --
+// digits, one optional decimal point, no separators. See docs/m3-contract.md.
+//
+// The number of decimals comes from the currency's minor unit, never from a
+// constant: JPY has 0 and KWD has 3, and a form that assumed 2 would silently
+// mangle either.
 
 (function () {
   'use strict';
 
-  function formatNumberParts(rawVal) {
+  const DEFAULT_MINOR_UNIT = 2;
+
+  // scaleFor reads the decimals the selected currency actually has.
+  //
+  // The currency box is checked first because it is what htmx replaces when the
+  // account changes, so it is current even when the input's own attribute was
+  // rendered for a different account.
+  function scaleFor(input) {
+    const box = document.getElementById('currency-display-box');
+    const raw = (box && box.dataset.minorUnit) || (input && input.dataset.minorUnit);
+    const n = parseInt(raw, 10);
+    if (Number.isInteger(n) && n >= 0 && n <= 4) {
+      return n;
+    }
+    return DEFAULT_MINOR_UNIT;
+  }
+
+  function formatNumberParts(rawVal, scale) {
     if (!rawVal) return '';
 
     let isNegative = false;
@@ -14,18 +38,21 @@
       s = s.substring(1);
     }
 
-    // If user typed a comma with no dot present, treat it as decimal separator
-    if (s.includes(',') && !s.includes('.')) {
+    // A comma with no dot present is a decimal comma, as long as what follows
+    // could be a fraction at this currency's scale.
+    if (s.includes(',') && !s.includes('.') && scale > 0) {
       let commaIdx = s.lastIndexOf(',');
       let afterComma = s.substring(commaIdx + 1);
-      if (afterComma.length <= 2) {
+      if (afterComma.length <= scale) {
         s = s.substring(0, commaIdx) + '.' + afterComma;
       }
     }
 
     let parts = s.split('.');
     let intDigits = parts[0].replace(/\D/g, '');
-    let decDigits = parts.length > 1 ? parts[1].replace(/\D/g, '').slice(0, 2) : null;
+    let decDigits = (scale > 0 && parts.length > 1)
+      ? parts[1].replace(/\D/g, '').slice(0, scale)
+      : null;
 
     if (!intDigits && decDigits === null) {
       return isNegative ? '-' : '';
@@ -39,7 +66,7 @@
     let res = (isNegative ? '-' : '') + formattedInt;
     if (decDigits !== null) {
       res += '.' + decDigits;
-    } else if (s.endsWith('.')) {
+    } else if (scale > 0 && s.endsWith('.')) {
       res += '.';
     }
     return res;
@@ -53,7 +80,7 @@
     const beforeCursor = oldVal.slice(0, oldCursor);
     const digitsBefore = (beforeCursor.match(/[\d.]/g) || []).length;
 
-    const newVal = formatNumberParts(oldVal);
+    const newVal = formatNumberParts(oldVal, scaleFor(input));
     input.value = newVal;
 
     let newCursor = 0;
@@ -75,6 +102,7 @@
 
   function handleCurrencyBlur(e) {
     const input = e.target;
+    const scale = scaleFor(input);
     let val = input.value.trim();
     if (!val || val === '-') return;
 
@@ -90,10 +118,35 @@
     let intPart = parts[0].replace(/\D/g, '') || '0';
     let decPart = parts.length > 1 ? parts[1].replace(/\D/g, '') : '';
 
-    decPart = (decPart + '00').slice(0, 2);
     let formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    let res = (isNegative ? '-' : '') + formattedInt;
 
-    input.value = (isNegative ? '-' : '') + formattedInt + '.' + decPart;
+    // A currency with no minor unit gets no decimal point at all.
+    if (scale > 0) {
+      res += '.' + (decPart + '0'.repeat(scale)).slice(0, scale);
+    }
+    input.value = res;
+  }
+
+  // canonicalise rewrites the field to what the backend accepts, immediately
+  // before the form is submitted.
+  //
+  // The backend deliberately does NOT strip separators: doing that blindly turns
+  // "1,5" into "15". Producing the canonical format here is the presentation
+  // layer's job, and it is the only place that knows which convention it just
+  // displayed.
+  function canonicaliseOnSubmit(form) {
+    if (form._currencyCanonInit) return;
+    form._currencyCanonInit = true;
+
+    form.addEventListener('submit', () => {
+      form.querySelectorAll('input[data-type="currency"]').forEach(input => {
+        const val = input.value.trim();
+        if (val) {
+          input.value = val.replace(/,/g, '');
+        }
+      });
+    });
   }
 
   function initCurrencyInputs(root) {
@@ -105,6 +158,10 @@
 
       input.addEventListener('input', handleCurrencyInput);
       input.addEventListener('blur', handleCurrencyBlur);
+
+      if (input.form) {
+        canonicaliseOnSubmit(input.form);
+      }
 
       if (input.value) {
         handleCurrencyBlur({ target: input });

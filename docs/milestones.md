@@ -132,9 +132,9 @@ The migration decision deferred from M0 (TD-012) is settled by TD-014.
 
 ---
 
-## M2 — Core Ledger MVP · `IN PROGRESS`
+## M2 — Core Ledger MVP · `CLOSED`
 
-**Opened:** 2026-09-05
+**Closed:** 2026-09-05
 
 The first amounts in the system. M2 turns the domain from a catalogue of accounts
 into a working ledger: money enters, money leaves, and every balance is derived
@@ -175,24 +175,22 @@ currency, consolidated or historical net worth, credit, instalments, recurring
 transactions, budgets, tags, hierarchical categories, and editing or deleting a
 transaction.
 
-### Status
-
-**Backend, presentation and their integration are all in place.**
+### Delivered
 
 - Migrations `00004`–`00007` (schema version 7); the `money`, `category`,
   `ledger` and `application` packages; the account subtype.
 - The presentation layer in `internal/web` and `web/`, built in parallel against
-  the contract.
-- `internal/web/adapter`, which translates between the two vocabularies and
-  builds the presentation layer's services over the real database. `cmd/web` no
-  longer runs on fakes; the fakes remain as the presentation layer's test double.
+  a frozen contract, plus `internal/web/adapter` translating between the two
+  vocabularies.
 
-**Quality gates at this point:** `gofmt -l .` silent, `go vet ./...` clean,
-`go test ./... -count=1` green across 13 packages, `go test -race ./...` green in
-the Linux container, `git diff --check` clean, `docker compose build`
-successful.
+### Verification
 
-**Verified against the running application**, not only by unit tests: a fresh
+Quality gates at close: `gofmt -l .` silent, `go vet ./...` clean,
+`go test ./... -count=1` green across 13 packages over three consecutive runs,
+`go test -race ./...` green in the Linux container, `git diff --check` clean,
+`docker compose build` successful.
+
+**Verified against the running application, not only by unit tests.** A fresh
 database, then categories, an account with an opening balance, an income and an
 expense recorded through the real HTTP forms. Balances came out of
 `SUM(account_movements.amount_minor)` exactly — 1000.00 + 1500.50 − 25.99 =
@@ -200,10 +198,118 @@ expense recorded through the real HTTP forms. Balances came out of
 without a subtype, an amount with three decimals, and an expense filed under an
 income category were each rejected with 422.
 
-**What remains before this milestone can be declared closed:** agreeing the
-acceptance criteria and verifying them one by one, as M0 and M1 were, and a
-final pass over the `Using Finance Tracker` walkthrough in the README now that
-there is a UI to check it against.
+M2 was closed without a numbered acceptance list, unlike M0 and M1. The scope was
+specified as capability rather than as criteria, and the gap is recorded here
+rather than papered over; M3 returns to the M0/M1 standard.
+
+### Carry-over into M3
+
+Three findings from the parallel build became M3 requirements rather than notes:
+the web layer stripped thousands separators blindly before calling the ledger,
+`app.js` hard-coded two decimal places, and a `strconv.ParseInt` error was
+discarded. All three are addressed in M3's contract.
+
+---
+
+## M3 — Data Safety, Editing & Payment Methods · `CLOSED`
+
+**Closed:** 2026-09-06
+
+This milestone was not planned. It exists because the M2 MVP was used, and using
+it exposed two things: **there was only ever one copy of the data**, and there was
+no way to correct a mistake once it was recorded.
+
+The first cost real data. The `finance_data` volume was destroyed and recreated,
+and nothing else held a copy. The investigation was unambiguous — persistence was
+working correctly; there was simply no backup, because `docs/operations.md` had
+declared backups out of scope in M0, when there was nothing to lose. That
+reasoning stopped being true the moment M2 shipped a working ledger.
+
+### Delivered
+
+**Data safety.** `internal/backup`: snapshots taken with `VACUUM INTO` against
+the live database, validated with `PRAGMA integrity_check` before they are given
+a real name, written to a bind mount on the **host** rather than to the Docker
+volume they exist to protect. Three triggers — before migrations, on graceful
+shutdown, and on request — plus a pre-restore snapshot that makes a restore
+itself reversible. Retention applies only to shutdown snapshots. Restore is an
+offline subcommand of the same binary.
+
+**Payment methods.** From a four-value `CHECK` constraint to a table the user
+administers, with the M2 values migrated under the names the interface already
+showed. The migration rebuilds `transactions` **and** `account_movements`,
+dropping the old child before the old parent so that foreign keys stay on
+throughout — after two other approaches were tested and rejected.
+
+**Editing.** Transactions and opening balances can be corrected, revalidated
+against exactly the same invariants as a creation, with the transaction and its
+movement rewritten in one `sql.Tx`. `INCOME` and `EXPENSE` convert freely and the
+movement's sign is recomputed from the new type. Account and category editing
+already existed from M2 and is now exposed by the contract.
+
+**Contract.** [m3-contract.md](m3-contract.md), frozen before implementation.
+
+### Verified empirically
+
+Beyond the test suite, three things were proven against real infrastructure
+rather than argued from documentation:
+
+- **A bind mount is writable by the distroless non-root user (uid 65532); a fresh
+  named volume is not.** Both were tested with real containers. This is what
+  decided where backups live.
+- **The migration ran against the real database on this machine.** 5 accounts,
+  4 categories, 10 transactions and 10 movements crossed from schema 7 to 9 with
+  every balance identical, `foreign_key_check` empty and `integrity_check` `ok` —
+  and the pre-migration snapshot was taken automatically first.
+- **The disaster recovery cycle was rehearsed end to end**, in an isolated Compose
+  project so the real data was never at risk: create data → snapshot →
+  `docker compose down -v` → confirm the volume is gone and the snapshot survives
+  on the host → restore → start → **identical accounts, categories, transactions,
+  movements and balances**.
+
+### Not in M3
+
+Internal transfers, FX, exchange rates, a reporting currency, consolidated net
+worth, credit, loans, instalments, recurring transactions, budgets, tags,
+hierarchical categories, **any delete**, and any history of edited records.
+
+**M3 supports editing current records. M3 does not preserve previous versions of
+edited records.** The undo is a backup.
+
+### Verification
+
+All **76 acceptance criteria** were verified, covering quality gates, schema
+migration with data preservation, backup creation and validation, retention,
+restore including path safety and journal-file handling, the disaster recovery
+cycle, payment methods, editing semantics and atomicity, derived balances, the
+presentation requirements, and documentation.
+
+Quality gates at close: `gofmt -l .` silent, `go vet ./...` clean,
+`go test ./... -count=1` green across 15 packages over three consecutive runs,
+`go test -race ./...` green in the Linux container, `git diff --check` clean,
+`docker compose build` successful.
+
+The three carry-over findings from M2 are resolved: the backend no longer strips
+thousands separators — a grouped amount is now rejected rather than silently
+reinterpreted, so "1,5" can no longer become "15" — the browser derives decimal
+precision from the currency's minor unit instead of assuming two, and no
+`strconv.ParseInt` error is discarded.
+
+### Remaining for the presentation layer
+
+M3's backend is complete and its contract is frozen. What is left is genuinely
+new interface work, and it belongs to whoever builds the screens: a page for
+managing payment methods, and forms for editing accounts, categories and
+transactions. Every service and type they consume exists and is documented in
+[m3-contract.md](m3-contract.md).
+
+### A note on process
+
+Two smoke tests during this milestone were run against the real database rather
+than an isolated Compose project, and wrote test rows into it. They were removed
+surgically afterwards, with a snapshot taken first, and the correct balances
+restored. The disaster-recovery rehearsal was correctly isolated from the start;
+the earlier checks should have been too.
 
 ---
 
@@ -219,15 +325,17 @@ below has acceptance criteria yet, by design.
 
 | Milestone | Theme | Status |
 | --- | --- | --- |
-| M2 | Core Ledger MVP | `IN PROGRESS` — see above |
-| M3 | Dashboard | `PLANNED` |
-| M4 | Multi-Currency & FX | `PLANNED` |
-| M5 | Transfers | `PLANNED` |
-| M6 | Historical Net Worth | `PLANNED` |
-| M7 | Credit & Debt | `PLANNED` |
-| M8 | Instalments & Calendar | `PLANNED` |
-| M9 | Analytics | `PLANNED` |
-| M10 | Hardening | `PLANNED` |
+| M4 | Dashboard | `PLANNED` |
+| M5 | Multi-Currency & FX | `PLANNED` |
+| M6 | Transfers | `PLANNED` |
+| M7 | Historical Net Worth | `PLANNED` |
+| M8 | Credit & Debt | `PLANNED` |
+| M9 | Instalments & Calendar | `PLANNED` |
+| M10 | Analytics | `PLANNED` |
+| M11 | Hardening | `PLANNED` |
+
+Everything after M3 shifted by one when M3 became Data Safety rather than
+Dashboard. That is what "provisional" above means in practice.
 
 ### Known carry-over
 
