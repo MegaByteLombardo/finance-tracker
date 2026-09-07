@@ -1,0 +1,26 @@
+{{ define "weekly_budget" }}
+<section class="mobile-section budget-section" aria-labelledby="budget-heading">
+  <div class="section-top-bar">
+    <h2 id="budget-heading" class="section-title">Presupuesto semanal</h2>
+    <span class="budget-days-pill">{{ .DaysRemainingText }}</span>
+  </div>
+
+  <div class="budget-content-card">
+    <div class="budget-amounts-row">
+      <div class="budget-spent-group">
+        <span class="budget-fraction-main">{{ .SpentFormatted }}</span>
+        <span class="budget-fraction-sep">/</span>
+        <span class="budget-fraction-total">{{ .TotalFormatted }}</span>
+      </div>
+      <div class="budget-available-group">
+        <span class="budget-avail-num">{{ .RemainingFormatted }}</span>
+        <span class="budget-avail-label">disponibles</span>
+      </div>
+    </div>
+
+    <div class="budget-progress-track" role="progressbar" aria-valuenow="{{ .Percentage }}" aria-valuemin="0" aria-valuemax="100" aria-label="Progreso del presupuesto semanal: {{ .Percentage }}% gastado">
+      <div class="budget-progress-fill status-{{ .Status }}" style="width: {{ .Percentage }}%;"></div>
+    </div>
+  </div>
+</section>
+{{ end }}

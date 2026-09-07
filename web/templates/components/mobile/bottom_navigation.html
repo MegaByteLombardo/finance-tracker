@@ -1,0 +1,43 @@
+{{ define "bottom_navigation" }}
+<nav class="bottom-nav-bar" aria-label="Navegación principal">
+  <div class="bottom-nav-track">
+    <!-- Destino 1: Inicio -->
+    <a href="/mobile" class="nav-tab {{ if eq .ActiveTab "inicio" }}nav-tab-active{{ end }}" aria-current="{{ if eq .ActiveTab "inicio" }}page{{ else }}false{{ end }}" aria-label="Ir a Inicio">
+      <div class="nav-tab-icon-wrap" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="{{ if eq .ActiveTab "inicio" }}currentColor{{ else }}none{{ end }}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+          <polyline points="9 22 9 12 15 12 15 22"></polyline>
+        </svg>
+      </div>
+      <span class="nav-tab-label">Inicio</span>
+    </a>
+
+    <!-- Destino 2: Movimientos -->
+    <a href="/mobile/movimientos" class="nav-tab {{ if eq .ActiveTab "movimientos" }}nav-tab-active{{ end }}" aria-current="{{ if eq .ActiveTab "movimientos" }}page{{ else }}false{{ end }}" aria-label="Ir a Movimientos">
+      <div class="nav-tab-icon-wrap" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="8" y1="6" x2="21" y2="6"></line>
+          <line x1="8" y1="12" x2="21" y2="12"></line>
+          <line x1="8" y1="18" x2="21" y2="18"></line>
+          <line x1="3" y1="6" x2="3.01" y2="6"></line>
+          <line x1="3" y1="12" x2="3.01" y2="12"></line>
+          <line x1="3" y1="18" x2="3.01" y2="18"></line>
+        </svg>
+      </div>
+      <span class="nav-tab-label">Movimientos</span>
+    </a>
+
+    <!-- Destino 3: Cuentas -->
+    <a href="/accounts" class="nav-tab {{ if eq .ActiveTab "cuentas" }}nav-tab-active{{ end }}" aria-current="{{ if eq .ActiveTab "cuentas" }}page{{ else }}false{{ end }}" aria-label="Ir a Cuentas">
+      <div class="nav-tab-icon-wrap" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path>
+          <path d="M4 6v12c0 1.1.9 2 2 2h14v-4"></path>
+          <path d="M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z"></path>
+        </svg>
+      </div>
+      <span class="nav-tab-label">Cuentas</span>
+    </a>
+  </div>
+</nav>
+{{ end }}

@@ -1,0 +1,50 @@
+{{ define "content" }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <!-- Area superior de safe area / status bar -->
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+
+    <!-- Header de Movimientos -->
+    {{ template "transactions_header" .Header }}
+
+    <!-- Resumen del periodo -->
+    {{ template "transactions_summary" .Summary }}
+
+    <!-- Barra de búsqueda y chips de filtro -->
+    {{ template "transactions_search_filter" . }}
+
+    <!-- Contenido desplazable verticalmente con listado de movimientos -->
+    <main class="mobile-scrollable-content transactions-feed-scroll" id="main-mobile-content">
+      <!-- Mensaje cuando la búsqueda o filtro no arroja resultados -->
+      <div id="tx-empty-filter-state" class="tx-empty-filter-box" style="display: none;">
+        <div class="empty-icon-circle" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <line x1="8" y1="11" x2="14" y2="11"></line>
+          </svg>
+        </div>
+        <h4 class="empty-filter-title">Sin resultados</h4>
+        <p class="empty-filter-desc">No se encontraron movimientos que coincidan con tu búsqueda o filtro.</p>
+        <button id="tx-reset-filters-btn" class="empty-filter-reset-btn" type="button">Restablecer filtros</button>
+      </div>
+
+      <!-- Grupos por fecha -->
+      <div id="tx-groups-container">
+        {{ range .DateGroups }}
+          {{ template "transactions_group" . }}
+        {{ end }}
+      </div>
+    </main>
+
+    <!-- Botón flotante para nueva operación -->
+    {{ template "floating_action_button" . }}
+
+    <!-- Navegación inferior fija (3 destinos) -->
+    {{ template "bottom_navigation" .Navigation }}
+
+    <!-- Bottom sheet modal (Gasto, Ingreso, Transferencia) -->
+    {{ template "new_operation_sheet" . }}
+  </div>
+</div>
+{{ end }}

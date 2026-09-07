@@ -148,6 +148,47 @@ func (rn *Renderer) RenderPage(w http.ResponseWriter, r *http.Request, status in
 	return err
 }
 
+// RenderMobilePage renders a mobile HTML page with mobile layouts and components.
+func (rn *Renderer) RenderMobilePage(w http.ResponseWriter, r *http.Request, status int, pageTemplate string, data any) error {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	cleanPage := filepath.ToSlash(pageTemplate)
+	cleanPage = strings.TrimPrefix(cleanPage, "/")
+
+	tmpl, err := template.New("mobile_base.html").Funcs(rn.funcMap).ParseFS(
+		rn.fs,
+		"layouts/mobile_base.html",
+		"components/mobile/mobile_header.html",
+		"components/mobile/net_worth_summary.html",
+		"components/mobile/currency_balances.html",
+		"components/mobile/weekly_budget.html",
+		"components/mobile/recent_transactions.html",
+		"components/mobile/transaction_item.html",
+		"components/mobile/floating_action_button.html",
+		"components/mobile/new_operation_sheet.html",
+		"components/mobile/bottom_navigation.html",
+		"components/mobile/transactions_header.html",
+		"components/mobile/transactions_search_filter.html",
+		"components/mobile/transactions_summary.html",
+		"components/mobile/transactions_group.html",
+		cleanPage,
+	)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Mobile template parse error: %v", err), http.StatusInternalServerError)
+		return err
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "mobile_base.html", data); err != nil {
+		http.Error(w, fmt.Sprintf("Mobile template execute error: %v", err), http.StatusInternalServerError)
+		return err
+	}
+
+	w.WriteHeader(status)
+	_, err = io.Copy(w, &buf)
+	return err
+}
+
 // RenderPartial renders only a partial template fragment without the full layout.
 func (rn *Renderer) RenderPartial(w http.ResponseWriter, r *http.Request, status int, partialTemplate string, templateName string, data any) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

@@ -1,0 +1,19 @@
+{{ define "recent_transactions" }}
+<section class="mobile-section transactions-section" aria-labelledby="transactions-heading">
+  <div class="section-top-bar">
+    <h2 id="transactions-heading" class="section-title">Últimos movimientos</h2>
+    <a href="{{ .ViewAllURL }}" class="section-link" aria-label="Ver todos los movimientos">
+      <span>Ver todos</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="9 18 15 12 9 6"></polyline>
+      </svg>
+    </a>
+  </div>
+
+  <div class="transactions-container" role="list" aria-label="Últimos movimientos registrados">
+    {{ range .Transactions }}
+      {{ template "transaction_item" . }}
+    {{ end }}
+  </div>
+</section>
+{{ end }}

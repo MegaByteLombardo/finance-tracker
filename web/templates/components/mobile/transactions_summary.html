@@ -1,0 +1,13 @@
+{{ define "transactions_summary" }}
+<div class="transactions-summary-card" aria-label="Resumen financiero del periodo">
+  <div class="summary-metric-col">
+    <span class="summary-metric-label">Ingresos del periodo</span>
+    <span class="summary-metric-value text-positive">{{ .TotalIncomeFormatted }}</span>
+  </div>
+  <div class="summary-metric-divider" aria-hidden="true"></div>
+  <div class="summary-metric-col">
+    <span class="summary-metric-label">Gastos del periodo</span>
+    <span class="summary-metric-value text-negative">{{ .TotalExpenseFormatted }}</span>
+  </div>
+</div>
+{{ end }}

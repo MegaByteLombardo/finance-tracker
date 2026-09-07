@@ -1,0 +1,49 @@
+{{ define "transactions_search_filter" }}
+<div class="transactions-filter-container">
+  <!-- Barra de búsqueda rápida -->
+  <div class="search-bar-wrap">
+    <div class="search-input-icon" aria-hidden="true">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+    </div>
+    <input 
+      type="search" 
+      id="tx-search-input" 
+      class="search-input-field" 
+      placeholder="Buscar por comercio, categoría o cuenta..." 
+      aria-label="Buscar movimientos"
+      autocomplete="off"
+    >
+    <button id="tx-search-clear-btn" class="search-clear-btn" type="button" aria-label="Borrar búsqueda" style="display: none;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Chips de filtro con scroll horizontal táctil -->
+  <div class="filter-chips-track" role="tablist" aria-label="Filtrar tipo de operación">
+    <button class="filter-chip is-active" type="button" role="tab" aria-selected="true" data-filter="all">
+      Todos
+    </button>
+    <button class="filter-chip" type="button" role="tab" aria-selected="false" data-filter="expense">
+      Gastos
+    </button>
+    <button class="filter-chip" type="button" role="tab" aria-selected="false" data-filter="income">
+      Ingresos
+    </button>
+    <button class="filter-chip" type="button" role="tab" aria-selected="false" data-filter="transfer">
+      Transferencias
+    </button>
+    <button class="filter-chip" type="button" role="tab" aria-selected="false" data-filter="usd">
+      USD
+    </button>
+    <button class="filter-chip" type="button" role="tab" aria-selected="false" data-filter="ves">
+      VES
+    </button>
+  </div>
+</div>
+{{ end }}

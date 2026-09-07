@@ -51,8 +51,11 @@ func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
 		mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 	}
 
-	// Dashboard
+	// Dashboard & Mobile Views
 	mux.HandleFunc("GET /{$}", handleDashboard(logger, renderer, svcs))
+	mux.HandleFunc("GET /mobile", handleMobileDashboard(logger, renderer))
+	mux.HandleFunc("GET /mobile/movimientos", handleMobileTransactions(logger, renderer))
+	mux.HandleFunc("GET /mobile/transactions", handleMobileTransactions(logger, renderer))
 
 	// Accounts
 	mux.HandleFunc("GET /accounts", handleAccountsList(logger, renderer, svcs))

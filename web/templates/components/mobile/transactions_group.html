@@ -1,0 +1,17 @@
+{{ define "transactions_group" }}
+<section class="tx-date-group" data-group-date="{{ .DateHeading }}">
+  <div class="tx-date-header">
+    <h3 class="tx-date-title">{{ .DateHeading }}</h3>
+    {{ if .GroupSubtotal }}
+      <span class="tx-date-subtotal">{{ .GroupSubtotal }}</span>
+    {{ end }}
+  </div>
+  <div class="tx-date-items" role="list">
+    {{ range .Items }}
+    <div class="tx-feed-item-wrapper" data-tx-type="{{ lower .Type }}" data-tx-currency="{{ lower .CurrencyCode }}" data-tx-merchant="{{ lower .Merchant }}" data-tx-category="{{ lower .CategoryName }}" data-tx-account="{{ lower .AccountName }}">
+      {{ template "transaction_item" . }}
+    </div>
+    {{ end }}
+  </div>
+</section>
+{{ end }}

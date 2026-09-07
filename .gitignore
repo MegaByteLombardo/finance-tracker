@@ -36,3 +36,4 @@ coverage.*
 Thumbs.db
 
 *.txt
+*.png

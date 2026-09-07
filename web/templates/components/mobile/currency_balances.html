@@ -1,0 +1,28 @@
+{{ define "currency_balances" }}
+<section class="mobile-section balances-section" aria-labelledby="balances-heading">
+  <div class="section-top-bar">
+    <h2 id="balances-heading" class="section-title">Balances</h2>
+    <a href="{{ .ViewAccountsURL }}" class="section-link" aria-label="Ver todas las cuentas">
+      <span>Ver cuentas</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="9 18 15 12 9 6"></polyline>
+      </svg>
+    </a>
+  </div>
+  <div class="balances-container" role="list" aria-label="Lista de balances por moneda">
+    {{ range .Currencies }}
+    <div class="currency-row" role="listitem">
+      <div class="currency-badge-wrap">
+        <span class="currency-pill">{{ .CurrencyCode }}</span>
+        {{ if .CurrencyName }}
+        <span class="currency-subname">{{ .CurrencyName }}</span>
+        {{ end }}
+      </div>
+      <div class="currency-total-value">
+        <span class="currency-amount">{{ .FormattedTotal }}</span>
+      </div>
+    </div>
+    {{ end }}
+  </div>
+</section>
+{{ end }}
