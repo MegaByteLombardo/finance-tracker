@@ -32,6 +32,12 @@ type LedgerService interface {
 	RecordExpense(ctx context.Context, in RecordExpenseInput) (TransactionView, error)
 	RecordOpeningBalance(ctx context.Context, in RecordOpeningBalanceInput) (*TransactionView, error)
 
+	// RecordTransfer and UpdateTransfer are the ONLY way a transfer is created
+	// or corrected. RecordIncome, RecordExpense and UpdateTransaction refuse
+	// TRANSFER, and UpdateTransfer refuses everything that is not one.
+	RecordTransfer(ctx context.Context, in RecordTransferInput) (TransactionView, error)
+	UpdateTransfer(ctx context.Context, id int64, in UpdateTransferInput) (TransactionView, error)
+
 	UpdateTransaction(ctx context.Context, id int64, in UpdateTransactionInput) (TransactionView, error)
 	UpdateOpeningBalance(ctx context.Context, id int64, in UpdateOpeningBalanceInput) (TransactionView, error)
 

@@ -229,13 +229,32 @@ handler for accounts never needs to import `currency`. `ledger` does the same fo
 **`internal/ledger` is where the two-table ledger lives**: `transactions` for the
 financial event, `account_movements` for its effect on an account. Its service
 exposes one method per use case — `RecordIncome`, `RecordExpense`,
-`RecordOpeningBalance` — rather than a general `CreateTransaction(type, …)`, so
-that invalid combinations have no signature to arrive through. It is also the
-only package that reads or writes an amount.
+`RecordOpeningBalance`, `RecordTransfer` — rather than a general
+`CreateTransaction(type, …)`, so that invalid combinations have no signature to
+arrive through. Editing follows the same rule, one use case per type:
+`UpdateTransaction` for income and expenses, `UpdateOpeningBalance`,
+`UpdateTransfer`. Each refuses every type it does not handle (TD-045). It is also
+the only package that reads or writes an amount.
+
+**Transfers live here too, not in a package of their own.** A transfer
+(`transfer.go`) writes the same two tables through the same repository, validates
+with the same helpers, and speaks the same errors as every other ledger use case;
+a separate package would have to import all of that back, or `ledger` would have
+to import it, and either way the boundary would be a line drawn through one idea.
+It is not in `internal/application` either: that is for workflows spanning two
+domains that cannot import each other, and a transfer touches `account` and
+`currency`, which `ledger` already imports for every other use case.
+
+A transfer is the first transaction with **two** movements — one negative, one
+positive, equal in magnitude — which is what the two-table split existed for
+since M2 (TD-041). Its rules span several rows, so they are held by one function
+inside one `sql.Tx` and re-checked on read rather than by triggers (TD-044).
 
 **Transaction-scoped entry points.** Where a use case must be composable into a
 larger transaction, the package exposes a second form taking a `database.DBTX`:
-`account.CreateTx`, `ledger.RecordOpeningBalanceTx`. The service method becomes a
+`account.CreateTx`, `ledger.RecordOpeningBalanceTx`. There is no
+`RecordTransferTx`, because nothing needs to compose a transfer into a larger
+workflow; it will be added if something ever does. The service method becomes a
 thin wrapper that begins, delegates and commits. This is what
 `internal/application` composes, and it is the `DBTX` mechanism of TD-021 applied
 one layer up.

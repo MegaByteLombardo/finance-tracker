@@ -55,6 +55,31 @@ var (
 	// ErrAccountInactive means the account exists but has been archived, so no
 	// new movement may be recorded against it.
 	ErrAccountInactive = errors.New("transaction account is inactive")
+	// ErrSameAccount means a transfer named the same account as its source and
+	// its destination.
+	//
+	// Such a transfer moves nothing: its two movements would cancel out in the
+	// same balance. It is refused rather than accepted as a no-op, because a
+	// user who submitted it meant to move money somewhere.
+	ErrSameAccount = errors.New("a transfer needs two different accounts")
+	// ErrCurrencyMismatch means a transfer's two accounts are denominated in
+	// different currencies.
+	//
+	// M4 has no exchange rates and performs no conversion, so a cross-currency
+	// transfer cannot be represented: it would need a source amount, a
+	// destination amount and the rate between them. That belongs to the FX
+	// milestone.
+	ErrCurrencyMismatch = errors.New("a transfer needs both accounts in the same currency")
+	// ErrInconsistentTransfer means a stored TRANSFER is not the shape this
+	// package guarantees: two movements, opposite signs, equal magnitude, two
+	// different accounts.
+	//
+	// It is an integrity failure rather than a validation failure. No input can
+	// produce it — every write goes through one transaction that establishes the
+	// shape — so seeing it means the database was modified by something else.
+	// It is returned rather than papered over: presenting half a transfer as if
+	// it were whole is worse than refusing to present it.
+	ErrInconsistentTransfer = errors.New("stored transfer is inconsistent")
 	// ErrCategoryNotFound means the requested category does not exist.
 	ErrCategoryNotFound = errors.New("transaction category not found")
 	// ErrCategoryInactive means the category exists but has been archived, so
@@ -85,6 +110,43 @@ var (
 	ErrCurrencyChangeNotConfirmed = errors.New("moving this transaction changes its currency")
 )
 
+// TransferSide names which end of a transfer something refers to.
+type TransferSide string
+
+const (
+	// SourceSide is the account money leaves.
+	SourceSide TransferSide = "source"
+	// DestinationSide is the account money arrives in.
+	DestinationSide TransferSide = "destination"
+)
+
+// TransferAccountError says which of a transfer's two accounts was rejected.
+//
+// A transfer form has two account fields, and "account not found" alone cannot
+// tell it which one to mark. Rather than split ErrAccountNotFound and
+// ErrAccountInactive into four sentinels, this wraps them: errors.Is still
+// matches the sentinel, and errors.As recovers the side.
+//
+//	var accountErr *ledger.TransferAccountError
+//	switch {
+//	case errors.As(err, &accountErr) && accountErr.Side == ledger.SourceSide:
+//	    // mark the "from" field
+//	}
+type TransferAccountError struct {
+	// Side is which account was rejected.
+	Side TransferSide
+	// AccountID is the id that was given for it.
+	AccountID int64
+	// Err is ErrAccountNotFound or ErrAccountInactive.
+	Err error
+}
+
+func (e *TransferAccountError) Error() string {
+	return fmt.Sprintf("%s account %d: %s", e.Side, e.AccountID, e.Err)
+}
+
+func (e *TransferAccountError) Unwrap() error { return e.Err }
+
 // TransactionType is what kind of financial event a transaction records.
 type TransactionType string
 
@@ -97,12 +159,31 @@ const (
 	// about it. It is not income: recording a starting balance as income would
 	// make it appear in every "what did I earn" figure forever.
 	OpeningBalance TransactionType = "OPENING_BALANCE"
+	// Transfer is money moving between two of the user's own accounts. It has
+	// exactly two movements: one negative in the source account, one positive in
+	// the destination, of equal magnitude and in the same currency.
+	//
+	// It is neither income nor an expense, so it carries no category, and it is
+	// not an operation with the outside world, so it carries no payment method.
+	// It does not change the total held in its currency — that invariant is the
+	// point of the type.
+	//
+	// It is NOT the payment method named "Bank transfer". That method records
+	// the channel an external operation used; this type records that money moved
+	// between two accounts we own.
+	Transfer TransactionType = "TRANSFER"
 )
 
 // TransactionTypes lists every valid type, in the order a UI would present
 // them.
+//
+// Transfer is last because it is appended rather than inserted: a caller
+// rendering this list must not have its existing order change underneath it.
+// Knowing the value does not make it offerable — a transfer is created and
+// edited only through RecordTransfer and UpdateTransfer, never through the
+// income-and-expense use cases.
 func TransactionTypes() []TransactionType {
-	return []TransactionType{Income, Expense, OpeningBalance}
+	return []TransactionType{Income, Expense, OpeningBalance, Transfer}
 }
 
 // Valid reports whether t is a known transaction type.
@@ -203,7 +284,23 @@ type TransactionView struct {
 	CategoryName *string
 	CategoryType *category.Type
 
+	// Transfer is set if and only if Type is Transfer, and carries the WHOLE
+	// transfer: both movements, both accounts, and the amount moved.
+	//
+	// For a transfer, this is the only field that should be read to render it.
+	// The movement-centric fields below describe just one of its two halves —
+	// the side the money left — because this view is one row per movement by
+	// construction. Reading AmountMinor for a transfer yields a negative number
+	// that is correct for the source account and wrong as "the amount
+	// transferred", and reading AccountID yields the source with no hint that a
+	// destination exists. Neither is a field a caller should have to know the
+	// anchoring rule to interpret.
+	Transfer *TransferDetail
+
 	// The account the money moved in.
+	//
+	// For a transfer this is the SOURCE account and MovementID is its negative
+	// movement. Use Transfer instead; see above.
 	MovementID     int64
 	AccountID      int64
 	AccountName    string
@@ -224,6 +321,39 @@ type TransactionView struct {
 
 	// CreatedAt is when the row was recorded, not when the event happened.
 	CreatedAt time.Time
+}
+
+// TransferDetail is a whole transfer: where the money left, where it arrived,
+// and how much moved.
+//
+// It is deliberately self-sufficient. Everything needed to render or to link to
+// a transfer is here, so nothing above this package has to know that
+// TransactionView anchors a transfer on its source movement, or that
+// TransactionView.AmountMinor is negative for one. A caller that reads only this
+// struct cannot get a transfer wrong.
+//
+// The currency is the one both accounts share — TransactionView.CurrencyCode and
+// MinorUnit describe it, and there is exactly one because a cross-currency
+// transfer cannot be recorded.
+type TransferDetail struct {
+	// The source: the account the money left, and its negative movement.
+	SourceMovementID  int64
+	SourceAccountID   int64
+	SourceAccountName string
+
+	// The destination: the account the money arrived in, and its positive
+	// movement.
+	DestinationMovementID  int64
+	DestinationAccountID   int64
+	DestinationAccountName string
+
+	// AmountMinor is the amount that moved, always POSITIVE. The two movements
+	// hold -AmountMinor and +AmountMinor, which is why their sum is zero and a
+	// transfer neither creates nor destroys money.
+	AmountMinor int64
+	// AmountFormatted is AmountMinor rendered exactly at the currency's scale,
+	// without a sign. Display this rather than computing it.
+	AmountFormatted string
 }
 
 // AccountBalance is one account with its balance derived from its movements.
@@ -309,6 +439,64 @@ type RecordOpeningBalanceInput struct {
 	Amount string
 
 	EffectiveDate string
+}
+
+// RecordTransferInput is the input to Service.RecordTransfer.
+//
+// It has no category and no payment method — not as fields left empty, but
+// absent from the struct, so a transfer cannot be given either. It has no type
+// either: this input records a transfer and nothing else.
+type RecordTransferInput struct {
+	// SourceAccountID is the account the money leaves. It must exist, be
+	// active, and differ from the destination.
+	SourceAccountID int64
+
+	// DestinationAccountID is the account the money arrives in. It must exist,
+	// be active, and be denominated in the same currency as the source.
+	DestinationAccountID int64
+
+	// Amount is a positive decimal string such as "250.00", read at the shared
+	// currency's scale. Sending "-250.00" is an error rather than a synonym for
+	// the other direction: the direction is the pair of accounts, and the signs
+	// are applied by the use case.
+	Amount string
+
+	// Description is optional. nil means none; an empty string is a caller
+	// mistake and is rejected.
+	Description *string
+
+	// EffectiveDate is "YYYY-MM-DD" and is required.
+	EffectiveDate string
+}
+
+// UpdateTransferInput is the input to Service.UpdateTransfer.
+//
+// Like the other edit inputs it is a REPLACEMENT, not a patch: every editable
+// field is sent on every call and the service revalidates exactly what a
+// creation would.
+//
+// There is no Type: a transfer cannot become anything else, and nothing else can
+// become a transfer.
+type UpdateTransferInput struct {
+	SourceAccountID      int64
+	DestinationAccountID int64
+	Amount               string
+	Description          *string
+	EffectiveDate        string
+
+	// AllowCurrencyChange must be set to move a transfer to a pair of accounts
+	// denominated in a different currency from the one it currently uses.
+	//
+	// The amount is a decimal string read at the new pair's scale, so moving a
+	// transfer from two USD accounts to two VES accounts does not convert it —
+	// it reinterprets it as a different sum of money. M4 has no exchange rates,
+	// so the reinterpretation must be deliberate: without this flag the service
+	// returns ErrCurrencyChangeNotConfirmed and writes nothing. It is the same
+	// rule UpdateTransaction applies, for the same reason.
+	//
+	// It does NOT permit a cross-currency transfer. The two accounts must still
+	// share a currency as each other; this only concerns which currency that is.
+	AllowCurrencyChange bool
 }
 
 // UpdateTransactionInput is the input to Service.UpdateTransaction.

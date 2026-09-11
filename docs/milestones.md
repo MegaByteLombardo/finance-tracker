@@ -313,6 +313,85 @@ the earlier checks should have been too.
 
 ---
 
+## M4 — Internal Transfers · `IN PROGRESS`
+
+**Backend and contract complete; presentation integration outstanding.**
+
+Moving money between two of the user's own accounts. It is the first milestone to
+use the capability the ledger was designed around in M2: **one transaction with
+more than one movement**.
+
+The design prediction M2 wrote down held. `account_movements.transaction_id` was
+never `UNIQUE`, and every balance was already `SUM(amount_minor)` over whatever
+rows exist, so a transfer needed no new table, no new column and no change to the
+balance derivation. The only schema change was widening two `CHECK` constraints.
+
+### Scope
+
+- **`TRANSFER` as a fourth `transaction_type`.** One `transactions` row, **two**
+  `account_movements` — negative in the source, positive in the destination,
+  equal in magnitude. They sum to zero, so **the total held in a currency is
+  identical before and after a transfer** (TD-041).
+- **No redundant columns.** `transactions` gained nothing: no
+  `source_account_id`, no `destination_account_id`, no `amount`. The two
+  movements already state all three.
+- **No category, no payment method.** A `TRANSFER` has both `NULL`, enforced by a
+  table `CHECK`. A transfer is neither income nor an expense, and uses no channel
+  with the outside world. This is **not** the payment method named "Bank
+  transfer", which is how an *external* operation happened.
+- **Same currency only.** Both accounts must share one. Cross-currency transfers
+  need a source amount, a destination amount and a rate; all three belong to FX
+  and none of them was added or prepared for.
+- **`RecordTransfer` and `UpdateTransfer`**, in `internal/ledger` rather than a
+  package of their own. Each writes in a single `sql.Tx`: either the transaction
+  and both movements exist, or none of them do.
+- **An edit keeps both movement ids** (TD-042), and revalidates exactly what a
+  creation validates.
+- **Each type has its own edit use case**, and each guard names what it accepts
+  rather than what it rejects (TD-045). This closed a real hole: M3's
+  `UpdateTransaction` excluded only `OPENING_BALANCE`, so a transfer would have
+  passed through it and had one of its two movements rewritten.
+- **The read path presents a transfer as one row** carrying a self-sufficient
+  `TransferDetail` — both accounts, both movement ids, the positive amount — and
+  **refuses to present a malformed one** (TD-044).
+- **Migration `00010`**, rebuilding `transactions` and `account_movements`
+  child-first with foreign keys on throughout, following TD-037.
+
+### Decisions worth naming
+
+- **A transfer may leave an account negative, and this is deliberate** (TD-043).
+  Overdrafts are real, a negative cash balance usually signals a missing
+  movement, and — decisively — `effective_date` can be backdated, so a
+  balance check at write time could not enforce the rule anyway.
+- **Archived accounts** may not be used for a new or edited transfer, while
+  existing transfers involving them stay readable. The consequence is stated in
+  the contract: a transfer whose account was archived later cannot be edited at
+  all until that account is unarchived. This is M3's behaviour for income and
+  expenses, unchanged.
+- **Transfer integrity is not enforced by triggers.** Every rule spans more than
+  one row, so `CHECK` cannot see it. It is held by one function inside one
+  transaction, and re-checked on read (TD-044).
+
+### Not in M4
+
+Cross-currency transfers, FX, exchange rates, BCV, manual rates, a base or
+reporting currency, consolidated net worth, transfer fees, split transactions,
+scheduled or recurring transfers, **any delete**, reversals, and audit history of
+edits.
+
+`DeleteTransfer`, `CancelTransfer` and `ReverseTransfer` do not exist. Editing
+yes; deleting no.
+
+### Remaining for the presentation layer
+
+The backend is complete and [m4-contract.md](m4-contract.md) is frozen. What is
+left is interface work: the transfer form, the edit form, the routes under
+`/transfers`, and rendering a transfer in the transaction list and on the
+dashboard. Every service, type and error they consume exists, is documented in
+the contract, and is covered by tests.
+
+---
+
 ## Roadmap
 
 Everything below is **provisional**. These are the currently expected shape of
@@ -325,17 +404,21 @@ below has acceptance criteria yet, by design.
 
 | Milestone | Theme | Status |
 | --- | --- | --- |
-| M4 | Dashboard | `PLANNED` |
-| M5 | Multi-Currency & FX | `PLANNED` |
-| M6 | Transfers | `PLANNED` |
+| M4 | Internal Transfers | `IN PROGRESS` |
+| M5 | Dashboard | `PLANNED` |
+| M6 | Multi-Currency & FX | `PLANNED` |
 | M7 | Historical Net Worth | `PLANNED` |
 | M8 | Credit & Debt | `PLANNED` |
 | M9 | Instalments & Calendar | `PLANNED` |
 | M10 | Analytics | `PLANNED` |
 | M11 | Hardening | `PLANNED` |
 
-Everything after M3 shifted by one when M3 became Data Safety rather than
-Dashboard. That is what "provisional" above means in practice.
+The roadmap has now been renumbered twice, which is what "provisional" above
+means in practice. Everything after M3 shifted by one when M3 became Data Safety
+rather than Dashboard; transfers then moved from M6 to M4, ahead of both Dashboard
+and FX, because the ledger already supported them and a dashboard showing money
+that appears to vanish between two accounts would have been the wrong thing to
+build first.
 
 ### Known carry-over
 

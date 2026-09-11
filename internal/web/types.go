@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -55,10 +56,42 @@ const (
 	TransactionTypeIncome         TransactionType = "INCOME"
 	TransactionTypeExpense        TransactionType = "EXPENSE"
 	TransactionTypeOpeningBalance TransactionType = "OPENING_BALANCE"
+	// TransactionTypeTransfer is money moving between two of the user's own
+	// accounts. It is neither income nor an expense and has no category and no
+	// payment method.
+	//
+	// It is NOT the payment method named "Bank transfer", which records the
+	// channel an operation with the outside world used.
+	//
+	// Knowing this value does not make it offerable. A transfer has two accounts
+	// and two movements, so it is created and edited only through
+	// RecordTransfer/UpdateTransfer and the /transfers routes. The
+	// income-and-expense form must never present it or accept it; see
+	// TransactionTypesForIncomeExpenseForm.
+	TransactionTypeTransfer TransactionType = "TRANSFER"
 )
 
+// TransactionTypes lists every type a transaction can have, which is not the
+// same as the list any one form may offer.
 func TransactionTypes() []TransactionType {
-	return []TransactionType{TransactionTypeIncome, TransactionTypeExpense, TransactionTypeOpeningBalance}
+	return []TransactionType{
+		TransactionTypeIncome,
+		TransactionTypeExpense,
+		TransactionTypeOpeningBalance,
+		TransactionTypeTransfer,
+	}
+}
+
+// TransactionTypesForIncomeExpenseForm is what the generic transaction form may
+// offer: income and an expense, and nothing else.
+//
+// An opening balance belongs to the account-opening workflow, and a transfer to
+// the transfer flow. Each needs inputs this form does not have — an opening
+// balance may be negative and has no category; a transfer has a second account —
+// so offering either here would produce a form that cannot express what it
+// claims to.
+func TransactionTypesForIncomeExpenseForm() []TransactionType {
+	return []TransactionType{TransactionTypeIncome, TransactionTypeExpense}
 }
 
 // PaymentMethod is a channel money moved through, as administered by the user.
@@ -108,6 +141,29 @@ type Category struct {
 	UpdatedAt time.Time
 }
 
+// TransferDetail is a whole transfer: where the money left, where it arrived,
+// and how much moved.
+//
+// For a TRANSFER this is the ONLY thing a template should read. The
+// movement-centric fields of TransactionView describe one of its two halves, so
+// AmountMinor is negative there and AccountID names only the source; rendering
+// either would show half of a transfer without saying so.
+type TransferDetail struct {
+	SourceMovementID  int64
+	SourceAccountID   int64
+	SourceAccountName string
+
+	DestinationMovementID  int64
+	DestinationAccountID   int64
+	DestinationAccountName string
+
+	// AmountMinor is the amount that moved, always positive.
+	AmountMinor int64
+	// AmountFormatted is it rendered at the currency's scale, unsigned. Display
+	// this rather than computing it.
+	AmountFormatted string
+}
+
 type TransactionView struct {
 	ID            int64
 	Type          TransactionType
@@ -121,6 +177,11 @@ type TransactionView struct {
 	CategoryID   *int64
 	CategoryName *string
 	CategoryType *CategoryType
+
+	// Transfer is set if and only if Type is TransactionTypeTransfer, and is
+	// the complete, self-sufficient representation of one. Read it instead of
+	// the movement-centric fields below whenever the type is TRANSFER.
+	Transfer *TransferDetail
 
 	MovementID     int64
 	AccountID      int64
@@ -253,6 +314,36 @@ type UpdateOpeningBalanceInput struct {
 	EffectiveDate string
 }
 
+// RecordTransferInput moves money between two of the user's own accounts.
+//
+// Amount is a positive decimal string in the canonical format. The direction is
+// which account was named as the source, never the sign.
+type RecordTransferInput struct {
+	SourceAccountID      int64
+	DestinationAccountID int64
+	Amount               string
+	Description          *string
+	EffectiveDate        string
+}
+
+// UpdateTransferInput replaces every editable field of a transfer.
+//
+// There is no Type: a transfer cannot become anything else, and nothing else can
+// become a transfer.
+type UpdateTransferInput struct {
+	SourceAccountID      int64
+	DestinationAccountID int64
+	Amount               string
+	Description          *string
+	EffectiveDate        string
+
+	// AllowCurrencyChange must be true to move a transfer to a pair of accounts
+	// in a different currency, because the amount is then read at a different
+	// scale rather than converted. It does not permit a cross-currency
+	// transfer: the two accounts must still share a currency.
+	AllowCurrencyChange bool
+}
+
 type Backup struct {
 	Name      string
 	Reason    string
@@ -290,4 +381,41 @@ var (
 
 	ErrTypeChangeNotAllowed       = errors.New("type change not allowed")
 	ErrCurrencyChangeNotConfirmed = errors.New("currency change not confirmed")
+
+	// ErrSameAccount means a transfer named one account as both its source and
+	// its destination.
+	ErrSameAccount = errors.New("a transfer needs two different accounts")
+	// ErrCurrencyMismatch means a transfer's two accounts are in different
+	// currencies, which M4 cannot represent because it has no exchange rates.
+	ErrCurrencyMismatch = errors.New("a transfer needs both accounts in the same currency")
+	// ErrInconsistentTransfer means a stored transfer is not two balanced
+	// movements in two different accounts. It is an integrity failure, not a
+	// validation one: no input can cause it, so it warrants a 500 rather than a
+	// message on a form.
+	ErrInconsistentTransfer = errors.New("stored transfer is inconsistent")
 )
+
+// TransferSide names which end of a transfer an error refers to, so that a form
+// can mark the right field.
+type TransferSide string
+
+const (
+	TransferSideSource      TransferSide = "source"
+	TransferSideDestination TransferSide = "destination"
+)
+
+// TransferAccountError says which of a transfer's two accounts was rejected.
+//
+// errors.Is still matches ErrAccountNotFound or ErrAccountInactive; errors.As
+// recovers the side.
+type TransferAccountError struct {
+	Side      TransferSide
+	AccountID int64
+	Err       error
+}
+
+func (e *TransferAccountError) Error() string {
+	return fmt.Sprintf("%s account %d: %s", e.Side, e.AccountID, e.Err)
+}
+
+func (e *TransferAccountError) Unwrap() error { return e.Err }

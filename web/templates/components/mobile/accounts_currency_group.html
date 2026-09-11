@@ -1,0 +1,20 @@
+{{ define "accounts_currency_group" }}
+<section class="mobile-section accounts-currency-group" aria-labelledby="curr-group-{{ .CurrencyCode }}">
+  <div class="currency-group-header">
+    <div class="currency-group-badge-wrap">
+      <span class="currency-pill">{{ .CurrencyCode }}</span>
+      <span id="curr-group-{{ .CurrencyCode }}" class="currency-group-name">{{ .CurrencyName }}</span>
+    </div>
+    <div class="currency-group-total">
+      <span class="currency-group-label">Total:</span>
+      <span class="currency-group-amount">{{ .TotalFormatted }}</span>
+    </div>
+  </div>
+
+  <div class="accounts-group-cards" role="list">
+    {{ range .Accounts }}
+      {{ template "account_card" . }}
+    {{ end }}
+  </div>
+</section>
+{{ end }}

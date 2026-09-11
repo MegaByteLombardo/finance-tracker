@@ -1,0 +1,61 @@
+{{ define "account_card" }}
+<div class="mobile-account-card" role="listitem">
+  <div class="account-card-top">
+    <div class="account-icon-wrap type-{{ lower .AccountType }}" aria-hidden="true">
+      {{ if eq .AccountType "BANK" }}
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="3" y1="21" x2="21" y2="21"></line>
+          <line x1="6" y1="18" x2="6" y2="11"></line>
+          <line x1="10" y1="18" x2="10" y2="11"></line>
+          <line x1="14" y1="18" x2="14" y2="11"></line>
+          <line x1="18" y1="18" x2="18" y2="11"></line>
+          <polygon points="12 2 20 7 4 7 12 2"></polygon>
+        </svg>
+      {{ else if eq .AccountType "CASH" }}
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+          <circle cx="12" cy="12" r="2"></circle>
+          <path d="M6 12h.01M18 12h.01"></path>
+        </svg>
+      {{ else if eq .AccountType "WALLET" }}
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path>
+          <path d="M4 6v12c0 1.1.9 2 2 2h14v-4"></path>
+          <path d="M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z"></path>
+        </svg>
+      {{ else }}
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="5" width="20" height="14" rx="2"></rect>
+          <line x1="2" y1="10" x2="22" y2="10"></line>
+        </svg>
+      {{ end }}
+    </div>
+
+    <div class="account-card-titles">
+      <h3 class="account-card-name">{{ .AccountName }}</h3>
+      <span class="account-card-meta">
+        {{ if .Institution }}{{ .Institution }} · {{ end }}{{ .AccountTypeLabel }}
+      </span>
+    </div>
+
+    <a href="/accounts/{{ .AccountID }}/edit" class="account-edit-icon-link" aria-label="Editar cuenta {{ .AccountName }}">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+      </svg>
+    </a>
+  </div>
+
+  <div class="account-card-bottom">
+    <div class="account-balance-display">
+      <span class="account-balance-amount {{ if .IsNegative }}is-negative{{ end }}">
+        {{ .BalanceFormatted }}
+      </span>
+      <span class="account-currency-code">{{ .CurrencyCode }}</span>
+    </div>
+
+    {{ if not .IsActive }}
+      <span class="account-status-badge badge-archived">Archivada</span>
+    {{ end }}
+  </div>
+</div>
+{{ end }}

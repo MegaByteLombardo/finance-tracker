@@ -171,6 +171,12 @@ func (rn *Renderer) RenderMobilePage(w http.ResponseWriter, r *http.Request, sta
 		"components/mobile/transactions_search_filter.html",
 		"components/mobile/transactions_summary.html",
 		"components/mobile/transactions_group.html",
+		"components/mobile/accounts_header.html",
+		"components/mobile/account_card.html",
+		"components/mobile/accounts_currency_group.html",
+		"components/mobile/operation_form.html",
+		"components/mobile/categories_view.html",
+		"components/mobile/payment_methods_view.html",
 		cleanPage,
 	)
 	if err != nil {

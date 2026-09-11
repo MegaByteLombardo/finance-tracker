@@ -8,6 +8,29 @@ import (
 	"strings"
 )
 
+// parseIncomeOrExpenseType reads the type field of the income-and-expense form.
+//
+// It accepts INCOME and EXPENSE, and treats an absent value as EXPENSE because
+// that is what the form defaults to. Everything else is an error.
+//
+// TRANSFER is a real transaction type and is deliberately NOT one of them. A
+// transfer has two accounts and two movements, which this form has no fields
+// for, so it is created and edited only through the /transfers flow. What this
+// replaced coerced any unrecognised value to EXPENSE, which meant a submission
+// saying TRANSFER was quietly filed as an expense against one account -- a wrong
+// record rather than a rejected one. OPENING_BALANCE is excluded for the same
+// reason: it belongs to the account-opening workflow.
+func parseIncomeOrExpenseType(raw string) (TransactionType, error) {
+	switch TransactionType(strings.ToUpper(strings.TrimSpace(raw))) {
+	case TransactionTypeIncome:
+		return TransactionTypeIncome, nil
+	case TransactionTypeExpense, "":
+		return TransactionTypeExpense, nil
+	default:
+		return "", ErrInvalidInput
+	}
+}
+
 // handleTransactionsList serves GET /transactions
 func handleTransactionsList(logger *slog.Logger, renderer *Renderer, svcs *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -40,10 +63,13 @@ func handleNewTransactionForm(logger *slog.Logger, renderer *Renderer, svcs *Ser
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		txTypeStr := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("type")))
-		txType := TransactionTypeExpense
-		if txTypeStr == string(TransactionTypeIncome) {
-			txType = TransactionTypeIncome
+		txType, err := parseIncomeOrExpenseType(r.URL.Query().Get("type"))
+		if err != nil {
+			// This form records income and expenses only. A transfer has its
+			// own flow; asking this one for one is a bad request, not something
+			// to reinterpret.
+			http.Error(w, "This form records income and expenses only", http.StatusBadRequest)
+			return
 		}
 
 		accounts, err := svcs.Accounts.List(ctx, false)
@@ -124,10 +150,12 @@ func handleCreateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 			return
 		}
 
-		txTypeStr := strings.ToUpper(strings.TrimSpace(r.FormValue("type")))
-		txType := TransactionTypeExpense
-		if txTypeStr == string(TransactionTypeIncome) {
-			txType = TransactionTypeIncome
+		txType, txTypeErr := parseIncomeOrExpenseType(r.FormValue("type"))
+		if txTypeErr != nil {
+			// Fall back to the form's own default so the page can still be
+			// rendered with the error on it, rather than recording the wrong
+			// kind of transaction.
+			txType = TransactionTypeExpense
 		}
 
 		accountIDStr := strings.TrimSpace(r.FormValue("account_id"))
@@ -211,6 +239,13 @@ func handleCreateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 		}
 
 		// Validation
+		if txTypeErr != nil {
+			// "general" rather than a per-field key: this form has no visible
+			// type control for the user to correct, so the failure is about the
+			// submission as a whole.
+			form.Errors["general"] = "This form records Income or Expense only. " +
+				"Use the transfer form to move money between your own accounts."
+		}
 		if accountIDErr != nil || accountID <= 0 {
 			form.Errors["account_id"] = "Please select an account."
 		}

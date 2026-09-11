@@ -1214,3 +1214,519 @@ html, body {
   background-color: var(--m-border-light);
 }
 
+/* ==========================================================================
+   Cuentas View Specific Styles
+   ========================================================================== */
+.mobile-header-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background-color: var(--m-primary-btn);
+  color: #ffffff;
+  text-decoration: none;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 9999px;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.mobile-header-add-btn:hover {
+  background-color: var(--m-primary-btn-hover);
+}
+
+.mobile-header-add-btn:active {
+  transform: scale(0.95);
+}
+
+.accounts-feed-scroll {
+  gap: 22px;
+}
+
+.accounts-currency-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.currency-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 2px 4px 2px;
+}
+
+.currency-group-badge-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.currency-group-name {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--m-text-primary);
+}
+
+.currency-group-total {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.currency-group-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--m-text-muted);
+}
+
+.currency-group-amount {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--m-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.accounts-group-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-account-card {
+  background-color: var(--m-bg-card);
+  border: 1px solid var(--m-border-light);
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mobile-account-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.account-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.account-icon-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.account-icon-wrap.type-bank {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+}
+
+.account-icon-wrap.type-cash {
+  background-color: #ecfdf5;
+  color: #047857;
+}
+
+.account-icon-wrap.type-wallet {
+  background-color: #faf5ff;
+  color: #7e22ce;
+}
+
+.account-card-titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-card-name {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--m-text-primary);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-card-meta {
+  font-size: 0.75rem;
+  color: var(--m-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-edit-icon-link {
+  color: var(--m-text-subtle);
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.account-edit-icon-link:hover {
+  background-color: var(--m-bg-muted);
+  color: var(--m-text-primary);
+}
+
+.account-card-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-top: 8px;
+  border-top: 1px solid var(--m-border-subtle);
+}
+
+.account-balance-display {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.account-balance-amount {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--m-text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.account-balance-amount.is-negative {
+  color: var(--m-negative);
+}
+
+.account-currency-code {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--m-text-muted);
+  font-family: var(--mobile-font-mono);
+}
+
+.account-status-badge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 9999px;
+}
+
+.account-status-badge.badge-archived {
+  background-color: var(--m-bg-muted);
+  color: var(--m-text-muted);
+}
+
+/* ==========================================================================
+   New Operation Form Specific Styles
+   ========================================================================== */
+.mobile-operation-screen {
+  display: flex;
+  flex-direction: column;
+  background-color: var(--m-bg-card);
+  min-height: 100%;
+}
+
+.operation-screen-header {
+  padding: 16px 20px 12px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--m-border-subtle);
+  position: sticky;
+  top: 0;
+  background-color: var(--m-bg-card);
+  z-index: 20;
+}
+
+.op-nav-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--m-accent);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 4px 0;
+}
+
+.op-screen-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--m-text-primary);
+}
+
+.operation-form-body {
+  padding: 16px 20px 30px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Operation Type Switcher */
+.op-type-segmented-control {
+  display: flex;
+  background-color: var(--m-bg-muted);
+  padding: 4px;
+  border-radius: 12px;
+  gap: 4px;
+}
+
+.op-type-tab {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--m-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.op-type-tab.is-active {
+  background-color: #ffffff;
+  color: var(--m-text-primary);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.op-type-tab.is-active.type-expense {
+  color: var(--m-negative);
+}
+
+.op-type-tab.is-active.type-income {
+  color: var(--m-positive);
+}
+
+.op-type-tab.is-active.type-transfer {
+  color: var(--m-accent);
+}
+
+/* Amount Hero Display */
+.amount-hero-display {
+  background-color: var(--m-bg-subtle);
+  border: 1px solid var(--m-border-light);
+  border-radius: 16px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.amount-hero-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--m-text-muted);
+}
+
+.amount-hero-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.amount-currency-pill {
+  padding: 6px 10px;
+  background-color: #ffffff;
+  border: 1px solid var(--m-border-light);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--m-text-primary);
+  outline: none;
+  cursor: pointer;
+}
+
+.amount-hero-number-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  font-size: 2.25rem;
+  font-weight: 800;
+  color: var(--m-text-primary);
+  outline: none;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  width: 100%;
+}
+
+.amount-hero-number-input::placeholder {
+  color: var(--m-text-subtle);
+}
+
+/* Form Fields */
+.op-fields-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.op-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.op-field-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--m-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.required-star {
+  color: var(--m-negative);
+}
+
+.optional-tag {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--m-text-muted);
+}
+
+.op-select-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.op-native-select,
+.op-native-input {
+  width: 100%;
+  height: 44px;
+  background-color: var(--m-bg-card);
+  border: 1px solid var(--m-border-light);
+  border-radius: 10px;
+  padding: 0 14px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color: var(--m-text-primary);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.op-select-wrap .op-native-select {
+  padding-right: 36px;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.op-select-wrap .select-chevron {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--m-text-muted);
+  pointer-events: none;
+}
+
+.op-native-select:focus,
+.op-native-input:focus {
+  border-color: var(--m-accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+/* Category Chips Grid */
+.op-category-chips-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.op-cat-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 6px;
+  border: 1px solid var(--m-border-light);
+  border-radius: 12px;
+  background-color: var(--m-bg-card);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.op-cat-chip:hover {
+  background-color: var(--m-bg-subtle);
+  border-color: #cbd5e1;
+}
+
+.op-cat-chip.is-selected {
+  background-color: var(--m-bg-muted);
+  border-color: var(--m-primary-btn);
+  box-shadow: 0 0 0 1.5px var(--m-primary-btn);
+}
+
+.op-cat-icon {
+  font-size: 1.25rem;
+}
+
+.op-cat-text {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--m-text-secondary);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.op-submit-container {
+  padding-top: 10px;
+}
+
+.op-submit-btn {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #ffffff;
+  background-color: var(--m-primary-btn);
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2);
+}
+
+.op-submit-btn.btn-expense {
+  background-color: var(--m-negative);
+}
+
+.op-submit-btn.btn-income {
+  background-color: var(--m-positive);
+}
+
+.op-submit-btn.btn-transfer {
+  background-color: var(--m-accent);
+}
+
+.op-submit-btn:hover {
+  opacity: 0.92;
+}
+
+.op-submit-btn:active {
+  transform: scale(0.98);
+}
+
+
+

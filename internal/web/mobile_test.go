@@ -191,3 +191,144 @@ func TestMobileTransactions(t *testing.T) {
 		}
 	}
 }
+
+func TestMobileAccounts(t *testing.T) {
+	t.Parallel()
+
+	fs := NewFakeServices()
+	router := testRouter(t, fs)
+
+	for _, path := range []string{"/mobile/cuentas", "/mobile/accounts"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		res := rec.Result()
+		defer res.Body.Close()
+
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("path %s: expected status 200, got %d", path, res.StatusCode)
+		}
+
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatalf("path %s: reading body: %v", path, err)
+		}
+		bodyStr := string(body)
+
+		if !strings.Contains(bodyStr, "Cuentas") {
+			t.Errorf("path %s: expected title 'Cuentas'", path)
+		}
+		if !strings.Contains(bodyStr, "Mercantil USD") || !strings.Contains(bodyStr, "Banesco Corriente") {
+			t.Errorf("path %s: expected accounts list", path)
+		}
+		if !strings.Contains(bodyStr, "1,650.00") || !strings.Contains(bodyStr, "142,548.84") {
+			t.Errorf("path %s: expected account balances", path)
+		}
+		if !strings.Contains(bodyStr, "nav-tab-active") {
+			t.Errorf("path %s: expected active nav tab", path)
+		}
+	}
+}
+
+func TestMobileNewOperation(t *testing.T) {
+	t.Parallel()
+
+	fs := NewFakeServices()
+	router := testRouter(t, fs)
+
+	for _, path := range []string{"/mobile/operacion/nueva?type=EXPENSE", "/mobile/operacion/nueva?type=INCOME", "/mobile/operacion/nueva?type=TRANSFER"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		res := rec.Result()
+		defer res.Body.Close()
+
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("path %s: expected status 200, got %d", path, res.StatusCode)
+		}
+
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatalf("path %s: reading body: %v", path, err)
+		}
+		bodyStr := string(body)
+
+		if !strings.Contains(bodyStr, "Nueva operación") {
+			t.Errorf("path %s: expected title 'Nueva operación'", path)
+		}
+		if !strings.Contains(bodyStr, "op-type-segmented-control") {
+			t.Errorf("path %s: expected segmented control", path)
+		}
+		if !strings.Contains(bodyStr, "op-amount-input") {
+			t.Errorf("path %s: expected amount input", path)
+		}
+	}
+}
+
+func TestMobileCategories(t *testing.T) {
+	t.Parallel()
+
+	fs := NewFakeServices()
+	router := testRouter(t, fs)
+
+	req := httptest.NewRequest(http.MethodGet, "/mobile/categorias", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", res.StatusCode)
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	bodyStr := string(body)
+
+	if !strings.Contains(bodyStr, "Categorías") {
+		t.Errorf("expected title 'Categorías'")
+	}
+	if !strings.Contains(bodyStr, "Alimentación") || !strings.Contains(bodyStr, "Nómina y Sueldos") {
+		t.Errorf("expected categories list")
+	}
+}
+
+func TestMobilePaymentMethods(t *testing.T) {
+	t.Parallel()
+
+	fs := NewFakeServices()
+	router := testRouter(t, fs)
+
+	req := httptest.NewRequest(http.MethodGet, "/mobile/metodos-pago", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", res.StatusCode)
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	bodyStr := string(body)
+
+	if !strings.Contains(bodyStr, "Métodos de pago") {
+		t.Errorf("expected title 'Métodos de pago'")
+	}
+	if !strings.Contains(bodyStr, "Pago Móvil") || !strings.Contains(bodyStr, "Zelle") {
+		t.Errorf("expected payment methods list")
+	}
+}

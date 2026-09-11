@@ -1,0 +1,85 @@
+{{ define "categories_view" }}
+<div class="mobile-categories-screen">
+  <header class="mobile-header">
+    <div class="mobile-header-text">
+      <h1 class="mobile-greeting">Categorías</h1>
+      <p class="mobile-date">Organización de gastos e ingresos</p>
+    </div>
+    <a href="/categories/new" class="mobile-header-add-btn" aria-label="Nueva categoría">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+      <span>Nueva</span>
+    </a>
+  </header>
+
+  <main class="mobile-scrollable-content" style="gap: 20px; padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 16px) + 30px);">
+    <!-- Categorías de Gastos -->
+    <section class="mobile-section">
+      <div class="section-top-bar">
+        <h2 class="section-title" style="display: flex; align-items: center; gap: 6px;">
+          <span style="color: var(--m-negative);">●</span> Gastos
+        </h2>
+        <span class="header-count-pill">{{ len .ExpenseCategories }} categorías</span>
+      </div>
+
+      <div class="balances-container" role="list">
+        {{ range .ExpenseCategories }}
+        <div class="currency-row" role="listitem">
+          <div class="currency-badge-wrap">
+            <span class="tx-icon-box cat-icon-{{ .Icon }}" style="width: 34px; height: 34px;" aria-hidden="true">
+              {{ .IconEmoji }}
+            </span>
+            <div>
+              <div style="font-size: 0.9rem; font-weight: 600; color: var(--m-text-primary);">{{ .Name }}</div>
+              <div style="font-size: 0.75rem; color: var(--m-text-muted);">
+                {{ if .IsActive }}<span style="color: var(--m-positive);">Activa</span>{{ else }}<span style="color: var(--m-text-subtle);">Archivada</span>{{ end }}
+              </div>
+            </div>
+          </div>
+          <div>
+            <a href="/categories/{{ .ID }}/edit" class="account-edit-icon-link" aria-label="Editar categoría {{ .Name }}">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+            </a>
+          </div>
+        </div>
+        {{ end }}
+      </div>
+    </section>
+
+    <!-- Categorías de Ingresos -->
+    <section class="mobile-section">
+      <div class="section-top-bar">
+        <h2 class="section-title" style="display: flex; align-items: center; gap: 6px;">
+          <span style="color: var(--m-positive);">●</span> Ingresos
+        </h2>
+        <span class="header-count-pill">{{ len .IncomeCategories }} categorías</span>
+      </div>
+
+      <div class="balances-container" role="list">
+        {{ range .IncomeCategories }}
+        <div class="currency-row" role="listitem">
+          <div class="currency-badge-wrap">
+            <span class="tx-icon-box cat-icon-{{ .Icon }}" style="width: 34px; height: 34px;" aria-hidden="true">
+              {{ .IconEmoji }}
+            </span>
+            <div>
+              <div style="font-size: 0.9rem; font-weight: 600; color: var(--m-text-primary);">{{ .Name }}</div>
+              <div style="font-size: 0.75rem; color: var(--m-text-muted);">
+                {{ if .IsActive }}<span style="color: var(--m-positive);">Activa</span>{{ else }}<span style="color: var(--m-text-subtle);">Archivada</span>{{ end }}
+              </div>
+            </div>
+          </div>
+          <div>
+            <a href="/categories/{{ .ID }}/edit" class="account-edit-icon-link" aria-label="Editar categoría {{ .Name }}">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+            </a>
+          </div>
+        </div>
+        {{ end }}
+      </div>
+    </section>
+  </main>
+</div>
+{{ end }}

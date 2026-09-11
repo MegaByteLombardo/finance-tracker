@@ -797,11 +797,14 @@ func (fs *FakeServices) UpdateTransaction(ctx context.Context, id int64, in Upda
 		return TransactionView{}, ErrNotFound
 	}
 	existing := fs.transactions[idx]
-	if existing.Type == TransactionTypeOpeningBalance || in.Type == TransactionTypeOpeningBalance {
+	// Named positively, exactly as the ledger does: everything this method is
+	// not for is refused, including a transfer, which has two movements this
+	// method has no way to rewrite.
+	if existing.Type != TransactionTypeIncome && existing.Type != TransactionTypeExpense {
 		return TransactionView{}, ErrTypeChangeNotAllowed
 	}
 	if in.Type != TransactionTypeIncome && in.Type != TransactionTypeExpense {
-		return TransactionView{}, ErrInvalidInput
+		return TransactionView{}, ErrTypeChangeNotAllowed
 	}
 
 	acct, ok := fs.accounts[in.AccountID]
@@ -937,6 +940,222 @@ func (fs *FakeServices) UpdateOpeningBalance(ctx context.Context, id int64, in U
 	return updated, nil
 }
 
+// RecordTransfer moves money between two of the user's own accounts.
+//
+// It stores ONE row, as the real read model does: anchored on the source, with
+// the whole transfer in the Transfer detail. movementInto is what makes both
+// halves reach the balances.
+func (fs *FakeServices) RecordTransfer(ctx context.Context, in RecordTransferInput) (TransactionView, error) {
+	if err := ctx.Err(); err != nil {
+		return TransactionView{}, err
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	resolved, err := fs.resolveTransfer(in.SourceAccountID, in.DestinationAccountID,
+		in.Amount, in.Description, in.EffectiveDate)
+	if err != nil {
+		return TransactionView{}, err
+	}
+
+	now := time.Now().UTC()
+	tx := TransactionView{
+		ID:            fs.nextTxID,
+		Type:          TransactionTypeTransfer,
+		EffectiveDate: resolved.effectiveDate,
+		Description:   resolved.description,
+		// A transfer has neither, ever.
+		CategoryID:      nil,
+		PaymentMethodID: nil,
+		Transfer: &TransferDetail{
+			SourceMovementID:       fs.nextMovID,
+			SourceAccountID:        resolved.source.ID,
+			SourceAccountName:      resolved.source.Name,
+			DestinationMovementID:  fs.nextMovID + 1,
+			DestinationAccountID:   resolved.destination.ID,
+			DestinationAccountName: resolved.destination.Name,
+			AmountMinor:            resolved.amountMinor,
+			AmountFormatted:        formatAmount(resolved.amountMinor, resolved.currency.MinorUnit),
+		},
+		MovementID:      fs.nextMovID,
+		AccountID:       resolved.source.ID,
+		AccountName:     resolved.source.Name,
+		AccountType:     resolved.source.Type,
+		AccountSubtype:  resolved.source.Subtype,
+		Institution:     resolved.source.Institution,
+		CurrencyCode:    resolved.currency.Code,
+		CurrencySymbol:  resolved.currency.Symbol,
+		MinorUnit:       resolved.currency.MinorUnit,
+		AmountMinor:     -resolved.amountMinor,
+		AmountFormatted: formatAmount(-resolved.amountMinor, resolved.currency.MinorUnit),
+		CreatedAt:       now,
+	}
+
+	fs.nextTxID++
+	fs.nextMovID += 2 // a transfer consumes two
+	fs.transactions = append(fs.transactions, tx)
+
+	return tx, nil
+}
+
+// UpdateTransfer corrects a transfer, keeping both movement ids.
+func (fs *FakeServices) UpdateTransfer(ctx context.Context, id int64, in UpdateTransferInput) (TransactionView, error) {
+	if err := ctx.Err(); err != nil {
+		return TransactionView{}, err
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	idx := -1
+	for i, t := range fs.transactions {
+		if t.ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return TransactionView{}, ErrNotFound
+	}
+	existing := fs.transactions[idx]
+	if existing.Type != TransactionTypeTransfer || existing.Transfer == nil {
+		return TransactionView{}, ErrTypeChangeNotAllowed
+	}
+
+	resolved, err := fs.resolveTransfer(in.SourceAccountID, in.DestinationAccountID,
+		in.Amount, in.Description, in.EffectiveDate)
+	if err != nil {
+		return TransactionView{}, err
+	}
+
+	if !in.AllowCurrencyChange && existing.CurrencyCode != resolved.currency.Code {
+		return TransactionView{}, ErrCurrencyChangeNotConfirmed
+	}
+
+	updated := existing
+	updated.EffectiveDate = resolved.effectiveDate
+	updated.Description = resolved.description
+	updated.Transfer = &TransferDetail{
+		// The movement ids survive an edit: an edit corrects an event, it does
+		// not replace it with a different one.
+		SourceMovementID:       existing.Transfer.SourceMovementID,
+		SourceAccountID:        resolved.source.ID,
+		SourceAccountName:      resolved.source.Name,
+		DestinationMovementID:  existing.Transfer.DestinationMovementID,
+		DestinationAccountID:   resolved.destination.ID,
+		DestinationAccountName: resolved.destination.Name,
+		AmountMinor:            resolved.amountMinor,
+		AmountFormatted:        formatAmount(resolved.amountMinor, resolved.currency.MinorUnit),
+	}
+	updated.MovementID = existing.Transfer.SourceMovementID
+	updated.AccountID = resolved.source.ID
+	updated.AccountName = resolved.source.Name
+	updated.AccountType = resolved.source.Type
+	updated.AccountSubtype = resolved.source.Subtype
+	updated.Institution = resolved.source.Institution
+	updated.CurrencyCode = resolved.currency.Code
+	updated.CurrencySymbol = resolved.currency.Symbol
+	updated.MinorUnit = resolved.currency.MinorUnit
+	updated.AmountMinor = -resolved.amountMinor
+	updated.AmountFormatted = formatAmount(-resolved.amountMinor, resolved.currency.MinorUnit)
+
+	fs.transactions[idx] = updated
+	return updated, nil
+}
+
+type resolvedFakeTransfer struct {
+	source        Account
+	destination   Account
+	currency      Currency
+	amountMinor   int64
+	effectiveDate time.Time
+	description   *string
+}
+
+// resolveTransfer applies the same rules, in the same order, as the ledger's
+// resolveTransfer, so that a handler tested against this fake meets the same
+// errors it will meet in production.
+//
+// The caller already holds the lock.
+func (fs *FakeServices) resolveTransfer(
+	sourceID, destinationID int64, amount string, description *string, effectiveDate string,
+) (resolvedFakeTransfer, error) {
+	var desc *string
+	if description != nil {
+		trimmed := strings.TrimSpace(*description)
+		if trimmed == "" || len(trimmed) > 255 {
+			return resolvedFakeTransfer{}, ErrInvalidInput
+		}
+		desc = &trimmed
+	}
+
+	source, ok := fs.accounts[sourceID]
+	if !ok {
+		return resolvedFakeTransfer{}, &TransferAccountError{
+			Side: TransferSideSource, AccountID: sourceID, Err: ErrAccountNotFound}
+	}
+	if !source.IsActive {
+		return resolvedFakeTransfer{}, &TransferAccountError{
+			Side: TransferSideSource, AccountID: sourceID, Err: ErrAccountInactive}
+	}
+
+	destination, ok := fs.accounts[destinationID]
+	if !ok {
+		return resolvedFakeTransfer{}, &TransferAccountError{
+			Side: TransferSideDestination, AccountID: destinationID, Err: ErrAccountNotFound}
+	}
+	if !destination.IsActive {
+		return resolvedFakeTransfer{}, &TransferAccountError{
+			Side: TransferSideDestination, AccountID: destinationID, Err: ErrAccountInactive}
+	}
+
+	if source.ID == destination.ID {
+		return resolvedFakeTransfer{}, ErrSameAccount
+	}
+	if source.CurrencyCode != destination.CurrencyCode {
+		return resolvedFakeTransfer{}, ErrCurrencyMismatch
+	}
+
+	curr := fs.currencies[source.CurrencyCode]
+	minor, err := parseAmount(amount, curr.MinorUnit)
+	if err != nil || minor <= 0 {
+		return resolvedFakeTransfer{}, ErrInvalidAmount
+	}
+
+	effDate, err := time.Parse("2006-01-02", effectiveDate)
+	if err != nil {
+		return resolvedFakeTransfer{}, ErrInvalidInput
+	}
+
+	return resolvedFakeTransfer{
+		source: source, destination: destination, currency: curr,
+		amountMinor: minor, effectiveDate: effDate, description: desc,
+	}, nil
+}
+
+// movementInto is the effect one stored transaction has on one account.
+//
+// The fake keeps one row per transaction, mirroring the real read model, so a
+// transfer's two movements are folded into a single row: the source is the row's
+// own account and the destination lives in the Transfer detail. Every balance
+// has to see both, or a transfer would take money out of one account and put it
+// nowhere.
+func movementInto(tx TransactionView, accountID int64) int64 {
+	if tx.Transfer != nil {
+		var effect int64
+		if tx.Transfer.SourceAccountID == accountID {
+			effect -= tx.Transfer.AmountMinor
+		}
+		if tx.Transfer.DestinationAccountID == accountID {
+			effect += tx.Transfer.AmountMinor
+		}
+		return effect
+	}
+	if tx.AccountID == accountID {
+		return tx.AmountMinor
+	}
+	return 0
+}
+
 func (fs *FakeServices) GetAccountBalance(ctx context.Context, accountID int64) (AccountBalance, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
@@ -949,9 +1168,7 @@ func (fs *FakeServices) GetAccountBalance(ctx context.Context, accountID int64) 
 
 	var sum int64
 	for _, tx := range fs.transactions {
-		if tx.AccountID == accountID {
-			sum += tx.AmountMinor
-		}
+		sum += movementInto(tx, accountID)
 	}
 
 	return AccountBalance{
@@ -982,9 +1199,7 @@ func (fs *FakeServices) ListAccountBalances(ctx context.Context, includeInactive
 
 		var sum int64
 		for _, tx := range fs.transactions {
-			if tx.AccountID == acct.ID {
-				sum += tx.AmountMinor
-			}
+			sum += movementInto(tx, acct.ID)
 		}
 
 		result = append(result, AccountBalance{
@@ -1036,9 +1251,7 @@ func (fs *FakeServices) ListCurrencyTotals(ctx context.Context, includeInactive 
 		byCurr[acct.CurrencyCode].count++
 
 		for _, tx := range fs.transactions {
-			if tx.AccountID == acct.ID {
-				byCurr[acct.CurrencyCode].sum += tx.AmountMinor
-			}
+			byCurr[acct.CurrencyCode].sum += movementInto(tx, acct.ID)
 		}
 	}
 

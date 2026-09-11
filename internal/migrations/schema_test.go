@@ -592,6 +592,14 @@ func TestTransactionShapePerType(t *testing.T) {
 		{"OPENING_BALANCE", true, nil, false},
 		{"OPENING_BALANCE", false, methodCash, false},
 		{"OPENING_BALANCE", true, methodCash, false},
+		// A transfer between two of the user's own accounts is neither income
+		// nor an expense, so it has no category, and it uses no channel with the
+		// outside world, so it has no payment method. Both are refused by the
+		// database rather than only by the service.
+		{"TRANSFER", false, nil, true},
+		{"TRANSFER", true, nil, false},
+		{"TRANSFER", false, methodBankTransfer, false},
+		{"TRANSFER", true, methodBankTransfer, false},
 		// The column is a foreign key now, so an id nobody defined is refused.
 		{"INCOME", true, 9999, false},
 	}
@@ -636,6 +644,8 @@ func TestTransactionConstraints(t *testing.T) {
 		"unknown type":            {"REFUND", nil, nil, "2026-09-05"},
 		"unknown payment method":  {"OPENING_BALANCE", 9999, nil, "2026-09-05"},
 		"lowercase type":          {"opening_balance", nil, nil, "2026-09-05"},
+		"lowercase transfer":      {"transfer", nil, nil, "2026-09-05"},
+		"pluralised transfer":     {"TRANSFERS", nil, nil, "2026-09-05"},
 		"null type":               {nil, nil, nil, "2026-09-05"},
 		"empty description":       {"OPENING_BALANCE", nil, "", "2026-09-05"},
 		"blank description":       {"OPENING_BALANCE", nil, "   ", "2026-09-05"},

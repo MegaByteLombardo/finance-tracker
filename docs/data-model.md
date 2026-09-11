@@ -1,6 +1,6 @@
 # Data model
 
-Current schema version: **9** (M3). Migrations live in
+Current schema version: **10** (M4). Migrations live in
 [`internal/migrations/`](../internal/migrations) and are applied automatically at startup.
 
 ```
@@ -304,7 +304,7 @@ it keep displaying it.
 
 ---
 
-## `transactions` *(M2)*
+## `transactions` *(M2, extended in M4)*
 
 The financial **event**. It holds no amount and names no account — that is
 `account_movements`.
@@ -314,7 +314,7 @@ The financial **event**. It holds no amount and names no account — that is
 | Column | Type | Null | Default | Constraints |
 | --- | --- | --- | --- | --- |
 | `id` | `INTEGER` | NOT NULL | rowid | **PRIMARY KEY** (rowid alias) |
-| `transaction_type` | `TEXT` | NOT NULL | — | `CHECK (… IN ('INCOME','EXPENSE','OPENING_BALANCE'))` |
+| `transaction_type` | `TEXT` | NOT NULL | — | `CHECK (… IN ('INCOME','EXPENSE','OPENING_BALANCE','TRANSFER'))` |
 | `category_id` | `INTEGER` | **NULL** | — | **FK** → `categories(id)`, `RESTRICT` both ways |
 | `payment_method_id` | `INTEGER` | **NULL** | — | **FK** → `payment_methods(id)`, `RESTRICT` both ways |
 | `description` | `TEXT` | **NULL** | — | `CHECK (… length(trim(description)) BETWEEN 1 AND 255)` |
@@ -337,14 +337,22 @@ CHECK (
     OR
     (transaction_type = 'OPENING_BALANCE'
         AND category_id IS NULL AND payment_method_id IS NULL)
+    OR
+    (transaction_type = 'TRANSFER'
+        AND category_id IS NULL AND payment_method_id IS NULL)
 )
 ```
 
 Income and expenses are categorised and have a channel. An opening balance has
 neither, because it is a statement about where the account started rather than an
-operation that took place. Every clause is `IS NULL` / `IS NOT NULL`, so the
-expression is always `TRUE` or `FALSE` and cannot silently pass (TD-025). All ten
-combinations are covered by tests.
+operation that took place. A transfer has neither either, and its clause is
+written separately rather than folded into the opening balance's because it says
+something different: moving money between two of the user's own accounts is not
+income and not an expense, so a category would contaminate every later question
+about them, and no channel with the outside world was used at all.
+
+Every clause is `IS NULL` / `IS NOT NULL`, so the expression is always `TRUE` or
+`FALSE` and cannot silently pass (TD-025). Every combination is covered by tests.
 
 **What the database cannot enforce:** that an `INCOME` transaction uses an
 `INCOME` category. That compares a column of `transactions` with a column of
@@ -359,8 +367,9 @@ changed and `payment_methods` below for the table.
 
 It is not a transfer between the user's own accounts: a method named "Bank
 transfer" means "this external operation moved through a bank transfer", whereas
-a future `transaction_type` of `TRANSFER` will mean "money moved between two
-accounts we own".
+`transaction_type = 'TRANSFER'` means "money moved between two accounts we own".
+Both exist as of M4 and they must never be conflated; see
+[TD-041](technical-decisions.md).
 
 **`description`** — Optional free text. The `CHECK` keeps `''` out, so "no
 description" has exactly one representation, matching `institution` and `symbol`.
@@ -398,9 +407,13 @@ second door into every invariant here. The transaction and its movement are
 rewritten in one `sql.Tx`, so a balance is never briefly wrong.
 
 `INCOME` and `EXPENSE` convert freely between each other, and the movement's sign
-is recomputed from the new type rather than carried over. Converting to or from
-`OPENING_BALANCE` is refused: it states where an account started rather than
-recording an operation.
+is recomputed from the new type rather than carried over. **Nothing else
+converts.** Converting to or from `OPENING_BALANCE` is refused because it states
+where an account started rather than recording an operation; converting to or
+from `TRANSFER` is refused because a transfer has two movements and the
+income-and-expense editor rewrites one, which would leave a debit with no
+matching credit. Each type has its own use case: `UpdateTransaction`,
+`UpdateOpeningBalance`, `UpdateTransfer` (TD-045).
 
 **M3 does not preserve previous versions of edited records.** There is no audit
 log and no history table; the undo is a backup. See
@@ -428,12 +441,18 @@ CREATE INDEX idx_account_movements_account_id     ON account_movements(account_i
 CREATE INDEX idx_account_movements_transaction_id ON account_movements(transaction_id);
 ```
 
-**`transaction_id` is deliberately not `UNIQUE`.** In M2 every transaction has
-exactly one movement, so a unique constraint would hold today — and be true for
-the wrong reason. A transfer between two of the user's own accounts is one event
-with two movements, and that is why these are two tables at all. A test asserts
-that this table has **no** unique index, so the constraint cannot be added by
-someone tidying up. See [TD-026](technical-decisions.md).
+**`transaction_id` is deliberately not `UNIQUE`.** Through M3 every transaction
+had exactly one movement, so a unique constraint would have held — and been true
+for the wrong reason. **As of M4 it would simply be false:** a `TRANSFER` is one
+event with two movements, which is why these were two tables from the start. A
+test asserts that this table has **no** unique index, so the constraint cannot be
+added by someone tidying up. See [TD-026](technical-decisions.md).
+
+No partial unique index was added either — for instance "at most one negative
+movement per transaction" — although it would hold for every row M4 can write.
+It would freeze "two movements, one per sign" into the schema permanently, and a
+later split transaction would have to migrate away from it. Migrating a ledger is
+the thing this project avoids.
 
 **`amount_minor`** — Integer minor units, signed:
 
@@ -442,6 +461,7 @@ someone tidying up. See [TD-026](technical-decisions.md).
 | `INCOME` | positive |
 | `EXPENSE` | negative |
 | `OPENING_BALANCE` | whichever the account started at |
+| `TRANSFER` | **two rows**: negative in the source account, positive in the destination, equal in magnitude |
 
 The sign is derived from the use case in the service, never taken from input,
 which is what makes "an expense that increases a balance" unrepresentable rather
@@ -453,8 +473,18 @@ balance therefore records no transaction and no movement at all
 ([TD-029](technical-decisions.md)).
 
 **There is no `currency_code` column.** A movement is denominated in its
-account's currency by construction. Cross-currency movement belongs to the FX
-milestone.
+account's currency by construction. A transfer's two accounts are required to
+share a currency, so its two movements are in the same one; cross-currency
+movement belongs to the FX milestone.
+
+**What a `CHECK` cannot say about a transfer.** That it has exactly two
+movements, that they cancel out, that they land in two different accounts, and
+that those accounts share a currency are all statements about several rows at
+once. A `CHECK` sees one row. They are maintained instead by one function and one
+`sql.Tx` in `internal/ledger`, verified by tests, and re-verified by the read path
+before a transfer is presented — see [TD-044](technical-decisions.md). What the
+schema does enforce from a single row is that a transfer has no category and no
+payment method, and that no movement is ever zero.
 
 **No `updated_at`.** A movement is never edited: correcting one means correcting
 the transaction that caused it.
@@ -711,10 +741,13 @@ ordinary start migrates it forward.
 
 ## What this document gains next
 
-Transfers between the user's own accounts (a later milestone) add a fourth
-`transaction_type` and the first transaction with **two** movements. Nothing in
-this schema has to change for it: `account_movements.transaction_id` is already
-not unique, and the balance derivation already sums whatever is there.
+Transfers arrived in M4. They added a fourth `transaction_type` and the first
+transaction with **two** movements, and the prediction this section used to make
+held: no table gained a column, `account_movements.transaction_id` was already
+not unique, and the balance derivation already summed whatever was there. The
+only schema change was widening two `CHECK` constraints, which in SQLite means
+rebuilding the table — migration `00010`, following the child-first order
+[TD-037](technical-decisions.md) established.
 
 FX adds exchange rates, which need an exact non-integer representation — an
 integer numerator and denominator, or scaled integers with a recorded scale.

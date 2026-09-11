@@ -269,17 +269,9 @@ func resolveRequest(ctx context.Context, exec database.DBTX, r *recordRequest) (
 		return resolvedRequest{}, err
 	}
 
-	acct, err := account.NewRepository(exec).Get(ctx, r.accountID)
-	switch {
-	case errors.Is(err, account.ErrNotFound):
-		return resolvedRequest{}, fmt.Errorf("account %d: %w", r.accountID, ErrAccountNotFound)
-	case err != nil:
-		return resolvedRequest{}, fmt.Errorf("looking up account %d: %w", r.accountID, err)
-	}
-	if !acct.IsActive {
-		// Decided here, on the field. Being archived is a fact about the
-		// account, not an error the account package raises.
-		return resolvedRequest{}, fmt.Errorf("account %q: %w", acct.Name, ErrAccountInactive)
+	acct, err := resolveAccount(ctx, exec, r.accountID)
+	if err != nil {
+		return resolvedRequest{}, err
 	}
 
 	// The currency is the account's, always. It supplies the scale the amount is
@@ -326,6 +318,32 @@ func resolveRequest(ctx context.Context, exec database.DBTX, r *recordRequest) (
 	return resolvedRequest{account: acct, amountMinor: amountMinor, effectiveDate: effectiveDate}, nil
 }
 
+// resolveAccount loads an account a movement is about to land in and refuses it
+// if it cannot take one.
+//
+// Every use case that writes a movement goes through here — income, expenses,
+// opening balances, and both ends of a transfer — so "the account must exist and
+// be active" is decided in exactly one place. Two copies of that rule would
+// eventually disagree, and the one that disagreed would be the one letting a
+// movement into an archived account.
+//
+// Being archived is decided here, on the field, rather than being an error the
+// account package raises: it is a fact about the account, not a failure to load
+// it.
+func resolveAccount(ctx context.Context, exec database.DBTX, id int64) (account.Account, error) {
+	acct, err := account.NewRepository(exec).Get(ctx, id)
+	switch {
+	case errors.Is(err, account.ErrNotFound):
+		return account.Account{}, fmt.Errorf("account %d: %w", id, ErrAccountNotFound)
+	case err != nil:
+		return account.Account{}, fmt.Errorf("looking up account %d: %w", id, err)
+	}
+	if !acct.IsActive {
+		return account.Account{}, fmt.Errorf("account %q: %w", acct.Name, ErrAccountInactive)
+	}
+	return acct, nil
+}
+
 // amountFor reads the amount and applies the use case's sign rule.
 //
 // The sign is derived from the operation rather than taken from input. That is
@@ -358,6 +376,14 @@ func amountFor(txType TransactionType, amount string, minorUnit int) (int64, err
 		// Zero is legitimate and means "record nothing"; negative is an account
 		// that starts overdrawn.
 		return minor, nil
+
+	case Transfer:
+		// Unreachable: a transfer has two accounts and two signed amounts, so it
+		// never travels through the single-account request this function serves.
+		// Spelled out rather than left to the default so that the boundary is a
+		// statement instead of an accident.
+		return 0, fmt.Errorf(
+			"%w: a transfer is recorded through RecordTransfer, not as a single movement", ErrInvalidInput)
 
 	default:
 		return 0, fmt.Errorf("%w: unknown transaction type %q", ErrInvalidInput, txType)
@@ -462,10 +488,20 @@ func unwrapAmountMessage(err error) string {
 // decision, documented in docs/m3-contract.md; the way back is a backup.
 func (s *Service) UpdateTransaction(ctx context.Context, id int64, in UpdateTransactionInput) (TransactionView, error) {
 	view, err := s.update(ctx, id, func(ctx context.Context, exec database.DBTX, current Transaction) (recordRequest, error) {
-		// Income and expenses convert freely; an opening balance does not.
-		if current.Type == OpeningBalance {
+		// Income and expenses convert freely into each other. Nothing else
+		// converts at all.
+		//
+		// The guard names what IS allowed rather than listing what is not. The
+		// difference matters: written as "if current.Type == OpeningBalance", a
+		// transfer would have walked straight through the moment TRANSFER
+		// joined the enumeration, and this method would have rewritten one of
+		// its two movements and left the other — a transfer with a debit and no
+		// credit, which is money destroyed. Every type this method does not
+		// name is refused, including any added later.
+		if current.Type != Income && current.Type != Expense {
 			return recordRequest{}, fmt.Errorf(
-				"%w: transaction %d is an opening balance; edit it as one", ErrTypeChangeNotAllowed, id)
+				"%w: transaction %d is %s and must be edited through the use case for that type",
+				ErrTypeChangeNotAllowed, id, current.Type)
 		}
 		if in.Type != Income && in.Type != Expense {
 			return recordRequest{}, fmt.Errorf(

@@ -4,10 +4,10 @@ A local, single-user web application for managing personal finances. Go +
 SQLite, server-rendered, run on your own machine with Docker Compose. No cloud,
 no accounts, no telemetry.
 
-**This repository is at milestone M3.** It records income and expenses across
-accounts in several currencies, derives every balance from the ledger, lets you
-correct what you entered, and takes backups you can restore from. See
-[Scope](#scope) below.
+**This repository is at milestone M4.** It records income, expenses and transfers
+between your own accounts, across accounts in several currencies, derives every
+balance from the ledger, lets you correct what you entered, and takes backups you
+can restore from. See [Scope](#scope) below.
 
 ## Requirements
 
@@ -76,13 +76,46 @@ A complete walkthrough to get started with a fresh instance:
 8. Enter optional initial balance
 9. Record income
 10. Record expense
-11. Review balances on dashboard
+11. Move money between two of your own accounts — see below
+12. Review balances on dashboard
+
+### Recording a transfer between your own accounts
+
+A **transfer** moves money you already have from one of your accounts to another.
+Use it when you withdraw cash from your bank, top up a wallet, or move money
+between two of your own accounts for any other reason.
+
+1. Open the transfer form
+2. Choose the account the money leaves (**From**)
+3. Choose the account it arrives in (**To**) — it must be in the **same
+   currency** and cannot be the same account
+4. Enter the amount as a positive number, e.g. `250.00`
+5. Enter the date it happened
+6. Optionally describe it, e.g. "Pasar dinero a efectivo"
+
+The From balance goes down, the To balance goes up, and **the total you hold in
+that currency does not change** — because none did. Nothing was earned and
+nothing was spent.
+
+Both accounts must be active. A transfer between accounts in *different*
+currencies is refused: converting between them needs an exchange rate, which
+belongs to a later milestone. You can edit a transfer afterwards; you cannot
+delete it.
+
+A transfer may leave an account with a negative balance, and this is allowed on
+purpose. Overdrafts happen, and a cash account that goes negative usually means
+something has not been entered yet — hiding that would not make it untrue.
 
 ### Important financial model notes
 
 * **Balances are derived from transactions:** Accounts have no stored balance column. Every balance is calculated dynamically from ledger movements (`SUM(movements)`).
-* **Currencies are not converted in M2:** Accounts in different currencies (USD, EUR, VES) are displayed independently. Balances in different currencies are never summed together.
-* **A bank transfer payment method is not an internal-account transfer:** In M2, the "Bank transfer" option describes the payment channel for external income or expenses; transfers between your own accounts belong to a later milestone.
+* **Currencies are still not converted:** Accounts in different currencies (USD, EUR, VES) are displayed independently. Balances in different currencies are never summed together.
+* **An Internal Transfer is not the "Bank transfer" payment method.** These are two different things and the application treats them as such:
+  * a **Transfer** moves money between **two accounts you own**. It is neither income nor an expense, has no category and no payment method, and does not change your total wealth in that currency.
+  * the payment method named **"Bank transfer"** describes the **channel** an operation with the **outside world** used — how your salary arrived, or how you paid a bill.
+
+  Paying rent by bank transfer is an *expense* whose payment method is "Bank transfer". Moving $250 from your bank to your cash is a *transfer* with no payment method at all.
+* **A transfer is one event, shown once.** Internally it is one transaction with two movements — one negative, one positive — which is why the totals always balance.
 
 
 ## Where the database lives
@@ -253,6 +286,12 @@ volume, with an offline restore. Payment methods became rows you administer
 instead of four fixed values. Transactions and opening balances can be corrected,
 revalidated against exactly the same rules as a creation.
 
+**M4 — internal transfers.** Moving money between two of your own accounts, as a
+single event with two movements: one out of the source, one into the destination,
+equal and opposite. The total held in that currency is identical before and
+after, because a transfer neither creates nor destroys money. Both accounts must
+be active and share a currency. Transfers can be corrected, never deleted.
+
 All of it is covered by tests running against real SQLite, and the disaster
 recovery path has been rehearsed against real Docker.
 
@@ -272,9 +311,10 @@ previous versions of them. The undo is a backup.
 and never summed together. Exchange rates, a reporting currency and consolidated
 net worth belong to a later milestone.
 
-**No transfers between your own accounts.** A payment method named "Bank
-transfer" describes how money moved with the outside world, which is a different
-thing.
+**No transfers between accounts in different currencies.** A transfer requires
+both accounts to share a currency. Converting between them needs an exchange
+rate, a source amount and a destination amount, all of which belong to the FX
+milestone. Nothing has been prepared for it in advance.
 
 Also absent: authentication and users, historical net worth, credit cards, loans,
 instalments, a financial calendar, recurring transactions, budgets, tags,

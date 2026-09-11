@@ -231,5 +231,69 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
   }
+
+  // ==========================================================================
+  // New Operation Form: Type Switching & Category Selection
+  // ==========================================================================
+  const opTypeTabs = document.querySelectorAll('.op-type-tab');
+  const opInputType = document.getElementById('op-input-type');
+  const opSubmitBtn = document.getElementById('op-submit-button');
+  const categoryGroup = document.getElementById('op-category-group');
+  const destinationGroup = document.getElementById('op-destination-group');
+  const labelOriginAccount = document.getElementById('label-origin-account');
+  const catChips = document.querySelectorAll('.op-cat-chip');
+
+  if (opTypeTabs.length > 0) {
+    opTypeTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const type = tab.getAttribute('data-type');
+        opTypeTabs.forEach(t => {
+          t.classList.remove('is-active', 'type-expense', 'type-income', 'type-transfer');
+          t.setAttribute('aria-selected', 'false');
+        });
+        tab.classList.add('is-active');
+        tab.setAttribute('aria-selected', 'true');
+        if (opInputType) opInputType.value = type;
+
+        if (type === 'EXPENSE') {
+          tab.classList.add('type-expense');
+          if (opSubmitBtn) {
+            opSubmitBtn.textContent = 'Registrar Gasto';
+            opSubmitBtn.className = 'op-submit-btn btn-expense';
+          }
+          if (categoryGroup) categoryGroup.style.display = 'flex';
+          if (destinationGroup) destinationGroup.style.display = 'none';
+          if (labelOriginAccount) labelOriginAccount.textContent = 'Cuenta';
+        } else if (type === 'INCOME') {
+          tab.classList.add('type-income');
+          if (opSubmitBtn) {
+            opSubmitBtn.textContent = 'Registrar Ingreso';
+            opSubmitBtn.className = 'op-submit-btn btn-income';
+          }
+          if (categoryGroup) categoryGroup.style.display = 'flex';
+          if (destinationGroup) destinationGroup.style.display = 'none';
+          if (labelOriginAccount) labelOriginAccount.textContent = 'Cuenta de abono';
+        } else if (type === 'TRANSFER') {
+          tab.classList.add('type-transfer');
+          if (opSubmitBtn) {
+            opSubmitBtn.textContent = 'Registrar Transferencia';
+            opSubmitBtn.className = 'op-submit-btn btn-transfer';
+          }
+          if (categoryGroup) categoryGroup.style.display = 'none';
+          if (destinationGroup) destinationGroup.style.display = 'flex';
+          if (labelOriginAccount) labelOriginAccount.textContent = 'Cuenta de origen';
+        }
+      });
+    });
+
+    catChips.forEach(chip => {
+      chip.addEventListener('click', () => {
+        catChips.forEach(c => c.classList.remove('is-selected'));
+        chip.classList.add('is-selected');
+        const radio = chip.querySelector('input[type="radio"]');
+        if (radio) radio.checked = true;
+      });
+    });
+  }
 });
 

@@ -1,0 +1,9 @@
+{{ define "content" }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+    {{ template "payment_methods_view" . }}
+    {{ template "bottom_navigation" .Navigation }}
+  </div>
+</div>
+{{ end }}

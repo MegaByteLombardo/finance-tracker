@@ -119,10 +119,11 @@ A `Money` type does not exist yet. When it is introduced, it enforces this.
 
 ## Current scope
 
-**M0–M2 (closed).** Foundation; currencies and accounts; the ledger, categories,
-money, opening balances and the server-rendered interface.
+**M0–M3 (closed).** Foundation; currencies and accounts; the ledger, categories,
+money, opening balances and the server-rendered interface; data safety, editing
+and payment methods.
 
-**M3 (in progress): data safety, editing and payment methods.**
+**M3, for reference:**
 
 - **Backups.** `internal/backup` snapshots the live database with `VACUUM INTO`,
   validates each one with `PRAGMA integrity_check` before it counts, and writes
@@ -135,14 +136,35 @@ money, opening balances and the server-rendered interface.
   because an edit that could produce a state a creation would refuse is a second
   door into every invariant.
 
+**M4 (in progress): internal transfers.**
+
+- A **`TRANSFER`** is ONE transaction with **TWO** movements: negative in the
+  source account, positive in the destination, equal in magnitude. They sum to
+  zero, so the total held in that currency is identical before and after. That
+  invariant is the point of the type.
+- **Nothing was added to `transactions`.** No `source_account_id`, no
+  `destination_account_id`, no `amount` — the two movements already say all
+  three, and a second copy is a second thing that can be wrong.
+- **`category_id` and `payment_method_id` are NULL**, enforced by a table CHECK.
+- **Both accounts must share a currency** and both must be active. Cross-currency
+  is FX and is not prepared for.
+- `RecordTransfer` / `UpdateTransfer` live in `internal/ledger`, not a package of
+  their own. One `sql.Tx` each. An edit keeps both movement ids.
+- **Each type has its own edit use case**, and every guard names what it ACCEPTS
+  rather than what it excludes. `UpdateTransaction` rewrites one movement; a
+  transfer reaching it would leave a debit with no credit (TD-045).
+- **`TRANSFER` ≠ the payment method "Bank transfer".** The method is a channel to
+  the outside world; the type is money moving between two accounts we own.
+
 **Not built, and not to be added opportunistically:**
 
-- **No delete of anything.** Archive or correct.
+- **No delete of anything.** Archive or correct. No `DeleteTransfer`,
+  `CancelTransfer` or `ReverseTransfer`.
 - **No history of edited records.** M3 overwrites. The undo is a backup.
 - **No FX, exchange rates, reporting currency or consolidated net worth.**
   Currencies are shown separately and never summed.
-- **No transfers between the user's own accounts.** A payment method named "Bank
-  transfer" is a channel to the outside world, not an internal transfer.
+- **No cross-currency transfers**, no transfer fees, no split transactions, no
+  scheduled or recurring transfers.
 - No credit, loans, instalments, calendar, recurring transactions, budgets, tags,
   hierarchical categories, authentication or public API.
 
@@ -163,3 +185,10 @@ Short list, because each cost real time and each is easy to repeat.
   world-writable; on Linux it keeps the host's ownership (TD-032).
 - **Pruning frees filenames.** Anything that picks a name by checking the
   directory must also remember what it already issued (TD-033).
+- **A guard that lists what to EXCLUDE rots when the enumeration grows.** M3's
+  edit guard read `if current.Type == OpeningBalance`; adding `TRANSFER` silently
+  made it wrong. Name what is allowed (TD-045).
+- **A read model that anchors on a semantic property can hide broken data.**
+  Picking a transfer's row by "the negative movement" drops a malformed transfer
+  with no negative movement out of the listing entirely. Anchor structurally,
+  then complain (TD-044).

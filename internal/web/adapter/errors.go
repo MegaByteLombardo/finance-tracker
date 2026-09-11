@@ -108,10 +108,37 @@ func TranslatePaymentMethodError(err error) error {
 	}
 }
 
+// TranslateLedgerError maps a ledger error into the presentation vocabulary.
+//
+// A transfer's account errors carry which end of the transfer failed, and that
+// has to survive the boundary: a form with two account fields cannot mark the
+// right one from a sentinel alone, and the presentation layer must not import
+// ledger to find out. The side is therefore re-wrapped in the web type, over a
+// cause that still matches the web sentinel with errors.Is.
 func TranslateLedgerError(err error) error {
 	if err == nil {
 		return nil
 	}
+
+	var accountErr *ledger.TransferAccountError
+	if errors.As(err, &accountErr) {
+		return &web.TransferAccountError{
+			Side:      toWebTransferSide(accountErr.Side),
+			AccountID: accountErr.AccountID,
+			Err:       translateLedgerSentinel(err),
+		}
+	}
+	return translateLedgerSentinel(err)
+}
+
+func toWebTransferSide(side ledger.TransferSide) web.TransferSide {
+	if side == ledger.DestinationSide {
+		return web.TransferSideDestination
+	}
+	return web.TransferSideSource
+}
+
+func translateLedgerSentinel(err error) error {
 	switch {
 	case errors.Is(err, ledger.ErrNotFound):
 		return translateError(web.ErrNotFound, err)
@@ -137,6 +164,12 @@ func TranslateLedgerError(err error) error {
 		return translateError(web.ErrTypeChangeNotAllowed, err)
 	case errors.Is(err, ledger.ErrCurrencyChangeNotConfirmed):
 		return translateError(web.ErrCurrencyChangeNotConfirmed, err)
+	case errors.Is(err, ledger.ErrSameAccount):
+		return translateError(web.ErrSameAccount, err)
+	case errors.Is(err, ledger.ErrCurrencyMismatch):
+		return translateError(web.ErrCurrencyMismatch, err)
+	case errors.Is(err, ledger.ErrInconsistentTransfer):
+		return translateError(web.ErrInconsistentTransfer, err)
 	default:
 		return err
 	}

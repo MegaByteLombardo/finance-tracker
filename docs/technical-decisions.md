@@ -1364,3 +1364,200 @@ is reinterpreted.
 The currency is still derived from the account. No `currency_code` column was
 added to `transactions` or `account_movements`, and none will be — a second
 column could only ever disagree with the account.
+---
+
+## TD-041 — A transfer is one transaction with two movements, and no new columns
+
+**Status:** Accepted · **Milestone:** M4
+
+**Decision.** A transfer between two of the user's own accounts is a single
+`transactions` row with `transaction_type = 'TRANSFER'` and **two**
+`account_movements`: a negative one in the source account and a positive one of
+equal magnitude in the destination. No column was added to any table.
+
+**Rationale.** This is the case the ledger's two-table design was built for
+(TD-026), and the design paid off exactly as predicted:
+`account_movements.transaction_id` was never `UNIQUE`, balances were already
+`SUM(amount_minor)` over whatever rows exist, and so a transfer required no
+structural change at all.
+
+The obvious alternative — `transactions.source_account_id`,
+`destination_account_id` and `amount` — was rejected because those three facts
+are already stated by the two movements. A second copy is a second thing that can
+be wrong, and when the two disagree neither can be trusted. It would also have
+made the balance derivation type-dependent: every balance query would have to
+know that a transfer's money lives somewhere other than where every other
+transaction's does.
+
+Because the two movements are equal and opposite, `SUM(amount_minor)` over a
+transfer is zero, so **the total held in a currency is identical before and
+after**. That is not a rule enforced somewhere; it is a consequence of the
+representation, which is why it is the representation.
+
+A transfer carries **no category** — filing it under one would put movement
+between one's own accounts into every later question about where money came from
+or went — and **no payment method**, because no channel with the outside world
+was used. Both are `NULL` and the database refuses a row where they are not.
+
+**`TRANSFER` is not the payment method named "Bank transfer".** The method
+records how an operation with the outside world happened; the type records that
+money moved between two accounts we own. The distinction was written into the
+schema comments in M2, before either of them existed, and it survives unchanged.
+
+---
+
+## TD-042 — Editing a transfer keeps its movement ids
+
+**Status:** Accepted · **Milestone:** M4
+
+**Decision.** `UpdateTransfer` rewrites the two existing `account_movements`
+rows in place. It does not delete and recreate them. The movement that is
+currently negative stays negative and receives the new source account; the
+positive one stays positive and receives the new destination. Swapping the two
+accounts swaps what the accounts are, not which row is which.
+
+**Rationale.**
+
+- `Repository.UpdateMovement` already existed and already did exactly this for
+  single-movement transactions. Reusing it keeps one write path rather than two.
+- Recreating would mean **deleting** a financial row, and nothing in this
+  application deletes one. "Archive or correct" is the rule everywhere else, and
+  a delete introduced here for convenience would be the first exception.
+- `account_movements` has no `updated_at` because a movement records the same
+  event it always did (migration `00007`). Keeping the id and `created_at` is the
+  same statement; recreating them would contradict it.
+- `TransactionView.MovementID` and `TransferDetail`'s two movement ids reach the
+  presentation layer. Recreating would make them churn on every edit for no gain.
+
+The alternative — delete both and insert two fresh rows — is simpler to write and
+was rejected for the reasons above. It is also not obviously safer: nothing
+references `account_movements`, so neither approach risks a dangling foreign key.
+
+---
+
+## TD-043 — A transfer may leave an account negative; there is no insufficient-funds rule
+
+**Status:** Accepted · **Milestone:** M4
+
+**Decision.** No balance check is performed before a transfer. An account may end
+up overdrawn. There is no overdraft setting, no threshold, and no warning in the
+backend.
+
+**Rationale.** Three reasons, the third of which is decisive.
+
+- **Overdrafts are real.** Bank statements show them. A ledger that cannot
+  represent what the statement says is a ledger that has to be reconciled by
+  hand.
+- **A negative cash balance is information.** It almost always means a movement
+  has not been entered yet. Refusing the transfer hides the signal and leaves the
+  user with two wrong balances instead of one obviously wrong one.
+- **The rule would be unenforceable anyway.** `effective_date` can be backdated.
+  A transfer entered today and dated three weeks ago can make every balance in
+  between negative, and no check performed at the moment of writing prevents that
+  without a temporal balance model M4 does not have. A rule that only sometimes
+  applies is worse than no rule: it teaches the user to trust a guarantee that
+  does not exist.
+
+Prohibiting a negative balance is a **policy**, not an accounting truth. It would
+also have been inconsistent: M3 already permits a negative opening balance and
+permits editing an expense to any size.
+
+The presentation layer may style a negative balance distinctively. It must not
+refuse one.
+
+---
+
+## TD-044 — Transfer integrity is enforced in Go and re-checked on read, not by triggers
+
+**Status:** Accepted · **Milestone:** M4
+
+**Decision.** The rules that make a transfer a transfer — exactly two movements,
+one negative and one positive, equal in magnitude, in two different accounts of
+the same currency — are enforced in `internal/ledger` inside one `sql.Tx`, and
+**re-verified by the read path** before a transfer is presented. They are not
+`CHECK` constraints and not triggers.
+
+**Rationale.** Every one of those rules spans more than one row, and a `CHECK`
+sees one row. Expressing them in SQLite would take triggers on every write to
+`account_movements`, each having to reason about the transaction's other rows
+mid-statement. That is a lot of machinery to guard a shape that one function and
+one database transaction already guarantee, and the machinery itself becomes
+something that can be wrong.
+
+What the schema *can* see from a single row is enforced there: a `TRANSFER` has
+no category and no payment method (a table `CHECK`), and no movement is ever zero
+(a column `CHECK`).
+
+**The read path is the second half of this decision, and the part that is not
+obvious.** `scanView` refuses to build a `TransferDetail` from movements that do
+not satisfy the rules, returning `ErrInconsistentTransfer`. No input can trigger
+it — writes establish the shape atomically and nothing deletes a movement — so
+reaching it means the file was modified by something else. The wrong response is
+to render half a transfer: a row reading "250.00 left Mercantil" with no
+destination, or with a destination that received a different amount, is a ledger
+lying quietly, and quiet is the failure mode this project spends most of its
+effort avoiding.
+
+For the same reason the listing anchors a transfer on its **lowest-numbered**
+movement rather than on its negative one. Anchoring by sign reads better, but a
+malformed transfer with no negative movement would then match nothing and vanish
+from the listing entirely. One row per transaction, always, and then complain.
+
+A partial unique index — "at most one negative movement per transaction" — was
+considered and rejected: it would hold today and would freeze "two movements, one
+per sign" into the schema, which a later split transaction would have to migrate
+away from. See `account_movements` in [data-model.md](data-model.md).
+
+---
+
+## TD-045 — Each transaction type has its own edit use case, and the guard names what is allowed
+
+**Status:** Accepted · **Milestone:** M4
+
+**Decision.** Three edit use cases, not one:
+
+```
+UpdateTransaction     → INCOME, EXPENSE
+UpdateOpeningBalance  → OPENING_BALANCE
+UpdateTransfer        → TRANSFER
+```
+
+Each refuses a transaction of any other type with `ErrTypeChangeNotAllowed`, and
+each guard is written as **"the current type must be one of the ones I handle"**
+rather than as a list of types to exclude.
+
+**Rationale.** The positive form is the whole decision, and it was arrived at by
+finding the bug the negative form had already planted.
+
+M3's `UpdateTransaction` read:
+
+```go
+if current.Type == OpeningBalance { return ErrTypeChangeNotAllowed }
+```
+
+which was correct while three types existed. The moment `TRANSFER` joined the
+enumeration it became wrong — a transfer is not an opening balance, so it would
+have walked straight through. `UpdateTransaction` rewrites **one** movement. A
+transfer has two. The result would have been a debit with no matching credit:
+money destroyed, in the one place in this application whose entire purpose is
+that this cannot happen. Nothing would have failed loudly; a balance would just
+have been wrong.
+
+Rewritten as
+
+```go
+if current.Type != Income && current.Type != Expense { return ErrTypeChangeNotAllowed }
+```
+
+the same guard also refuses the fifth type, whenever it arrives, without anyone
+having to remember to come back.
+
+The same reasoning applies at the HTTP boundary. The income-and-expense form
+previously coerced any unrecognised `type` value to `EXPENSE`, so a submission
+saying `TRANSFER` would have been recorded as an expense against one account. It
+now returns 422 and records nothing. `web.TransactionTypesForIncomeExpenseForm`
+exists so that a form's options and the handler's validation cannot drift apart.
+
+This continues M2's reasoning for three separate `Record*` methods: one method
+per use case makes an invalid combination something with no signature to arrive
+through, rather than something that is merely rejected.

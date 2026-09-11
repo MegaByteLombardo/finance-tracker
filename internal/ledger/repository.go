@@ -70,24 +70,53 @@ func (r *Repository) InsertMovement(ctx context.Context, m Movement) (Movement, 
 // One query rather than a lookup per row: a listing of 50 transactions would
 // otherwise issue 200 further queries for their accounts, currencies, categories
 // and payment methods. The category and payment method joins are LEFT because an
-// opening balance has neither.
+// opening balance and a transfer have neither.
+//
+// It produces EXACTLY ONE ROW PER TRANSACTION, whatever the transaction is. That
+// is what the anchor in the WHERE clause buys: a transfer has two movements, and
+// listing it twice would show one financial event as two, once from each side.
+// The anchor is the lowest-numbered movement rather than "the negative one",
+// because a rule that selects by sign silently drops a malformed transfer that
+// has no negative movement at all — and a listing that hides a broken row is
+// worse than one that reports it. Reporting it is scanView's job.
+//
+// The last four selected columns describe a transfer's OTHER movement, and the
+// joins that produce them are confined to transfers, so nothing changes for the
+// three types that have a single movement. cm is pinned to one row by the same
+// min(id) device, so a transaction with more movements than M4 can represent
+// still yields one row instead of several — again, so that the inconsistency is
+// reported rather than multiplied.
+//
+// The movement count is computed only for transfers: CASE does not evaluate the
+// branch it does not take, so an income costs nothing for it.
 const viewQuery = `
 	SELECT t.id, t.transaction_type, t.effective_date, t.description,
 	       t.payment_method_id, pm.name,
 	       t.category_id, cat.name, cat.category_type,
 	       m.id, m.account_id, a.name, a.account_type, a.account_subtype, a.institution,
 	       a.currency_code, cur.symbol, cur.minor_unit,
-	       m.amount_minor, t.created_at
+	       m.amount_minor, t.created_at,
+	       cm.id, cm.account_id, ca.name, cm.amount_minor,
+	       CASE WHEN t.transaction_type = 'TRANSFER'
+	            THEN (SELECT count(*) FROM account_movements am WHERE am.transaction_id = t.id)
+	            ELSE 1 END
 	  FROM account_movements m
 	  JOIN transactions t   ON t.id   = m.transaction_id
 	  JOIN accounts a       ON a.id   = m.account_id
 	  JOIN currencies cur   ON cur.code = a.currency_code
 	  LEFT JOIN categories cat     ON cat.id = t.category_id
-	  LEFT JOIN payment_methods pm ON pm.id  = t.payment_method_id`
+	  LEFT JOIN payment_methods pm ON pm.id  = t.payment_method_id
+	  LEFT JOIN account_movements cm
+	         ON t.transaction_type = 'TRANSFER'
+	        AND cm.id = (SELECT min(am.id) FROM account_movements am
+	                      WHERE am.transaction_id = t.id AND am.id <> m.id)
+	  LEFT JOIN accounts ca ON ca.id = cm.account_id
+	 WHERE m.id = (SELECT min(am.id) FROM account_movements am
+	                WHERE am.transaction_id = t.id)`
 
 // GetView returns the row for one transaction, or ErrNotFound.
 func (r *Repository) GetView(ctx context.Context, id int64) (TransactionView, error) {
-	row := r.db.QueryRowContext(ctx, viewQuery+` WHERE t.id = ? ORDER BY m.id LIMIT 1`, id)
+	row := r.db.QueryRowContext(ctx, viewQuery+` AND t.id = ?`, id)
 
 	v, err := scanView(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -99,15 +128,18 @@ func (r *Repository) GetView(ctx context.Context, id int64) (TransactionView, er
 	return v, nil
 }
 
-// ListViews returns the most recent movements, newest first.
+// ListViews returns the most recent transactions, newest first.
 //
 // The order is effective_date DESC, id DESC. The second key is what makes it
 // total: several transactions routinely share a date, and without it their
 // relative order would be undefined between calls, so a row could appear to
 // move between two loads of the same page.
+//
+// The limit counts TRANSACTIONS. Before transfers existed it counted movements,
+// which was the same number; a transfer is one row here, not two.
 func (r *Repository) ListViews(ctx context.Context, limit int) (_ []TransactionView, err error) {
 	rows, err := r.db.QueryContext(ctx,
-		viewQuery+` ORDER BY t.effective_date DESC, t.id DESC, m.id LIMIT ?`, limit)
+		viewQuery+` ORDER BY t.effective_date DESC, t.id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("listing transactions: %w", err)
 	}
@@ -273,6 +305,13 @@ func scanView(s scanner) (TransactionView, error) {
 		institution     sql.NullString
 		currencySymbol  sql.NullString
 		createdAt       string
+
+		// The other movement of a transfer. NULL for every other type.
+		otherMovementID  sql.NullInt64
+		otherAccountID   sql.NullInt64
+		otherAccountName sql.NullString
+		otherAmountMinor sql.NullInt64
+		movementCount    int
 	)
 
 	if err := s.Scan(&v.ID, &transactionType, &effectiveDate, &description,
@@ -280,7 +319,9 @@ func scanView(s scanner) (TransactionView, error) {
 		&categoryID, &categoryName, &categoryType,
 		&v.MovementID, &v.AccountID, &v.AccountName, &accountType, &accountSubtype, &institution,
 		&v.CurrencyCode, &currencySymbol, &v.MinorUnit,
-		&v.AmountMinor, &createdAt); err != nil {
+		&v.AmountMinor, &createdAt,
+		&otherMovementID, &otherAccountID, &otherAccountName, &otherAmountMinor,
+		&movementCount); err != nil {
 		return TransactionView{}, err
 	}
 
@@ -334,6 +375,50 @@ func scanView(s scanner) (TransactionView, error) {
 	}
 	if v.CreatedAt, err = database.ParseTime(createdAt); err != nil {
 		return TransactionView{}, fmt.Errorf("transaction %d created_at: %w", v.ID, err)
+	}
+
+	// A transfer is assembled from both of its movements, and refused if the two
+	// are not the shape this package guarantees. The rules live in transfer.go,
+	// with the code that maintains them.
+	if v.Type == Transfer {
+		if err := checkTransferMovementCount(v.ID, movementCount); err != nil {
+			return TransactionView{}, err
+		}
+		if !otherMovementID.Valid || !otherAccountID.Valid || !otherAmountMinor.Valid {
+			// Unreachable while the count is 2, and checked anyway: the
+			// alternative is reading a NULL as a zero-valued account.
+			return TransactionView{}, fmt.Errorf(
+				"transaction %d: %w: only one of its two movements could be read",
+				v.ID, ErrInconsistentTransfer)
+		}
+
+		source, destination, err := splitTransfer(v.ID,
+			transferSide{
+				movementID:  v.MovementID,
+				accountID:   v.AccountID,
+				accountName: v.AccountName,
+				amountMinor: v.AmountMinor,
+			},
+			transferSide{
+				movementID:  otherMovementID.Int64,
+				accountID:   otherAccountID.Int64,
+				accountName: otherAccountName.String,
+				amountMinor: otherAmountMinor.Int64,
+			})
+		if err != nil {
+			return TransactionView{}, err
+		}
+
+		v.Transfer = &TransferDetail{
+			SourceMovementID:       source.movementID,
+			SourceAccountID:        source.accountID,
+			SourceAccountName:      source.accountName,
+			DestinationMovementID:  destination.movementID,
+			DestinationAccountID:   destination.accountID,
+			DestinationAccountName: destination.accountName,
+			AmountMinor:            destination.amountMinor,
+			AmountFormatted:        money.Format(destination.amountMinor, v.MinorUnit),
+		}
 	}
 	return v, nil
 }
@@ -430,10 +515,11 @@ func (r *Repository) GetTransaction(ctx context.Context, id int64) (Transaction,
 
 // GetMovementFor returns the movement belonging to a transaction.
 //
-// M3 writes exactly one movement per transaction, which is what lets editing
-// work on "the" movement. When transfers arrive a transaction will have two, and
-// this becomes the wrong shape -- deliberately so: it will fail to compile
-// rather than silently edit whichever one came first.
+// It is only correct for a transaction that has exactly ONE movement: income,
+// an expense, an opening balance. A transfer has two, and this would return
+// whichever came first. Its only caller is UpdateOpeningBalance, which has
+// already established the type before asking. Everything that may face a
+// transfer uses ListMovementsFor.
 func (r *Repository) GetMovementFor(ctx context.Context, transactionID int64) (Movement, error) {
 	row := r.db.QueryRowContext(ctx,
 		`SELECT id, transaction_id, account_id, amount_minor, created_at
@@ -455,6 +541,45 @@ func (r *Repository) GetMovementFor(ctx context.Context, transactionID int64) (M
 		return Movement{}, fmt.Errorf("movement %d created_at: %w", m.ID, err)
 	}
 	return m, nil
+}
+
+// ListMovementsFor returns every movement of a transaction, lowest id first.
+//
+// Editing a transfer needs both of its movements, and needs them in a stable
+// order so that the same rows are rewritten every time rather than swapped
+// around. The caller decides which is the source by its sign, not by its
+// position here.
+func (r *Repository) ListMovementsFor(ctx context.Context, transactionID int64) (_ []Movement, err error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, transaction_id, account_id, amount_minor, created_at
+		   FROM account_movements WHERE transaction_id = ? ORDER BY id`, transactionID)
+	if err != nil {
+		return nil, fmt.Errorf("reading the movements of transaction %d: %w", transactionID, err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("closing movement rows: %w", cerr))
+		}
+	}()
+
+	movements := make([]Movement, 0, 2)
+	for rows.Next() {
+		var (
+			m         Movement
+			createdAt string
+		)
+		if err := rows.Scan(&m.ID, &m.TransactionID, &m.AccountID, &m.AmountMinor, &createdAt); err != nil {
+			return nil, fmt.Errorf("reading a movement of transaction %d: %w", transactionID, err)
+		}
+		if m.CreatedAt, err = database.ParseTime(createdAt); err != nil {
+			return nil, fmt.Errorf("movement %d created_at: %w", m.ID, err)
+		}
+		movements = append(movements, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating the movements of transaction %d: %w", transactionID, err)
+	}
+	return movements, nil
 }
 
 // UpdateTransaction rewrites the editable fields of an event.

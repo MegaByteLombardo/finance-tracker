@@ -158,6 +158,22 @@ func (a *ledgerAdapter) RecordOpeningBalance(ctx context.Context, in web.RecordO
 	return toWebTransactionView(view), nil
 }
 
+func (a *ledgerAdapter) RecordTransfer(ctx context.Context, in web.RecordTransferInput) (web.TransactionView, error) {
+	view, err := a.svc.RecordTransfer(ctx, toDomainRecordTransferInput(in))
+	if err != nil {
+		return web.TransactionView{}, TranslateLedgerError(err)
+	}
+	return *toWebTransactionView(&view), nil
+}
+
+func (a *ledgerAdapter) UpdateTransfer(ctx context.Context, id int64, in web.UpdateTransferInput) (web.TransactionView, error) {
+	view, err := a.svc.UpdateTransfer(ctx, id, toDomainUpdateTransferInput(in))
+	if err != nil {
+		return web.TransactionView{}, TranslateLedgerError(err)
+	}
+	return *toWebTransactionView(&view), nil
+}
+
 func (a *ledgerAdapter) UpdateTransaction(ctx context.Context, id int64, in web.UpdateTransactionInput) (web.TransactionView, error) {
 	view, err := a.svc.UpdateTransaction(ctx, id, toDomainUpdateTransactionInput(in))
 	if err != nil {

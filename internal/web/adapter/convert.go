@@ -234,6 +234,7 @@ func toWebTransactionView(v *ledger.TransactionView) *web.TransactionView {
 		CategoryID:        v.CategoryID,
 		CategoryName:      v.CategoryName,
 		CategoryType:      toWebCategoryTypePtr(v.CategoryType),
+		Transfer:          toWebTransferDetail(v.Transfer),
 		MovementID:        v.MovementID,
 		AccountID:         v.AccountID,
 		AccountName:       v.AccountName,
@@ -378,6 +379,48 @@ func toDomainUpdateTransactionInput(in web.UpdateTransactionInput) ledger.Update
 
 func toDomainTransactionType(t web.TransactionType) ledger.TransactionType {
 	return ledger.TransactionType(t)
+}
+
+// Transfer conversions
+//
+// The detail is nil for everything that is not a transfer, and that nil is
+// meaningful: it is how a template knows this row is not one.
+
+func toWebTransferDetail(d *ledger.TransferDetail) *web.TransferDetail {
+	if d == nil {
+		return nil
+	}
+	return &web.TransferDetail{
+		SourceMovementID:       d.SourceMovementID,
+		SourceAccountID:        d.SourceAccountID,
+		SourceAccountName:      d.SourceAccountName,
+		DestinationMovementID:  d.DestinationMovementID,
+		DestinationAccountID:   d.DestinationAccountID,
+		DestinationAccountName: d.DestinationAccountName,
+		AmountMinor:            d.AmountMinor,
+		AmountFormatted:        d.AmountFormatted,
+	}
+}
+
+func toDomainRecordTransferInput(in web.RecordTransferInput) ledger.RecordTransferInput {
+	return ledger.RecordTransferInput{
+		SourceAccountID:      in.SourceAccountID,
+		DestinationAccountID: in.DestinationAccountID,
+		Amount:               in.Amount,
+		Description:          in.Description,
+		EffectiveDate:        in.EffectiveDate,
+	}
+}
+
+func toDomainUpdateTransferInput(in web.UpdateTransferInput) ledger.UpdateTransferInput {
+	return ledger.UpdateTransferInput{
+		SourceAccountID:      in.SourceAccountID,
+		DestinationAccountID: in.DestinationAccountID,
+		Amount:               in.Amount,
+		Description:          in.Description,
+		EffectiveDate:        in.EffectiveDate,
+		AllowCurrencyChange:  in.AllowCurrencyChange,
+	}
 }
 
 func toDomainUpdateOpeningBalanceInput(in web.UpdateOpeningBalanceInput) ledger.UpdateOpeningBalanceInput {

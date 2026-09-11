@@ -122,7 +122,7 @@ func DefaultMobileMockData() MobileDashboardView {
 					FormattedTotal: "€850.00",
 				},
 			},
-			ViewAccountsURL: "/accounts",
+			ViewAccountsURL: "/mobile/cuentas",
 		},
 		Budget: WeeklyBudgetView{
 			SpentFormatted:     "Bs 8,450",

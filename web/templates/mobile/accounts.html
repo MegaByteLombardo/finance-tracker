@@ -1,0 +1,27 @@
+{{ define "content" }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <!-- Area superior de safe area / status bar -->
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+
+    <!-- Header de Cuentas -->
+    {{ template "accounts_header" .Header }}
+
+    <!-- Contenido desplazable verticalmente con listado de cuentas -->
+    <main class="mobile-scrollable-content accounts-feed-scroll" id="main-mobile-content">
+      {{ range .CurrencyGroups }}
+        {{ template "accounts_currency_group" . }}
+      {{ end }}
+    </main>
+
+    <!-- Botón flotante para nueva operación -->
+    {{ template "floating_action_button" . }}
+
+    <!-- Navegación inferior fija (3 destinos) -->
+    {{ template "bottom_navigation" .Navigation }}
+
+    <!-- Bottom sheet modal (Gasto, Ingreso, Transferencia) -->
+    {{ template "new_operation_sheet" . }}
+  </div>
+</div>
+{{ end }}
