@@ -38,6 +38,116 @@ type MobileAccountItemView struct {
 	IsActive         bool
 }
 
+// handleMobileAccounts serves the mobile accounts view populated with real data.
+func handleMobileAccounts(logger *slog.Logger, renderer *Renderer, svcs *Services) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		accounts, err := svcs.Accounts.List(ctx, false)
+		if err != nil {
+			logger.Error("listing accounts for mobile view", slog.Any("error", err))
+			http.Error(w, "Failed to load accounts", http.StatusInternalServerError)
+			return
+		}
+
+		balances, err := svcs.Ledger.ListAccountBalances(ctx, false)
+		if err != nil {
+			logger.Error("listing balances for mobile accounts view", slog.Any("error", err))
+			http.Error(w, "Failed to load balances", http.StatusInternalServerError)
+			return
+		}
+
+		totals, err := svcs.Ledger.ListCurrencyTotals(ctx, false)
+		if err != nil {
+			logger.Error("listing currency totals for mobile accounts view", slog.Any("error", err))
+			http.Error(w, "Failed to load totals", http.StatusInternalServerError)
+			return
+		}
+
+		balMap := make(map[int64]AccountBalance, len(balances))
+		for _, b := range balances {
+			balMap[b.AccountID] = b
+		}
+
+		totalsMap := make(map[string]CurrencyTotal, len(totals))
+		for _, t := range totals {
+			totalsMap[t.CurrencyCode] = t
+		}
+
+		// Group accounts by currency
+		var currencyOrder []string
+		acctsByCurr := make(map[string][]MobileAccountItemView)
+
+		for _, acct := range accounts {
+			if _, exists := acctsByCurr[acct.CurrencyCode]; !exists {
+				currencyOrder = append(currencyOrder, acct.CurrencyCode)
+			}
+
+			b, hasBal := balMap[acct.ID]
+			balFormatted := "0.00"
+			isNeg := false
+			if hasBal {
+				balFormatted = b.BalanceFormatted
+				isNeg = b.BalanceMinor < 0
+			}
+
+			var inst string
+			if acct.Institution != nil {
+				inst = *acct.Institution
+			}
+
+			acctsByCurr[acct.CurrencyCode] = append(acctsByCurr[acct.CurrencyCode], MobileAccountItemView{
+				AccountID:        acct.ID,
+				AccountName:      acct.Name,
+				AccountType:      string(acct.Type),
+				AccountTypeLabel: accountTypeFriendlyLabel(acct),
+				Institution:      inst,
+				CurrencyCode:     acct.CurrencyCode,
+				BalanceFormatted: balFormatted,
+				IsNegative:       isNeg,
+				IsActive:         acct.IsActive,
+			})
+		}
+
+		var groups []MobileCurrencyGroupView
+		for _, currCode := range currencyOrder {
+			currAccounts := acctsByCurr[currCode]
+			currName := currCode
+			totFormatted := "0.00"
+			if t, ok := totalsMap[currCode]; ok {
+				currName = t.CurrencyName
+				totFormatted = t.TotalFormatted
+			}
+
+			groups = append(groups, MobileCurrencyGroupView{
+				CurrencyCode:   currCode,
+				CurrencyName:   currName,
+				TotalFormatted: totFormatted,
+				Accounts:       currAccounts,
+			})
+		}
+
+		data := MobileAccountsPageView{
+			Header: MobileAccountsHeaderView{
+				TotalAccounts: len(accounts),
+			},
+			CurrencyGroups: groups,
+			Navigation: MobileNavView{
+				ActiveTab: "cuentas",
+			},
+		}
+
+		pageData := PageData{
+			Title: "Cuentas",
+			Data:  data,
+		}
+
+		if err := renderer.RenderMobilePage(w, r, http.StatusOK, "mobile/accounts.html", pageData); err != nil {
+			logger.Error("rendering mobile accounts", slog.Any("error", err))
+		}
+	}
+}
+
 // DefaultMobileAccountsMockData returns rich UI mock data for the Cuentas view.
 func DefaultMobileAccountsMockData() MobileAccountsPageView {
 	return MobileAccountsPageView{
@@ -136,20 +246,5 @@ func DefaultMobileAccountsMockData() MobileAccountsPageView {
 		Navigation: MobileNavView{
 			ActiveTab: "cuentas",
 		},
-	}
-}
-
-// handleMobileAccounts serves the mobile accounts view.
-func handleMobileAccounts(logger *slog.Logger, renderer *Renderer) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		data := DefaultMobileAccountsMockData()
-		pageData := PageData{
-			Title: "Cuentas",
-			Data:  data,
-		}
-
-		if err := renderer.RenderMobilePage(w, r, http.StatusOK, "mobile/accounts.html", pageData); err != nil {
-			logger.Error("rendering mobile accounts", slog.Any("error", err))
-		}
 	}
 }

@@ -19,6 +19,59 @@ type MobileCategoryItemView struct {
 	Icon      string // CSS class name suffix: "cart", "coffee", etc.
 	IconEmoji string
 	IsActive  bool
+	Type      CategoryType
+}
+
+// handleMobileCategories serves the mobile categories management view with real database data.
+func handleMobileCategories(logger *slog.Logger, renderer *Renderer, svcs *Services) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		categories, err := svcs.Categories.List(ctx, ListCategoriesInput{IncludeInactive: false})
+		if err != nil {
+			logger.Error("listing categories for mobile view", slog.Any("error", err))
+			http.Error(w, "Failed to load categories", http.StatusInternalServerError)
+			return
+		}
+
+		var expenseCats []MobileCategoryItemView
+		var incomeCats []MobileCategoryItemView
+
+		for _, c := range categories {
+			icon, emoji := inferCategoryIconAndEmoji(c.Name)
+			item := MobileCategoryItemView{
+				ID:        c.ID,
+				Name:      c.Name,
+				Icon:      icon,
+				IconEmoji: emoji,
+				IsActive:  c.IsActive,
+				Type:      c.Type,
+			}
+
+			if c.Type == CategoryTypeIncome {
+				incomeCats = append(incomeCats, item)
+			} else {
+				expenseCats = append(expenseCats, item)
+			}
+		}
+
+		data := MobileCategoriesPageView{
+			ExpenseCategories: expenseCats,
+			IncomeCategories:  incomeCats,
+			Navigation: MobileNavView{
+				ActiveTab: "inicio",
+			},
+		}
+
+		pageData := PageData{
+			Title: "Categorías",
+			Data:  data,
+		}
+
+		if err := renderer.RenderMobilePage(w, r, http.StatusOK, "mobile/categories.html", pageData); err != nil {
+			logger.Error("rendering mobile categories", slog.Any("error", err))
+		}
+	}
 }
 
 // DefaultMobileCategoriesMockData returns default mock data for mobile categories.
@@ -39,20 +92,5 @@ func DefaultMobileCategoriesMockData() MobileCategoriesPageView {
 		Navigation: MobileNavView{
 			ActiveTab: "inicio",
 		},
-	}
-}
-
-// handleMobileCategories serves the mobile categories management view.
-func handleMobileCategories(logger *slog.Logger, renderer *Renderer) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		data := DefaultMobileCategoriesMockData()
-		pageData := PageData{
-			Title: "Categorías",
-			Data:  data,
-		}
-
-		if err := renderer.RenderMobilePage(w, r, http.StatusOK, "mobile/categories.html", pageData); err != nil {
-			logger.Error("rendering mobile categories", slog.Any("error", err))
-		}
 	}
 }

@@ -53,15 +53,15 @@ func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
 
 	// Dashboard & Mobile Views
 	mux.HandleFunc("GET /{$}", handleDashboard(logger, renderer, svcs))
-	mux.HandleFunc("GET /mobile", handleMobileDashboard(logger, renderer))
-	mux.HandleFunc("GET /mobile/movimientos", handleMobileTransactions(logger, renderer))
-	mux.HandleFunc("GET /mobile/transactions", handleMobileTransactions(logger, renderer))
-	mux.HandleFunc("GET /mobile/cuentas", handleMobileAccounts(logger, renderer))
-	mux.HandleFunc("GET /mobile/accounts", handleMobileAccounts(logger, renderer))
-	mux.HandleFunc("GET /mobile/operacion/nueva", handleMobileNewOperation(logger, renderer))
-	mux.HandleFunc("GET /mobile/nueva-operacion", handleMobileNewOperation(logger, renderer))
-	mux.HandleFunc("GET /mobile/categorias", handleMobileCategories(logger, renderer))
-	mux.HandleFunc("GET /mobile/metodos-pago", handleMobilePaymentMethods(logger, renderer))
+	mux.HandleFunc("GET /mobile", handleMobileDashboard(logger, renderer, svcs))
+	mux.HandleFunc("GET /mobile/movimientos", handleMobileTransactions(logger, renderer, svcs))
+	mux.HandleFunc("GET /mobile/transactions", handleMobileTransactions(logger, renderer, svcs))
+	mux.HandleFunc("GET /mobile/cuentas", handleMobileAccounts(logger, renderer, svcs))
+	mux.HandleFunc("GET /mobile/accounts", handleMobileAccounts(logger, renderer, svcs))
+	mux.HandleFunc("GET /mobile/operacion/nueva", handleMobileNewOperation(logger, renderer, svcs))
+	mux.HandleFunc("GET /mobile/nueva-operacion", handleMobileNewOperation(logger, renderer, svcs))
+	mux.HandleFunc("GET /mobile/categorias", handleMobileCategories(logger, renderer, svcs))
+	mux.HandleFunc("GET /mobile/metodos-pago", handleMobilePaymentMethods(logger, renderer, svcs))
 
 	// Accounts
 	mux.HandleFunc("GET /accounts", handleAccountsList(logger, renderer, svcs))

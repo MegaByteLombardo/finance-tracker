@@ -203,12 +203,16 @@ func handleCreateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 			return
 		}
 
+		redirectURL := "/transactions"
+		if ret := r.FormValue("return_to"); ret != "" && strings.HasPrefix(ret, "/") {
+			redirectURL = ret
+		}
 		if IsHXRequest(r) {
-			w.Header().Set("HX-Redirect", "/transactions")
+			w.Header().Set("HX-Redirect", redirectURL)
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		http.Redirect(w, r, "/transactions", http.StatusSeeOther)
+		http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 	}
 }
 

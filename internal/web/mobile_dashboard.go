@@ -3,11 +3,10 @@ package web
 import (
 	"log/slog"
 	"net/http"
+	"time"
 )
 
 // MobileDashboardView encapsulates the presentation data for the mobile Inicio dashboard.
-// It is designed to be populated dynamically by backend services when available,
-// while currently carrying high-fidelity mock UI data.
 type MobileDashboardView struct {
 	Header       MobileHeaderView
 	NetWorth     NetWorthView
@@ -70,7 +69,7 @@ type MobileTransactionItem struct {
 	DateLabel       string
 	AmountFormatted string
 	Type            string // "EXPENSE", "INCOME", "TRANSFER"
-	CategoryIcon    string // "cart", "briefcase", "coffee", "pill", "entertainment", "car"
+	CategoryIcon    string // "cart", "briefcase", "coffee", "pill", "entertainment", "car", "transfer"
 	IsPositive      bool
 	CurrencyCode    string
 }
@@ -86,7 +85,104 @@ type MobileNavView struct {
 	ActiveTab string // "inicio", "movimientos", "cuentas"
 }
 
-// DefaultMobileMockData returns the high-fidelity mock data requested for the Finance Tracker mobile view.
+// handleMobileDashboard serves the mobile dashboard view with real ledger balances and movements.
+func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Services) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		totals, err := svcs.Ledger.ListCurrencyTotals(ctx, false)
+		if err != nil {
+			logger.Error("listing currency totals for mobile dashboard", slog.Any("error", err))
+			http.Error(w, "Failed to load totals", http.StatusInternalServerError)
+			return
+		}
+
+		recentTxs, err := svcs.Ledger.ListTransactions(ctx, ListTransactionsInput{Limit: 5})
+		if err != nil {
+			logger.Error("listing recent transactions for mobile dashboard", slog.Any("error", err))
+			http.Error(w, "Failed to load transactions", http.StatusInternalServerError)
+			return
+		}
+
+		now := time.Now().UTC()
+		dateFormatted := formatDateSpanish(now)
+
+		var balanceItems []CurrencyBalanceItem
+		var primaryTotal string
+		var primaryCurrency string
+
+		for _, t := range totals {
+			balanceItems = append(balanceItems, CurrencyBalanceItem{
+				CurrencyCode:   t.CurrencyCode,
+				CurrencyName:   t.CurrencyName,
+				FormattedTotal: t.TotalFormatted,
+			})
+			if t.CurrencyCode == "USD" || primaryCurrency == "" {
+				primaryTotal = t.TotalFormatted
+				primaryCurrency = t.CurrencyCode
+			}
+		}
+
+		if primaryCurrency == "" {
+			primaryCurrency = "USD"
+			primaryTotal = "0.00"
+		}
+
+		var mRecentTxs []MobileTransactionItem
+		for _, tx := range recentTxs {
+			mRecentTxs = append(mRecentTxs, mapMobileTransactionItem(tx))
+		}
+
+		data := MobileDashboardView{
+			Header: MobileHeaderView{
+				UserName:      "Andres",
+				Greeting:      "Hola, Andres",
+				FormattedDate: dateFormatted,
+				UserInitials:  "A",
+			},
+			NetWorth: NetWorthView{
+				AmountFormatted:  primaryTotal + " " + primaryCurrency,
+				CurrencyCode:     primaryCurrency,
+				CurrencyLabel:    primaryCurrency + " · balance",
+				MonthlyChange:    "Ledger",
+				MonthlyChangeMsg: "Saldos derivados de movimientos",
+				IsPositiveChange: true,
+			},
+			Balances: CurrencyBalancesView{
+				Currencies:      balanceItems,
+				ViewAccountsURL: "/mobile/cuentas",
+			},
+			Budget: WeeklyBudgetView{
+				SpentFormatted:     "0.00",
+				TotalFormatted:     "Activo",
+				RemainingFormatted: "Sin límite",
+				CurrencyCode:       primaryCurrency,
+				Percentage:         0,
+				DaysRemaining:      7 - int(now.Weekday()),
+				DaysRemainingText:  "Periodo activo",
+				Status:             "normal",
+			},
+			Transactions: RecentTransactionsView{
+				Transactions: mRecentTxs,
+				ViewAllURL:   "/mobile/movimientos",
+			},
+			Navigation: MobileNavView{
+				ActiveTab: "inicio",
+			},
+		}
+
+		pageData := PageData{
+			Title: "Inicio",
+			Data:  data,
+		}
+
+		if err := renderer.RenderMobilePage(w, r, http.StatusOK, "mobile/index.html", pageData); err != nil {
+			logger.Error("rendering mobile dashboard", slog.Any("error", err))
+		}
+	}
+}
+
+// DefaultMobileMockData returns the high-fidelity mock data for test fallbacks.
 func DefaultMobileMockData() MobileDashboardView {
 	return MobileDashboardView{
 		Header: MobileHeaderView{
@@ -148,74 +244,11 @@ func DefaultMobileMockData() MobileDashboardView {
 					IsPositive:      false,
 					CurrencyCode:    "VES",
 				},
-				{
-					ID:              "tx-2",
-					Merchant:        "Nómina",
-					AccountName:     "Mercantil",
-					CategoryName:    "Ingresos",
-					DateLabel:       "Ayer",
-					AmountFormatted: "+ $850.00",
-					Type:            "INCOME",
-					CategoryIcon:    "briefcase",
-					IsPositive:      true,
-					CurrencyCode:    "USD",
-				},
-				{
-					ID:              "tx-3",
-					Merchant:        "Café",
-					AccountName:     "Efectivo",
-					CategoryName:    "Comida",
-					DateLabel:       "5 Sep",
-					AmountFormatted: "- $4.50",
-					Type:            "EXPENSE",
-					CategoryIcon:    "coffee",
-					IsPositive:      false,
-					CurrencyCode:    "USD",
-				},
-				{
-					ID:              "tx-4",
-					Merchant:        "Farmacia",
-					AccountName:     "Banesco",
-					CategoryName:    "Salud",
-					DateLabel:       "4 Sep",
-					AmountFormatted: "- Bs 420.00",
-					Type:            "EXPENSE",
-					CategoryIcon:    "pill",
-					IsPositive:      false,
-					CurrencyCode:    "VES",
-				},
-				{
-					ID:              "tx-5",
-					Merchant:        "Suscripción Streaming",
-					AccountName:     "Tarjeta USD",
-					CategoryName:    "Entretenimiento",
-					DateLabel:       "2 Sep",
-					AmountFormatted: "- $14.99",
-					Type:            "EXPENSE",
-					CategoryIcon:    "entertainment",
-					IsPositive:      false,
-					CurrencyCode:    "USD",
-				},
 			},
 			ViewAllURL: "/mobile/movimientos",
 		},
 		Navigation: MobileNavView{
 			ActiveTab: "inicio",
 		},
-	}
-}
-
-// handleMobileDashboard serves the mobile dashboard view.
-func handleMobileDashboard(logger *slog.Logger, renderer *Renderer) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		data := DefaultMobileMockData()
-		pageData := PageData{
-			Title: "Inicio",
-			Data:  data,
-		}
-
-		if err := renderer.RenderMobilePage(w, r, http.StatusOK, "mobile/index.html", pageData); err != nil {
-			logger.Error("rendering mobile dashboard", slog.Any("error", err))
-		}
 	}
 }

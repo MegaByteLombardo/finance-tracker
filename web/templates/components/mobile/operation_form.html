@@ -13,12 +13,9 @@
     <div style="width: 48px;"></div>
   </div>
 
-  <div style="background: #f8fafc; border-bottom: 1px solid #e2e8f0; padding: 8px 16px; font-size: 0.78rem; color: #64748b; display: flex; align-items: center; justify-content: space-between;">
-    <span>📱 Prototipo UI móvil (Mocks)</span>
-    <a href="/transfers/new" style="color: #2563eb; text-decoration: underline; font-weight: 500;">Formulario web real &rarr;</a>
-  </div>
-
   <form id="mobile-operation-form" action="/transactions" method="POST" class="operation-form-body">
+    <input type="hidden" name="return_to" value="/mobile/movimientos">
+
     <!-- Switcher de Tipo de Operación: Gasto / Ingreso / Transferencia -->
     <div class="op-type-segmented-control" role="tablist">
       <button type="button" class="op-type-tab {{ if eq .SelectedType "EXPENSE" }}is-active type-expense{{ end }}" data-type="EXPENSE" role="tab" aria-selected="{{ if eq .SelectedType "EXPENSE" }}true{{ else }}false{{ end }}">
@@ -38,9 +35,13 @@
       <span class="amount-hero-label">Monto de la operación</span>
       <div class="amount-hero-input-wrap">
         <select id="op-currency-select" class="amount-currency-pill" aria-label="Moneda">
+          {{ range .Currencies }}
+          <option value="{{ .Code }}">{{ .Code }}{{ if .Symbol }} ({{ derefString .Symbol }}){{ end }}</option>
+          {{ else }}
           <option value="USD" selected>USD ($)</option>
           <option value="VES">VES (Bs)</option>
           <option value="EUR">EUR (€)</option>
+          {{ end }}
         </select>
         <input 
           type="text" 
@@ -67,12 +68,11 @@
         <div class="op-select-wrap">
           <select id="op-account-select" name="account_id" class="op-native-select" required>
             <option value="">Selecciona una cuenta...</option>
-            <option value="1">Mercantil USD · $1,650.00</option>
-            <option value="4" selected>Banesco Corriente · Bs 142,548.84</option>
-            <option value="2">Tarjeta prepagada USD · $350.00</option>
-            <option value="5">Efectivo Bolívares · Bs 8,000.00</option>
-            <option value="3">Efectivo USD · $57.56</option>
-            <option value="6">Cuenta Europa EUR · €850.00</option>
+            {{ range .Accounts }}
+            <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}">
+              {{ .Name }} ({{ .CurrencyCode }}) · {{ .BalanceFormatted }}
+            </option>
+            {{ end }}
           </select>
           <svg class="select-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </div>
@@ -87,10 +87,11 @@
         <div class="op-select-wrap">
           <select id="op-dest-account-select" name="destination_account_id" class="op-native-select">
             <option value="">Selecciona cuenta receptora...</option>
-            <option value="1">Mercantil USD</option>
-            <option value="4">Banesco Corriente</option>
-            <option value="2">Tarjeta prepagada USD</option>
-            <option value="5">Efectivo Bolívares</option>
+            {{ range .Accounts }}
+            <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}">
+              {{ .Name }} ({{ .CurrencyCode }}) · {{ .BalanceFormatted }}
+            </option>
+            {{ end }}
           </select>
           <svg class="select-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </div>
@@ -103,51 +104,26 @@
           <span class="required-star">*</span>
         </label>
         <div class="op-category-chips-grid" role="radiogroup" aria-label="Seleccionar categoría">
-          <label class="op-cat-chip is-selected">
-            <input type="radio" name="category_id" value="1" checked class="sr-only">
-            <span class="op-cat-icon">🛒</span>
-            <span class="op-cat-text">Alimentación</span>
+          {{ range $idx, $cat := .Categories }}
+          <label class="op-cat-chip {{ if eq $idx 0 }}is-selected{{ end }}" data-cat-type="{{ $cat.Type }}">
+            <input type="radio" name="category_id" value="{{ $cat.ID }}" {{ if eq $idx 0 }}checked{{ end }} class="sr-only">
+            <span class="op-cat-icon">{{ $cat.IconEmoji }}</span>
+            <span class="op-cat-text">{{ $cat.Name }}</span>
           </label>
-          <label class="op-cat-chip">
-            <input type="radio" name="category_id" value="2" class="sr-only">
-            <span class="op-cat-icon">☕</span>
-            <span class="op-cat-text">Comida & Café</span>
-          </label>
-          <label class="op-cat-chip">
-            <input type="radio" name="category_id" value="3" class="sr-only">
-            <span class="op-cat-icon">🚗</span>
-            <span class="op-cat-text">Transporte</span>
-          </label>
-          <label class="op-cat-chip">
-            <input type="radio" name="category_id" value="4" class="sr-only">
-            <span class="op-cat-icon">💊</span>
-            <span class="op-cat-text">Salud</span>
-          </label>
-          <label class="op-cat-chip">
-            <input type="radio" name="category_id" value="5" class="sr-only">
-            <span class="op-cat-icon">🎬</span>
-            <span class="op-cat-text">Entretenimiento</span>
-          </label>
-          <label class="op-cat-chip">
-            <input type="radio" name="category_id" value="6" class="sr-only">
-            <span class="op-cat-icon">💼</span>
-            <span class="op-cat-text">Ingresos</span>
-          </label>
+          {{ end }}
         </div>
       </div>
 
       <!-- Método de pago -->
-      <div class="op-field-group">
+      <div id="op-method-group" class="op-field-group">
         <label class="op-field-label" for="op-method-select">
           <span>Método de pago / Canal</span>
         </label>
         <div class="op-select-wrap">
           <select id="op-method-select" name="payment_method_id" class="op-native-select">
-            <option value="1">Pago Móvil</option>
-            <option value="2">Transferencia bancaria</option>
-            <option value="3">Tarjeta de débito</option>
-            <option value="4">Efectivo</option>
-            <option value="5">Zelle</option>
+            {{ range .Methods }}
+            <option value="{{ .ID }}">{{ .Name }}</option>
+            {{ end }}
           </select>
           <svg class="select-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </div>

@@ -240,10 +240,35 @@ document.addEventListener('DOMContentLoaded', () => {
   const opSubmitBtn = document.getElementById('op-submit-button');
   const categoryGroup = document.getElementById('op-category-group');
   const destinationGroup = document.getElementById('op-destination-group');
+  const methodGroup = document.getElementById('op-method-group');
   const labelOriginAccount = document.getElementById('label-origin-account');
   const catChips = document.querySelectorAll('.op-cat-chip');
 
+  function filterCategoriesForType(targetType) {
+    let firstSelected = false;
+    catChips.forEach(chip => {
+      const chipType = chip.getAttribute('data-cat-type');
+      const match = (chipType === targetType);
+      chip.style.display = match ? 'inline-flex' : 'none';
+      const radio = chip.querySelector('input[type="radio"]');
+      if (match && !firstSelected) {
+        chip.classList.add('is-selected');
+        if (radio) radio.checked = true;
+        firstSelected = true;
+      } else {
+        chip.classList.remove('is-selected');
+        if (radio) radio.checked = false;
+      }
+    });
+  }
+
   if (opTypeTabs.length > 0) {
+    // Initial category filter
+    const initialType = opInputType ? opInputType.value : 'EXPENSE';
+    if (initialType === 'INCOME' || initialType === 'EXPENSE') {
+      filterCategoriesForType(initialType);
+    }
+
     opTypeTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         const type = tab.getAttribute('data-type');
@@ -266,9 +291,11 @@ document.addEventListener('DOMContentLoaded', () => {
           }
           if (categoryGroup) categoryGroup.style.display = 'flex';
           if (destinationGroup) destinationGroup.style.display = 'none';
+          if (methodGroup) methodGroup.style.display = 'flex';
           if (labelOriginAccount) labelOriginAccount.textContent = 'Cuenta';
           if (mobileForm) mobileForm.action = '/transactions';
           if (srcSelect) srcSelect.name = 'account_id';
+          filterCategoriesForType('EXPENSE');
         } else if (type === 'INCOME') {
           tab.classList.add('type-income');
           if (opSubmitBtn) {
@@ -277,9 +304,11 @@ document.addEventListener('DOMContentLoaded', () => {
           }
           if (categoryGroup) categoryGroup.style.display = 'flex';
           if (destinationGroup) destinationGroup.style.display = 'none';
+          if (methodGroup) methodGroup.style.display = 'flex';
           if (labelOriginAccount) labelOriginAccount.textContent = 'Cuenta de abono';
           if (mobileForm) mobileForm.action = '/transactions';
           if (srcSelect) srcSelect.name = 'account_id';
+          filterCategoriesForType('INCOME');
         } else if (type === 'TRANSFER') {
           tab.classList.add('type-transfer');
           if (opSubmitBtn) {
@@ -288,6 +317,7 @@ document.addEventListener('DOMContentLoaded', () => {
           }
           if (categoryGroup) categoryGroup.style.display = 'none';
           if (destinationGroup) destinationGroup.style.display = 'flex';
+          if (methodGroup) methodGroup.style.display = 'none';
           if (labelOriginAccount) labelOriginAccount.textContent = 'Cuenta de origen';
           if (mobileForm) mobileForm.action = '/transfers';
           if (srcSelect) srcSelect.name = 'source_account_id';

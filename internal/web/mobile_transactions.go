@@ -1,8 +1,12 @@
 package web
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // MobileTransactionsPageView holds all data needed to render the mobile transactions feed.
@@ -30,6 +34,202 @@ type TransactionDateGroup struct {
 	DateHeading   string
 	GroupSubtotal string
 	Items         []MobileTransactionItem
+}
+
+// mapMobileTransactionItem turns a domain TransactionView into a presentation MobileTransactionItem.
+func mapMobileTransactionItem(tx TransactionView) MobileTransactionItem {
+	idStr := strconv.FormatInt(tx.ID, 10)
+	dateLabel := tx.EffectiveDate.Format("02 Jan")
+
+	if tx.Type == TransactionTypeTransfer && tx.Transfer != nil {
+		merchant := "Transferencia interna"
+		if tx.Description != nil && *tx.Description != "" {
+			merchant = *tx.Description
+		}
+		accountName := tx.Transfer.SourceAccountName + " → " + tx.Transfer.DestinationAccountName
+		return MobileTransactionItem{
+			ID:              idStr,
+			Merchant:        merchant,
+			AccountName:     accountName,
+			CategoryName:    "Transferencia",
+			DateLabel:       dateLabel,
+			AmountFormatted: tx.Transfer.AmountFormatted + " " + tx.CurrencyCode,
+			Type:            "TRANSFER",
+			CategoryIcon:    "transfer",
+			IsPositive:      false,
+			CurrencyCode:    tx.CurrencyCode,
+		}
+	}
+
+	if tx.Type == TransactionTypeIncome {
+		merchant := "Ingreso"
+		if tx.Description != nil && *tx.Description != "" {
+			merchant = *tx.Description
+		} else if tx.CategoryName != nil {
+			merchant = *tx.CategoryName
+		}
+		catName := "Ingreso"
+		if tx.CategoryName != nil {
+			catName = *tx.CategoryName
+		}
+		catIcon, _ := inferCategoryIconAndEmoji(catName)
+		amtStr := "+" + strings.TrimPrefix(formatAmountString(tx.AmountFormatted), "+") + " " + tx.CurrencyCode
+		return MobileTransactionItem{
+			ID:              idStr,
+			Merchant:        merchant,
+			AccountName:     tx.AccountName,
+			CategoryName:    catName,
+			DateLabel:       dateLabel,
+			AmountFormatted: amtStr,
+			Type:            "INCOME",
+			CategoryIcon:    catIcon,
+			IsPositive:      true,
+			CurrencyCode:    tx.CurrencyCode,
+		}
+	}
+
+	if tx.Type == TransactionTypeExpense {
+		merchant := "Gasto"
+		if tx.Description != nil && *tx.Description != "" {
+			merchant = *tx.Description
+		} else if tx.CategoryName != nil {
+			merchant = *tx.CategoryName
+		}
+		catName := "Gasto"
+		if tx.CategoryName != nil {
+			catName = *tx.CategoryName
+		}
+		catIcon, _ := inferCategoryIconAndEmoji(catName)
+		amtStr := "-" + strings.TrimPrefix(formatAmountString(tx.AmountFormatted), "-") + " " + tx.CurrencyCode
+		return MobileTransactionItem{
+			ID:              idStr,
+			Merchant:        merchant,
+			AccountName:     tx.AccountName,
+			CategoryName:    catName,
+			DateLabel:       dateLabel,
+			AmountFormatted: amtStr,
+			Type:            "EXPENSE",
+			CategoryIcon:    catIcon,
+			IsPositive:      false,
+			CurrencyCode:    tx.CurrencyCode,
+		}
+	}
+
+	// OPENING_BALANCE
+	return MobileTransactionItem{
+		ID:              idStr,
+		Merchant:        "Saldo inicial",
+		AccountName:     tx.AccountName,
+		CategoryName:    "Apertura",
+		DateLabel:       dateLabel,
+		AmountFormatted: tx.AmountFormatted + " " + tx.CurrencyCode,
+		Type:            "OPENING_BALANCE",
+		CategoryIcon:    "briefcase",
+		IsPositive:      true,
+		CurrencyCode:    tx.CurrencyCode,
+	}
+}
+
+// handleMobileTransactions serves the mobile transactions view populated with real database movements.
+func handleMobileTransactions(logger *slog.Logger, renderer *Renderer, svcs *Services) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		txs, err := svcs.Ledger.ListTransactions(ctx, ListTransactionsInput{Limit: 100})
+		if err != nil {
+			logger.Error("listing transactions for mobile view", slog.Any("error", err))
+			http.Error(w, "Failed to load transactions", http.StatusInternalServerError)
+			return
+		}
+
+		now := time.Now().UTC()
+		monthName := spanishMonths[now.Month()]
+		if len(monthName) > 0 {
+			monthName = strings.ToUpper(monthName[:1]) + monthName[1:]
+		}
+		currentPeriod := fmt.Sprintf("%s %d", monthName, now.Year())
+
+		// Group by date heading
+		var dateGroupHeadings []string
+		itemsByHeading := make(map[string][]MobileTransactionItem)
+
+		// Aggregate income and expense by currency for summary
+		incomeByCurr := make(map[string]int64)
+		expenseByCurr := make(map[string]int64)
+		currScale := make(map[string]int)
+
+		for _, tx := range txs {
+			currScale[tx.CurrencyCode] = tx.MinorUnit
+			heading := formatDateHeadingSpanish(tx.EffectiveDate)
+			if _, exists := itemsByHeading[heading]; !exists {
+				dateGroupHeadings = append(dateGroupHeadings, heading)
+			}
+			mItem := mapMobileTransactionItem(tx)
+			itemsByHeading[heading] = append(itemsByHeading[heading], mItem)
+
+			if tx.Type == TransactionTypeIncome {
+				incomeByCurr[tx.CurrencyCode] += tx.AmountMinor
+			} else if tx.Type == TransactionTypeExpense {
+				// AmountMinor is negative for expense in transaction view source movement
+				expenseByCurr[tx.CurrencyCode] += -tx.AmountMinor
+			}
+		}
+
+		var dateGroups []TransactionDateGroup
+		for _, h := range dateGroupHeadings {
+			dateGroups = append(dateGroups, TransactionDateGroup{
+				DateHeading: h,
+				Items:       itemsByHeading[h],
+			})
+		}
+
+		// Format summary totals
+		var incomeStrs []string
+		for curr, amt := range incomeByCurr {
+			if amt > 0 {
+				incomeStrs = append(incomeStrs, fmt.Sprintf("+ %s %s", formatAmount(amt, currScale[curr]), curr))
+			}
+		}
+		incomeSummary := "0.00"
+		if len(incomeStrs) > 0 {
+			incomeSummary = strings.Join(incomeStrs, " · ")
+		}
+
+		var expenseStrs []string
+		for curr, amt := range expenseByCurr {
+			if amt > 0 {
+				expenseStrs = append(expenseStrs, fmt.Sprintf("- %s %s", formatAmount(amt, currScale[curr]), curr))
+			}
+		}
+		expenseSummary := "0.00"
+		if len(expenseStrs) > 0 {
+			expenseSummary = strings.Join(expenseStrs, " · ")
+		}
+
+		data := MobileTransactionsPageView{
+			Header: MobileTransactionsHeaderView{
+				TotalCount:         len(txs),
+				CurrentPeriodLabel: currentPeriod,
+			},
+			Summary: TransactionsSummaryView{
+				TotalIncomeFormatted:  incomeSummary,
+				TotalExpenseFormatted: expenseSummary,
+			},
+			DateGroups: dateGroups,
+			Navigation: MobileNavView{
+				ActiveTab: "movimientos",
+			},
+		}
+
+		pageData := PageData{
+			Title: "Movimientos",
+			Data:  data,
+		}
+
+		if err := renderer.RenderMobilePage(w, r, http.StatusOK, "mobile/transactions.html", pageData); err != nil {
+			logger.Error("rendering mobile transactions", slog.Any("error", err))
+		}
+	}
 }
 
 // DefaultMobileTransactionsMockData returns rich UI mock data for the Movimientos view.
@@ -62,10 +262,10 @@ func DefaultMobileTransactionsMockData() MobileTransactionsPageView {
 					},
 					{
 						ID:              "tx-m2",
-						Merchant:        "Almuerzo Ejecutivo",
-						AccountName:     "Mercantil",
-						CategoryName:    "Comida",
-						DateLabel:       "13:10",
+						Merchant:        "Café & Panadería",
+						AccountName:     "Efectivo USD",
+						CategoryName:    "Comida & Café",
+						DateLabel:       "09:15",
 						AmountFormatted: "- $18.50",
 						Type:            "EXPENSE",
 						CategoryIcon:    "coffee",
@@ -74,126 +274,9 @@ func DefaultMobileTransactionsMockData() MobileTransactionsPageView {
 					},
 				},
 			},
-			{
-				DateHeading:   "Ayer, 5 de septiembre",
-				GroupSubtotal: "+ $850.00 · - Bs 420.00 · - $4.50",
-				Items: []MobileTransactionItem{
-					{
-						ID:              "tx-m3",
-						Merchant:        "Nómina Quincenal",
-						AccountName:     "Mercantil",
-						CategoryName:    "Ingresos",
-						DateLabel:       "09:15",
-						AmountFormatted: "+ $850.00",
-						Type:            "INCOME",
-						CategoryIcon:    "briefcase",
-						IsPositive:      true,
-						CurrencyCode:    "USD",
-					},
-					{
-						ID:              "tx-m4",
-						Merchant:        "Cafetería Artesanal",
-						AccountName:     "Efectivo USD",
-						CategoryName:    "Comida",
-						DateLabel:       "16:45",
-						AmountFormatted: "- $4.50",
-						Type:            "EXPENSE",
-						CategoryIcon:    "coffee",
-						IsPositive:      false,
-						CurrencyCode:    "USD",
-					},
-					{
-						ID:              "tx-m5",
-						Merchant:        "Farmacia San Rafael",
-						AccountName:     "Banesco",
-						CategoryName:    "Salud",
-						DateLabel:       "18:20",
-						AmountFormatted: "- Bs 420.00",
-						Type:            "EXPENSE",
-						CategoryIcon:    "pill",
-						IsPositive:      false,
-						CurrencyCode:    "VES",
-					},
-				},
-			},
-			{
-				DateHeading:   "Esta semana",
-				GroupSubtotal: "3 operaciones",
-				Items: []MobileTransactionItem{
-					{
-						ID:              "tx-m6",
-						Merchant:        "Gasolina Estación Central",
-						AccountName:     "Efectivo VES",
-						CategoryName:    "Transporte",
-						DateLabel:       "3 Sep",
-						AmountFormatted: "- Bs 280.00",
-						Type:            "EXPENSE",
-						CategoryIcon:    "car",
-						IsPositive:      false,
-						CurrencyCode:    "VES",
-					},
-					{
-						ID:              "tx-m7",
-						Merchant:        "Suscripción Streaming",
-						AccountName:     "Tarjeta USD",
-						CategoryName:    "Entretenimiento",
-						DateLabel:       "2 Sep",
-						AmountFormatted: "- $14.99",
-						Type:            "EXPENSE",
-						CategoryIcon:    "entertainment",
-						IsPositive:      false,
-						CurrencyCode:    "USD",
-					},
-					{
-						ID:              "tx-m8",
-						Merchant:        "Transferencia a Banesco",
-						AccountName:     "Mercantil ➔ Banesco",
-						CategoryName:    "Transferencia propia",
-						DateLabel:       "1 Sep",
-						AmountFormatted: "Bs 5,000.00",
-						Type:            "TRANSFER",
-						CategoryIcon:    "briefcase",
-						IsPositive:      false,
-						CurrencyCode:    "VES",
-					},
-				},
-			},
-			{
-				DateHeading:   "Semana anterior",
-				GroupSubtotal: "+ $320.00 · - $4.00",
-				Items: []MobileTransactionItem{
-					{
-						ID:              "tx-m9",
-						Merchant:        "Honorarios Freelance",
-						AccountName:     "Mercantil",
-						CategoryName:    "Ingresos",
-						DateLabel:       "28 Ago",
-						AmountFormatted: "+ $320.00",
-						Type:            "INCOME",
-						CategoryIcon:    "briefcase",
-						IsPositive:      true,
-						CurrencyCode:    "USD",
-					},
-				},
-			},
 		},
 		Navigation: MobileNavView{
 			ActiveTab: "movimientos",
 		},
-	}
-}
-
-// handleMobileTransactions serves the mobile transactions view.
-func handleMobileTransactions(logger *slog.Logger, renderer *Renderer) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		data := DefaultMobileTransactionsMockData()
-		pageData := PageData{
-			Title: "Movimientos",
-			Data:  data,
-		}
-
-		if err := renderer.RenderMobilePage(w, r, http.StatusOK, "mobile/transactions.html", pageData); err != nil {
-			logger.Error("rendering mobile transactions", slog.Any("error", err))
-		}
 	}
 }
