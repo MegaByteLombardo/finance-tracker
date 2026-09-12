@@ -7,6 +7,7 @@
   <div class="page-actions">
     <a href="/transactions/new?type=INCOME" class="btn btn-secondary">+ Record Income</a>
     <a href="/transactions/new?type=EXPENSE" class="btn btn-primary">+ Record Expense</a>
+    <a href="/transfers/new" class="btn btn-secondary">&harr; Transfer</a>
   </div>
 </div>
 
@@ -14,10 +15,11 @@
 <div class="empty-state">
   <div class="empty-state-icon">📋</div>
   <h3 class="empty-state-title">No transactions yet</h3>
-  <p class="empty-state-text">Record income or expenses to see your ledger activity here.</p>
+  <p class="empty-state-text">Record income, expenses, or transfers to see your ledger activity here.</p>
   <div style="display: flex; gap: var(--space-3); justify-content: center;">
     <a href="/transactions/new?type=INCOME" class="btn btn-secondary">Record Income</a>
     <a href="/transactions/new?type=EXPENSE" class="btn btn-primary">Record Expense</a>
+    <a href="/transfers/new" class="btn btn-secondary">&harr; Transfer</a>
   </div>
 </div>
 {{ else }}
@@ -44,7 +46,7 @@
               {{ derefString .Description }}
             {{ else }}
               <span style="color: var(--text-muted); font-style: italic;">
-                {{ if eq .Type "OPENING_BALANCE" }}Initial balance{{ else }}No description{{ end }}
+                {{ if eq .Type "OPENING_BALANCE" }}Initial balance{{ else if eq .Type "TRANSFER" }}Internal transfer{{ else }}No description{{ end }}
               </span>
             {{ end }}
           </div>
@@ -53,34 +55,55 @@
             <span class="badge badge-opening">Opening balance</span>
             {{ else if eq .Type "INCOME" }}
             <span class="badge badge-income">Income</span>
+            {{ else if eq .Type "TRANSFER" }}
+            <span class="badge badge-transfer">Transfer</span>
             {{ else }}
             <span class="badge badge-expense">Expense</span>
             {{ end }}
           </div>
         </td>
         <td>
-          {{ if .CategoryName }}
+          {{ if eq .Type "TRANSFER" }}
+            <span style="color: var(--text-subtle);">&mdash;</span>
+          {{ else if .CategoryName }}
             {{ derefString .CategoryName }}
           {{ else }}
             <span style="color: var(--text-subtle);">&mdash;</span>
           {{ end }}
         </td>
         <td>
-          <div style="font-weight: 500;">{{ .AccountName }}</div>
-          <div style="font-size: 0.75rem; color: var(--text-muted);">
-            {{ if .Institution }}{{ derefString .Institution }} · {{ end }}{{ .AccountType }}{{ if .AccountSubtype }} ({{ derefSubtype .AccountSubtype }}){{ end }}
-          </div>
+          {{ if and (eq .Type "TRANSFER") .Transfer }}
+            <div style="font-weight: 500;">
+              {{ .Transfer.SourceAccountName }} &rarr; {{ .Transfer.DestinationAccountName }}
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              Internal transfer
+            </div>
+          {{ else }}
+            <div style="font-weight: 500;">{{ .AccountName }}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              {{ if .Institution }}{{ derefString .Institution }} · {{ end }}{{ .AccountType }}{{ if .AccountSubtype }} ({{ derefSubtype .AccountSubtype }}){{ end }}
+            </div>
+          {{ end }}
         </td>
         <td>
-          {{ paymentMethodLabel .PaymentMethodName }}
+          {{ if eq .Type "TRANSFER" }}
+            <span style="color: var(--text-subtle);">&mdash;</span>
+          {{ else }}
+            {{ paymentMethodLabel .PaymentMethodName }}
+          {{ end }}
         </td>
         <td class="cell-right cell-mono" style="white-space: nowrap;">
-          <span class="{{ if eq .Type "INCOME" }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else }}amount-opening{{ end }}">
+          <span class="{{ if eq .Type "INCOME" }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else if eq .Type "TRANSFER" }}amount-transfer{{ else }}amount-opening{{ end }}">
             {{ formatSignedAmount . }} {{ .CurrencyCode }}
           </span>
         </td>
         <td class="cell-right">
+          {{ if eq .Type "TRANSFER" }}
+          <a href="/transfers/{{ .ID }}/edit" class="btn btn-sm btn-secondary">Edit</a>
+          {{ else }}
           <a href="/transactions/{{ .ID }}/edit" class="btn btn-sm btn-secondary">Edit</a>
+          {{ end }}
         </td>
       </tr>
       {{ end }}

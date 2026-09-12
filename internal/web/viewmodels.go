@@ -314,3 +314,72 @@ func (f EditOpeningBalanceForm) Error(field string) string {
 type BackupsView struct {
 	Backups []Backup
 }
+
+// TransferForm holds state and validation for the new internal transfer form
+type TransferForm struct {
+	SourceAccountID      int64
+	DestinationAccountID int64
+	Amount               string
+	Description          string
+	EffectiveDate        string
+
+	SelectedCurrencyCode      string
+	SelectedCurrencySymbol    *string
+	SelectedCurrencyMinorUnit int
+
+	Accounts []Account
+	Errors   map[string]string
+}
+
+func (f TransferForm) HasError(field string) bool {
+	if f.Errors == nil {
+		return false
+	}
+	_, ok := f.Errors[field]
+	return ok
+}
+
+func (f TransferForm) Error(field string) string {
+	if f.Errors == nil {
+		return ""
+	}
+	return f.Errors[field]
+}
+
+// EditTransferForm holds state and validation for editing an internal transfer
+type EditTransferForm struct {
+	ID                   int64
+	SourceAccountID      int64
+	DestinationAccountID int64
+	Amount               string
+	Description          string
+	EffectiveDate        string
+	AllowCurrencyChange  bool
+
+	SelectedCurrencyCode      string
+	SelectedCurrencySymbol    *string
+	SelectedCurrencyMinorUnit int
+
+	Accounts []Account
+	Errors   map[string]string
+
+	// Currency change confirmation
+	NeedsCurrencyConfirmation bool
+	OriginalCurrencyCode      string
+	TargetCurrencyCode        string
+}
+
+func (f EditTransferForm) HasError(field string) bool {
+	if f.Errors == nil {
+		return false
+	}
+	_, ok := f.Errors[field]
+	return ok
+}
+
+func (f EditTransferForm) Error(field string) string {
+	if f.Errors == nil {
+		return ""
+	}
+	return f.Errors[field]
+}

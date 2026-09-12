@@ -80,6 +80,12 @@ func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
 	mux.HandleFunc("GET /transactions/account-info", handleAccountInfo(logger, renderer, svcs))
 	mux.HandleFunc("GET /transactions/category-options", handleCategoryOptions(logger, renderer, svcs))
 
+	// Transfers
+	mux.HandleFunc("GET /transfers/new", handleNewTransferForm(logger, renderer, svcs))
+	mux.HandleFunc("POST /transfers", handleCreateTransfer(logger, renderer, svcs))
+	mux.HandleFunc("GET /transfers/{id}/edit", handleEditTransferForm(logger, renderer, svcs))
+	mux.HandleFunc("POST /transfers/{id}", handleUpdateTransfer(logger, renderer, svcs))
+
 	// Categories
 	mux.HandleFunc("GET /categories", handleCategoriesList(logger, renderer, svcs))
 	mux.HandleFunc("GET /categories/new", handleNewCategoryForm(logger, renderer, svcs))

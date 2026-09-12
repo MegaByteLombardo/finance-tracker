@@ -1,0 +1,175 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>New Internal Transfer</h1>
+    <p class="page-subtitle">Move money between two of your own accounts</p>
+  </div>
+  <div class="page-actions">
+    <a href="/transactions" class="btn btn-secondary">&larr; Back to Transactions</a>
+  </div>
+</div>
+
+<div class="form-card">
+  {{ if .Errors.general }}
+  <div class="alert alert-danger" role="alert">
+    <div>{{ .Errors.general }}</div>
+  </div>
+  {{ end }}
+
+  <form action="/transfers" method="POST">
+    <!-- Source Account Selection -->
+    <div class="form-group">
+      <label class="form-label" for="source_account_id">
+        From Account (Source) <span class="required-indicator">*</span>
+      </label>
+      <select class="form-control {{ if .HasError "source_account_id" }}is-invalid{{ end }}"
+              id="source_account_id"
+              name="source_account_id"
+              required>
+        <option value="">Select source account...</option>
+        {{ range .Accounts }}
+        <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}" {{ if eq $.SourceAccountID .ID }}selected{{ end }}>
+          {{ .Name }} ({{ .CurrencyCode }}){{ if .Institution }} &middot; {{ derefString .Institution }}{{ end }}
+        </option>
+        {{ end }}
+      </select>
+      {{ if .HasError "source_account_id" }}
+      <div class="form-error">{{ .Error "source_account_id" }}</div>
+      {{ end }}
+    </div>
+
+    <!-- Destination Account Selection -->
+    <div class="form-group">
+      <label class="form-label" for="destination_account_id">
+        To Account (Destination) <span class="required-indicator">*</span>
+      </label>
+      <select class="form-control {{ if .HasError "destination_account_id" }}is-invalid{{ end }}"
+              id="destination_account_id"
+              name="destination_account_id"
+              required>
+        <option value="">Select destination account...</option>
+        {{ range .Accounts }}
+        <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}" {{ if eq $.DestinationAccountID .ID }}selected{{ end }}>
+          {{ .Name }} ({{ .CurrencyCode }}){{ if .Institution }} &middot; {{ derefString .Institution }}{{ end }}
+        </option>
+        {{ end }}
+      </select>
+      {{ if .HasError "destination_account_id" }}
+      <div class="form-error">{{ .Error "destination_account_id" }}</div>
+      {{ end }}
+      <div class="form-help">Destination account must be in the same currency as the source account and cannot be the same account.</div>
+    </div>
+
+    <!-- Currency Display (Read-only) -->
+    <div class="form-group">
+      <label class="form-label">Shared Currency (Read-only)</label>
+      <input type="text"
+             id="transfer-currency-display"
+             class="form-control"
+             value="{{ if .SelectedCurrencyCode }}{{ .SelectedCurrencyCode }}{{ if .SelectedCurrencySymbol }} ({{ derefString .SelectedCurrencySymbol }}){{ end }}{{ else }}Select an account to view currency{{ end }}"
+             readonly>
+      <div class="form-help">Internal transfers are strictly within the same currency. Cross-currency transfers belong to FX.</div>
+    </div>
+
+    <!-- Amount -->
+    <div class="form-group">
+      <label class="form-label" for="amount">
+        Amount <span class="required-indicator">*</span>
+      </label>
+      <input type="text"
+             class="form-control font-mono {{ if .HasError "amount" }}is-invalid{{ end }}"
+             id="amount"
+             name="amount"
+             value="{{ .Amount }}"
+             placeholder="0.00"
+             inputmode="decimal"
+             required>
+      {{ if .HasError "amount" }}
+      <div class="form-error">{{ .Error "amount" }}</div>
+      {{ end }}
+      <div class="form-help">Positive amount. The transfer subtracts from source and adds to destination equally.</div>
+    </div>
+
+    <!-- Effective Date -->
+    <div class="form-group">
+      <label class="form-label" for="effective_date">
+        Effective Date <span class="required-indicator">*</span>
+      </label>
+      <input type="date"
+             class="form-control {{ if .HasError "effective_date" }}is-invalid{{ end }}"
+             id="effective_date"
+             name="effective_date"
+             value="{{ .EffectiveDate }}"
+             required>
+      {{ if .HasError "effective_date" }}
+      <div class="form-error">{{ .Error "effective_date" }}</div>
+      {{ end }}
+    </div>
+
+    <!-- Description -->
+    <div class="form-group">
+      <label class="form-label" for="description">
+        Description <span class="form-label-optional">(Optional)</span>
+      </label>
+      <input type="text"
+             class="form-control {{ if .HasError "description" }}is-invalid{{ end }}"
+             id="description"
+             name="description"
+             value="{{ .Description }}"
+             placeholder="e.g. Savings allocation"
+             maxlength="255">
+      {{ if .HasError "description" }}
+      <div class="form-error">{{ .Error "description" }}</div>
+      {{ end }}
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Transfer Funds</button>
+      <a href="/transactions" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<script>
+(function() {
+  const srcSelect = document.getElementById('source_account_id');
+  const dstSelect = document.getElementById('destination_account_id');
+  const currencyDisplay = document.getElementById('transfer-currency-display');
+
+  function updateDestinationFilter() {
+    if (!srcSelect || !dstSelect) return;
+    const selectedSrcOption = srcSelect.options[srcSelect.selectedIndex];
+    const srcCurrency = selectedSrcOption ? selectedSrcOption.getAttribute('data-currency') : null;
+    const srcId = srcSelect.value;
+
+    if (currencyDisplay && srcCurrency) {
+      currencyDisplay.value = srcCurrency;
+    }
+
+    if (!srcId) {
+      for (let i = 0; i < dstSelect.options.length; i++) {
+        dstSelect.options[i].disabled = false;
+      }
+      return;
+    }
+
+    for (let i = 0; i < dstSelect.options.length; i++) {
+      const opt = dstSelect.options[i];
+      if (!opt.value) continue;
+      const optCurrency = opt.getAttribute('data-currency');
+      const isSameAccount = (opt.value === srcId);
+      const isMismatch = (srcCurrency && optCurrency !== srcCurrency);
+      opt.disabled = isSameAccount || isMismatch;
+      if (opt.selected && (isSameAccount || isMismatch)) {
+        dstSelect.value = '';
+      }
+    }
+  }
+
+  if (srcSelect && dstSelect) {
+    srcSelect.addEventListener('change', updateDestinationFilter);
+    updateDestinationFilter();
+  }
+})();
+</script>
+{{ end }}

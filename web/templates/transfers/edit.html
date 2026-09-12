@@ -1,0 +1,193 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Edit Internal Transfer</h1>
+    <p class="page-subtitle">Correct transfer details between your accounts</p>
+  </div>
+  <div class="page-actions">
+    <a href="/transactions" class="btn btn-secondary">&larr; Back to Transactions</a>
+  </div>
+</div>
+
+<div class="form-card">
+  {{ if .NeedsCurrencyConfirmation }}
+  <div class="alert alert-warning" role="alert" style="margin-bottom: var(--space-4);">
+    <div style="font-weight: 700; margin-bottom: 4px; font-size: 1rem;">Confirmación de cambio de moneda requerida</div>
+    <p style="margin: 0 0 8px 0; font-size: 0.95rem;">
+      <strong>El importe {{ .Amount }} se interpretará como {{ .Amount }} {{ .TargetCurrencyCode }}, no se convertirá</strong>
+    </p>
+    <p style="margin: 0; font-size: 0.85rem; color: var(--text-muted);">
+      Mover esta transferencia a un par de cuentas en <strong>{{ .TargetCurrencyCode }}</strong> (el par anterior usaba <strong>{{ .OriginalCurrencyCode }}</strong>) reinterpreta el importe nominal directamente en la nueva divisa. Haz clic en "Confirmar y Guardar" para aplicar la corrección.
+    </p>
+  </div>
+  {{ end }}
+
+  {{ if .Errors.general }}
+  <div class="alert alert-danger" role="alert">
+    <div>{{ .Errors.general }}</div>
+  </div>
+  {{ end }}
+
+  <form action="/transfers/{{ .ID }}" method="POST">
+    {{ if .NeedsCurrencyConfirmation }}
+    <input type="hidden" name="allow_currency_change" value="true">
+    {{ else }}
+    <input type="hidden" name="allow_currency_change" value="{{ if .AllowCurrencyChange }}true{{ else }}false{{ end }}">
+    {{ end }}
+
+    <!-- Source Account Selection -->
+    <div class="form-group">
+      <label class="form-label" for="source_account_id">
+        From Account (Source) <span class="required-indicator">*</span>
+      </label>
+      <select class="form-control {{ if .HasError "source_account_id" }}is-invalid{{ end }}"
+              id="source_account_id"
+              name="source_account_id"
+              required>
+        <option value="">Select source account...</option>
+        {{ range .Accounts }}
+        <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}" {{ if eq $.SourceAccountID .ID }}selected{{ end }}>
+          {{ .Name }} ({{ .CurrencyCode }}){{ if not .IsActive }} [Archived]{{ end }}{{ if .Institution }} &middot; {{ derefString .Institution }}{{ end }}
+        </option>
+        {{ end }}
+      </select>
+      {{ if .HasError "source_account_id" }}
+      <div class="form-error">{{ .Error "source_account_id" }}</div>
+      {{ end }}
+    </div>
+
+    <!-- Destination Account Selection -->
+    <div class="form-group">
+      <label class="form-label" for="destination_account_id">
+        To Account (Destination) <span class="required-indicator">*</span>
+      </label>
+      <select class="form-control {{ if .HasError "destination_account_id" }}is-invalid{{ end }}"
+              id="destination_account_id"
+              name="destination_account_id"
+              required>
+        <option value="">Select destination account...</option>
+        {{ range .Accounts }}
+        <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}" {{ if eq $.DestinationAccountID .ID }}selected{{ end }}>
+          {{ .Name }} ({{ .CurrencyCode }}){{ if not .IsActive }} [Archived]{{ end }}{{ if .Institution }} &middot; {{ derefString .Institution }}{{ end }}
+        </option>
+        {{ end }}
+      </select>
+      {{ if .HasError "destination_account_id" }}
+      <div class="form-error">{{ .Error "destination_account_id" }}</div>
+      {{ end }}
+      <div class="form-help">Destination account must be in the same currency as source account and cannot be the same account.</div>
+    </div>
+
+    <!-- Currency Display (Read-only) -->
+    <div class="form-group">
+      <label class="form-label">Shared Currency (Read-only)</label>
+      <input type="text"
+             id="transfer-currency-display"
+             class="form-control"
+             value="{{ if .SelectedCurrencyCode }}{{ .SelectedCurrencyCode }}{{ if .SelectedCurrencySymbol }} ({{ derefString .SelectedCurrencySymbol }}){{ end }}{{ else }}Select an account to view currency{{ end }}"
+             readonly>
+    </div>
+
+    <!-- Amount -->
+    <div class="form-group">
+      <label class="form-label" for="amount">
+        Amount <span class="required-indicator">*</span>
+      </label>
+      <input type="text"
+             class="form-control font-mono {{ if .HasError "amount" }}is-invalid{{ end }}"
+             id="amount"
+             name="amount"
+             value="{{ .Amount }}"
+             placeholder="0.00"
+             inputmode="decimal"
+             required>
+      {{ if .HasError "amount" }}
+      <div class="form-error">{{ .Error "amount" }}</div>
+      {{ end }}
+      <div class="form-help">Positive amount transferred between the two accounts.</div>
+    </div>
+
+    <!-- Effective Date -->
+    <div class="form-group">
+      <label class="form-label" for="effective_date">
+        Effective Date <span class="required-indicator">*</span>
+      </label>
+      <input type="date"
+             class="form-control {{ if .HasError "effective_date" }}is-invalid{{ end }}"
+             id="effective_date"
+             name="effective_date"
+             value="{{ .EffectiveDate }}"
+             required>
+      {{ if .HasError "effective_date" }}
+      <div class="form-error">{{ .Error "effective_date" }}</div>
+      {{ end }}
+    </div>
+
+    <!-- Description -->
+    <div class="form-group">
+      <label class="form-label" for="description">
+        Description <span class="form-label-optional">(Optional)</span>
+      </label>
+      <input type="text"
+             class="form-control {{ if .HasError "description" }}is-invalid{{ end }}"
+             id="description"
+             name="description"
+             value="{{ .Description }}"
+             placeholder="e.g. Monthly savings transfer"
+             maxlength="255">
+      {{ if .HasError "description" }}
+      <div class="form-error">{{ .Error "description" }}</div>
+      {{ end }}
+    </div>
+
+    <div class="form-actions">
+      {{ if .NeedsCurrencyConfirmation }}
+      <button type="submit" class="btn btn-warning">Confirmar y Guardar</button>
+      {{ else }}
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+      {{ end }}
+      <a href="/transactions" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<script>
+(function() {
+  const srcSelect = document.getElementById('source_account_id');
+  const dstSelect = document.getElementById('destination_account_id');
+  const currencyDisplay = document.getElementById('transfer-currency-display');
+
+  function updateDestinationFilter() {
+    if (!srcSelect || !dstSelect) return;
+    const selectedSrcOption = srcSelect.options[srcSelect.selectedIndex];
+    const srcCurrency = selectedSrcOption ? selectedSrcOption.getAttribute('data-currency') : null;
+    const srcId = srcSelect.value;
+
+    if (currencyDisplay && srcCurrency) {
+      currencyDisplay.value = srcCurrency;
+    }
+
+    if (!srcId) {
+      for (let i = 0; i < dstSelect.options.length; i++) {
+        dstSelect.options[i].disabled = false;
+      }
+      return;
+    }
+
+    for (let i = 0; i < dstSelect.options.length; i++) {
+      const opt = dstSelect.options[i];
+      if (!opt.value) continue;
+      const optCurrency = opt.getAttribute('data-currency');
+      const isSameAccount = (opt.value === srcId);
+      const isMismatch = (srcCurrency && optCurrency !== srcCurrency);
+      opt.disabled = isSameAccount || isMismatch;
+    }
+  }
+
+  if (srcSelect && dstSelect) {
+    srcSelect.addEventListener('change', updateDestinationFilter);
+    updateDestinationFilter();
+  }
+})();
+</script>
+{{ end }}

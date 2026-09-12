@@ -465,6 +465,11 @@ func handleEditTransactionForm(logger *slog.Logger, renderer *Renderer, svcs *Se
 			return
 		}
 
+		if tx.Type == TransactionTypeTransfer {
+			http.Redirect(w, r, "/transfers/"+idStr+"/edit", http.StatusSeeOther)
+			return
+		}
+
 		if tx.Type == TransactionTypeOpeningBalance {
 			amountStr := tx.AmountFormatted
 			form := EditOpeningBalanceForm{
@@ -589,6 +594,11 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "Invalid form data", http.StatusBadRequest)
+			return
+		}
+
+		if existing.Type == TransactionTypeTransfer {
+			http.Error(w, "This form records income and expenses only. Use the transfer form to update a transfer.", http.StatusBadRequest)
 			return
 		}
 

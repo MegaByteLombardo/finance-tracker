@@ -255,6 +255,9 @@ document.addEventListener('DOMContentLoaded', () => {
         tab.setAttribute('aria-selected', 'true');
         if (opInputType) opInputType.value = type;
 
+        const mobileForm = document.getElementById('mobile-operation-form');
+        const srcSelect = document.getElementById('op-account-select');
+
         if (type === 'EXPENSE') {
           tab.classList.add('type-expense');
           if (opSubmitBtn) {
@@ -264,6 +267,8 @@ document.addEventListener('DOMContentLoaded', () => {
           if (categoryGroup) categoryGroup.style.display = 'flex';
           if (destinationGroup) destinationGroup.style.display = 'none';
           if (labelOriginAccount) labelOriginAccount.textContent = 'Cuenta';
+          if (mobileForm) mobileForm.action = '/transactions';
+          if (srcSelect) srcSelect.name = 'account_id';
         } else if (type === 'INCOME') {
           tab.classList.add('type-income');
           if (opSubmitBtn) {
@@ -273,6 +278,8 @@ document.addEventListener('DOMContentLoaded', () => {
           if (categoryGroup) categoryGroup.style.display = 'flex';
           if (destinationGroup) destinationGroup.style.display = 'none';
           if (labelOriginAccount) labelOriginAccount.textContent = 'Cuenta de abono';
+          if (mobileForm) mobileForm.action = '/transactions';
+          if (srcSelect) srcSelect.name = 'account_id';
         } else if (type === 'TRANSFER') {
           tab.classList.add('type-transfer');
           if (opSubmitBtn) {
@@ -282,6 +289,8 @@ document.addEventListener('DOMContentLoaded', () => {
           if (categoryGroup) categoryGroup.style.display = 'none';
           if (destinationGroup) destinationGroup.style.display = 'flex';
           if (labelOriginAccount) labelOriginAccount.textContent = 'Cuenta de origen';
+          if (mobileForm) mobileForm.action = '/transfers';
+          if (srcSelect) srcSelect.name = 'source_account_id';
         }
       });
     });

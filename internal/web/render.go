@@ -78,6 +78,9 @@ func NewRenderer(templateFS fs.FS) *Renderer {
 			}
 		},
 		"formatSignedAmount": func(tx TransactionView) string {
+			if tx.Type == TransactionTypeTransfer && tx.Transfer != nil {
+				return formatAmountString(tx.Transfer.AmountFormatted)
+			}
 			amt := formatAmountString(tx.AmountFormatted)
 			if tx.Type == TransactionTypeIncome && !strings.HasPrefix(amt, "+") {
 				return "+" + amt

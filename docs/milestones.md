@@ -315,7 +315,7 @@ the earlier checks should have been too.
 
 ## M4 — Internal Transfers · `IN PROGRESS`
 
-**Backend and contract complete; presentation integration outstanding.**
+**Backend, contract, and desktop presentation integration complete.**
 
 Moving money between two of the user's own accounts. It is the first milestone to
 use the capability the ledger was designed around in M2: **one transaction with
@@ -382,13 +382,9 @@ edits.
 `DeleteTransfer`, `CancelTransfer` and `ReverseTransfer` do not exist. Editing
 yes; deleting no.
 
-### Remaining for the presentation layer
-
-The backend is complete and [m4-contract.md](m4-contract.md) is frozen. What is
-left is interface work: the transfer form, the edit form, the routes under
-`/transfers`, and rendering a transfer in the transaction list and on the
-dashboard. Every service, type and error they consume exists, is documented in
-the contract, and is covered by tests.
+### Presentation layer integration
+ 
+Delivered: the transfer creation form (`GET /transfers/new`, `POST /transfers`), the edit form (`GET /transfers/{id}/edit`, `POST /transfers/{id}`), routing guards in `transactions.go` redirecting transfer edits to `/transfers/{id}/edit`, and rendering transfers with source/destination detail and positive amounts across transaction lists and the dashboard. Mobile UI screens remain in prototype/preview status.
 
 ---
 

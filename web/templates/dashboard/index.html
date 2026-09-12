@@ -139,7 +139,7 @@
                 {{ derefString .Description }}
               {{ else }}
                 <span style="color: var(--text-muted); font-style: italic;">
-                  {{ if eq .Type "OPENING_BALANCE" }}Initial balance{{ else }}No description{{ end }}
+                  {{ if eq .Type "OPENING_BALANCE" }}Initial balance{{ else if eq .Type "TRANSFER" }}Internal transfer{{ else }}No description{{ end }}
                 </span>
               {{ end }}
             </div>
@@ -148,29 +148,46 @@
               <span class="badge badge-opening">Opening balance</span>
               {{ else if eq .Type "INCOME" }}
               <span class="badge badge-income">Income</span>
+              {{ else if eq .Type "TRANSFER" }}
+              <span class="badge badge-transfer">Transfer</span>
               {{ else }}
               <span class="badge badge-expense">Expense</span>
               {{ end }}
             </div>
           </td>
           <td>
-            {{ if .CategoryName }}
+            {{ if eq .Type "TRANSFER" }}
+              <span style="color: var(--text-subtle);">&mdash;</span>
+            {{ else if .CategoryName }}
               {{ derefString .CategoryName }}
             {{ else }}
               <span style="color: var(--text-subtle);">&mdash;</span>
             {{ end }}
           </td>
           <td>
-            <div style="font-weight: 500;">{{ .AccountName }}</div>
-            <div style="font-size: 0.75rem; color: var(--text-muted);">
-              {{ if .Institution }}{{ derefString .Institution }} · {{ end }}{{ .AccountType }}{{ if .AccountSubtype }} ({{ derefSubtype .AccountSubtype }}){{ end }}
-            </div>
+            {{ if and (eq .Type "TRANSFER") .Transfer }}
+              <div style="font-weight: 500;">
+                {{ .Transfer.SourceAccountName }} &rarr; {{ .Transfer.DestinationAccountName }}
+              </div>
+              <div style="font-size: 0.75rem; color: var(--text-muted);">
+                Internal transfer
+              </div>
+            {{ else }}
+              <div style="font-weight: 500;">{{ .AccountName }}</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted);">
+                {{ if .Institution }}{{ derefString .Institution }} · {{ end }}{{ .AccountType }}{{ if .AccountSubtype }} ({{ derefSubtype .AccountSubtype }}){{ end }}
+              </div>
+            {{ end }}
           </td>
           <td>
-            {{ paymentMethodLabel .PaymentMethodName }}
+            {{ if eq .Type "TRANSFER" }}
+              <span style="color: var(--text-subtle);">&mdash;</span>
+            {{ else }}
+              {{ paymentMethodLabel .PaymentMethodName }}
+            {{ end }}
           </td>
           <td class="cell-right cell-mono" style="white-space: nowrap;">
-            <span class="{{ if eq .Type "INCOME" }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else }}amount-opening{{ end }}">
+            <span class="{{ if eq .Type "INCOME" }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else if eq .Type "TRANSFER" }}amount-transfer{{ else }}amount-opening{{ end }}">
               {{ formatSignedAmount . }} {{ .CurrencyCode }}
             </span>
           </td>
