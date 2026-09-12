@@ -1,0 +1,46 @@
+{{ define "content" }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+
+    <header class="mobile-section">
+      <span class="section-eyebrow">Configuración</span>
+      <h1 class="section-title">Moneda base y tasas</h1>
+    </header>
+
+    {{ template "net_worth_summary" .NetWorth }}
+
+    <section class="mobile-section" aria-labelledby="base-currency-heading">
+      <h2 id="base-currency-heading" class="section-title">Moneda base</h2>
+      <p class="section-note">
+        Es la moneda en la que se expresa el patrimonio consolidado. Cambiarla no modifica
+        ninguna transacción ni ningún saldo.
+      </p>
+      <form action="/settings/base-currency" method="POST" class="mobile-form">
+        <label for="m_base_currency_code" class="mobile-form-label">Moneda base</label>
+        <select id="m_base_currency_code" name="base_currency_code" class="mobile-form-select">
+          {{ range .Settings.Currencies }}
+          <option value="{{ .Code }}" {{ if eq .Code $.Settings.BaseCurrencyCode }}selected{{ end }}>
+            {{ .Code }} — {{ .Name }}
+          </option>
+          {{ end }}
+        </select>
+        {{ if .Settings.Errors.base_currency_code }}
+        <p class="mobile-form-error">{{ .Settings.Errors.base_currency_code }}</p>
+        {{ end }}
+        <button type="submit" class="mobile-btn mobile-btn-primary">Guardar</button>
+      </form>
+    </section>
+
+    <section class="mobile-section" aria-labelledby="rates-link-heading">
+      <h2 id="rates-link-heading" class="section-title">Tasas de cambio</h2>
+      <p class="section-note">
+        Tasas de referencia, usadas para valorar lo que ya tiene. Ninguna transacción lleva tasa.
+      </p>
+      <a href="/mobile/tasas" class="mobile-btn mobile-btn-secondary">Ver tasas</a>
+    </section>
+
+    {{ template "bottom_navigation" .Navigation }}
+  </div>
+</div>
+{{ end }}

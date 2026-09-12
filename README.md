@@ -4,10 +4,11 @@ A local, single-user web application for managing personal finances. Go +
 SQLite, server-rendered, run on your own machine with Docker Compose. No cloud,
 no accounts, no telemetry.
 
-**This repository is at milestone M4.** It records income, expenses and transfers
+**This repository is at milestone M5.** It records income, expenses and transfers
 between your own accounts, across accounts in several currencies, derives every
-balance from the ledger, lets you correct what you entered, and takes backups you
-can restore from. See [Scope](#scope) below.
+balance from the ledger, lets you correct what you entered, takes backups you can
+restore from, and — from M5 — values everything you hold in a single base currency
+using exchange rates it keeps. See [Scope](#scope) below.
 
 ## Requirements
 
@@ -98,8 +99,10 @@ that currency does not change** — because none did. Nothing was earned and
 nothing was spent.
 
 Both accounts must be active. A transfer between accounts in *different*
-currencies is refused: converting between them needs an exchange rate, which
-belongs to a later milestone. You can edit a transfer afterwards; you cannot
+currencies is still refused. M5 added exchange rates, but only *reference* rates
+— what a currency was worth on a day, used to value what you hold. A
+cross-currency transfer needs the rate that *that operation* actually happened at,
+along with a source amount and a destination amount, and none of that exists. You can edit a transfer afterwards; you cannot
 delete it.
 
 A transfer may leave an account with a negative balance, and this is allowed on
@@ -109,7 +112,9 @@ something has not been entered yet — hiding that would not make it untrue.
 ### Important financial model notes
 
 * **Balances are derived from transactions:** Accounts have no stored balance column. Every balance is calculated dynamically from ledger movements (`SUM(movements)`).
-* **Currencies are still not converted:** Accounts in different currencies (USD, EUR, VES) are displayed independently. Balances in different currencies are never summed together.
+* **Balances are never summed across currencies.** Accounts in USD, EUR and VES are shown independently, each in its own currency, exactly as before.
+* **The net worth is a *valuation*, not a balance.** From M5 the dashboard also shows one consolidated figure in your base currency. It is computed at the moment you look at it, from the ledger plus the exchange rates you have, and it is **not stored anywhere**. Every component says which rate produced it, from which source, effective on which day — and if a rate is missing, the figure says so instead of guessing.
+* **Reference FX is not transaction FX.** M5's rates express what you hold in one currency. They are never attached to a transaction, and no transaction carries a rate.
 * **An Internal Transfer is not the "Bank transfer" payment method.** These are two different things and the application treats them as such:
   * a **Transfer** moves money between **two accounts you own**. It is neither income nor an expense, has no category and no payment method, and does not change your total wealth in that currency.
   * the payment method named **"Bank transfer"** describes the **channel** an operation with the **outside world** used — how your salary arrived, or how you paid a bill.
@@ -225,6 +230,9 @@ internal/migrations/    schema, as embedded SQL migrations
 internal/backup/        snapshots and restore
 internal/money/         exact decimal string ↔ integer minor units
 internal/currency/      currencies
+internal/fx/            exchange rates, the BCV provider, the daily refresher
+internal/settings/      the application's own settings (the valuation base)
+internal/valuation/     the consolidated net worth, derived and never stored
 internal/account/       accounts
 internal/category/      income and expense categories
 internal/paymentmethod/ payment channels
@@ -292,6 +300,14 @@ equal and opposite. The total held in that currency is identical before and
 after, because a transfer neither creates nor destroys money. Both accounts must
 be active and share a currency. Transfers can be corrected, never deleted.
 
+**M5 — multi-currency valuation.** Exchange rates as dated observations, entered
+by hand or fetched from the Banco Central de Venezuela over plain HTTP; a base
+currency of valuation; and one consolidated net worth derived from the ledger,
+the rates and that setting. Rates are exact decimals with no floating point
+anywhere, inversion and cross rates are computed as exact fractions, and a missing
+rate is reported rather than assumed. The external source is a convenience: the
+application starts and works with no network at all.
+
 All of it is covered by tests running against real SQLite, and the disaster
 recovery path has been rehearsed against real Docker.
 
@@ -307,16 +323,25 @@ decision that has not been made yet.
 **No history of edits.** M3 supports editing current records; it does not keep
 previous versions of them. The undo is a backup.
 
-**No currency conversion.** Accounts in USD, EUR and VES are shown side by side
-and never summed together. Exchange rates, a reporting currency and consolidated
-net worth belong to a later milestone.
+**No FX attached to a transaction.** M5's rates are *reference* rates: what a
+currency was worth on a day, used to value what you already hold. The rate a
+particular purchase, card payment or settlement actually happened at does not
+exist in this application, and nothing has been prepared for it.
 
 **No transfers between accounts in different currencies.** A transfer requires
-both accounts to share a currency. Converting between them needs an exchange
-rate, a source amount and a destination amount, all of which belong to the FX
-milestone. Nothing has been prepared for it in advance.
+both accounts to share a currency, for the reason above: converting needs a
+transaction rate, a source amount and a destination amount, none of which exist.
 
-Also absent: authentication and users, historical net worth, credit cards, loans,
-instalments, a financial calendar, recurring transactions, budgets, tags,
-hierarchical categories, charts and analytics, scheduled backups, Excel import,
-export, cloud deployment and CI/CD.
+**No historical net worth.** M5 answers "what is this worth *now*". It stores no
+rate history from before its first run, and draws no chart. Asking what your net
+worth was last March is the next milestone's problem.
+
+**No exchange rate history before you start.** Rates arrive from today onward, or
+by typing them in one day at a time. Two third-party historical mirrors were
+evaluated and both rejected — one no longer exists, the other publishes fewer
+decimals than the BCV under a date field that means something else.
+
+Also absent: authentication and users, realized and unrealized FX gains, credit
+cards, loans, instalments, a financial calendar, recurring transactions, budgets,
+tags, hierarchical categories, charts and analytics, scheduled backups, Excel
+import, export, cloud deployment and CI/CD.

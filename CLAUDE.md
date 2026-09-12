@@ -34,9 +34,12 @@ HTTP  →  Application / Services  →  Repository  →  SQLite
 - `internal/migrations` owns the schema. It is the **only** package that imports
   goose.
 - `internal/httpserver` owns HTTP. It never builds SQL.
-- Domain packages (`internal/currency`, `internal/account`, …) hold their own
-  model, repository and service — organised by feature, not by layer. Do not
-  create a package before it has code.
+- Domain packages (`internal/currency`, `internal/account`, `internal/fx`, …)
+  hold their own model, repository and service — organised by feature, not by
+  layer. Do not create a package before it has code.
+- `internal/application` is for **writes** spanning two domains atomically.
+  `internal/valuation` is a cross-domain **read**, and is its own package for
+  that reason (TD-052).
 
 Each domain package declares its own sentinel errors and **translates** errors
 from packages it consults, so a handler never has to import a neighbouring domain
@@ -60,13 +63,19 @@ abstraction for a second implementation that does not exist.
 **Never use `float32`, `float64`, or SQLite `REAL` for a monetary amount, an
 exchange rate, or anything derived from them.** Binary floating point cannot
 represent decimal money exactly, and the error compounds silently across
-aggregation.
+aggregation. A test parses the source of every package on the money path and
+fails the build if one appears.
 
 Amounts are stored as **integer minor units** (`INTEGER` / `int64`) — cents,
-céntimos — alongside their currency. Exchange rates use an exact representation
-(integer numerator/denominator, or scaled integers), never a float.
+céntimos — alongside their currency.
 
-A `Money` type does not exist yet. When it is introduced, it enforces this.
+**Exchange rates are `money.Decimal`**: a canonical decimal string in the
+database, `math/big.Rat` in memory. Inversion and cross rates are exact fractions
+and are never materialised as decimals. Conversion rounds **once**, **half to
+even**, per currency (TD-046, TD-047).
+
+A `Money` type does not exist. `money.Decimal` is not one: it is a number, and an
+amount never travels without its currency anyway.
 
 ## SQLite
 
@@ -103,10 +112,16 @@ A `Money` type does not exist yet. When it is introduced, it enforces this.
   status, what it pulls in. Prefer the standard library.
 - Never bump `modernc.org/libc` on its own — it is tightly coupled to
   `modernc.org/sqlite`. Let `go get modernc.org/sqlite@vX` resolve the pair.
+- `golang.org/x/net` is a direct dependency from M5, for `html` only. Only
+  `html` and `html/atom` reach the binary; re-check with
+  `go list -deps ./cmd/web` if that changes.
+- **No decimal library.** `math/big` divides exactly; `shopspring/decimal`'s
+  `Div` rounds by default (TD-046).
 - goose's `go.mod` requires several database drivers directly. They do not reach
   our binary; if a dependency change is made, re-check with
   `go list -deps ./cmd/web`.
-- No Viper, no ORM, no DI framework, no Redis, no PostgreSQL, no Kubernetes.
+- No Viper, no ORM, no DI framework, no Redis, no PostgreSQL, no Kubernetes,
+  no headless browser, no decimal library.
 
 ## Testing
 
@@ -119,52 +134,79 @@ A `Money` type does not exist yet. When it is introduced, it enforces this.
 
 ## Current scope
 
-**M0–M3 (closed).** Foundation; currencies and accounts; the ledger, categories,
+**M0–M4 (closed).** Foundation; currencies and accounts; the ledger, categories,
 money, opening balances and the server-rendered interface; data safety, editing
-and payment methods.
+and payment methods; internal same-currency transfers.
 
-**M3, for reference:**
-
-- **Backups.** `internal/backup` snapshots the live database with `VACUUM INTO`,
-  validates each one with `PRAGMA integrity_check` before it counts, and writes
-  to a bind mount on the **host** — never to the Docker volume, because
-  `docker compose down -v` destroys volumes and this project lost data that way
-  once. Restore is an offline subcommand of the same binary.
-- **Payment methods** are rows the user administers, not a fixed enumeration.
-- **Editing** exists for accounts, categories, transactions and opening balances.
-  An edit runs the **same validation as a creation** — they share one code path,
-  because an edit that could produce a state a creation would refuse is a second
-  door into every invariant.
-
-**M4 (in progress): internal transfers.**
+**M4, for reference:**
 
 - A **`TRANSFER`** is ONE transaction with **TWO** movements: negative in the
   source account, positive in the destination, equal in magnitude. They sum to
-  zero, so the total held in that currency is identical before and after. That
-  invariant is the point of the type.
-- **Nothing was added to `transactions`.** No `source_account_id`, no
-  `destination_account_id`, no `amount` — the two movements already say all
-  three, and a second copy is a second thing that can be wrong.
-- **`category_id` and `payment_method_id` are NULL**, enforced by a table CHECK.
-- **Both accounts must share a currency** and both must be active. Cross-currency
-  is FX and is not prepared for.
-- `RecordTransfer` / `UpdateTransfer` live in `internal/ledger`, not a package of
-  their own. One `sql.Tx` each. An edit keeps both movement ids.
+  zero. **Nothing was added to `transactions`.** `category_id` and
+  `payment_method_id` are NULL, enforced by a table CHECK. Both accounts must
+  share a currency and both must be active.
 - **Each type has its own edit use case**, and every guard names what it ACCEPTS
-  rather than what it excludes. `UpdateTransaction` rewrites one movement; a
-  transfer reaching it would leave a debit with no credit (TD-045).
-- **`TRANSFER` ≠ the payment method "Bank transfer".** The method is a channel to
-  the outside world; the type is money moving between two accounts we own.
+  rather than what it excludes (TD-045).
+- **`TRANSFER` ≠ the payment method "Bank transfer".**
+
+**M5 (in progress): multi-currency, exchange rates and current net worth.**
+
+- **`Reference/Valuation FX` ≠ `Transaction FX`.** M5 implements only the first:
+  what a source said a currency was worth on a day, used to express balances the
+  user already holds in one currency. **`transactions` gained no
+  `exchange_rate_id`, no transaction carries a rate**, and nothing prepares for
+  one.
+- **Orientation, everywhere:** `1 base_currency_code = rate quote_currency_code`.
+  Never `from`/`to`/`value`. The "base of a pair" is not the "valuation base";
+  they are never called the same thing.
+- **`exchange_rates` holds OBSERVATIONS**, unique on
+  `(base, quote, effective_date, source)`. Several sources may speak about one
+  day and all of them are kept. `rate` is canonical decimal `TEXT` (TD-046);
+  positivity is checked in Go and by a `CHECK` that never casts to `REAL`.
+- **`effective_date` ≠ `fetched_at`.** The BCV holds one Fecha Valor across a
+  weekend AND publishes forward — its page on 2026-09-11 carried a Fecha Valor of
+  2026-09-15. Neither date can stand in for the other.
+- **Lookup is `latest effective_date <= valuation_date`. No exception.** Never
+  `=` (weekends would need invented rows) and never `>` (that is look-ahead bias,
+  TD-053). A forward-dated observation is stored, may be shown as upcoming, and
+  takes no part in any resolution before its date.
+- **Precedence is `MANUAL > BCV_OFFICIAL` WITHIN one effective date, never across
+  dates** (TD-049). Across dates it would let one typed rate freeze the net worth
+  for a year, silently.
+- **Inversion and cross rates are computed, never stored.** One pivot maximum.
+  Identity `X→X` is exactly 1 with no row — `USD/USD` must never exist.
+- **A missing rate is reported, never guessed**: `Complete = false` plus the
+  pairs and the amounts at stake. Never zero, never a partial total presented as
+  whole, and never an error that hides what IS known.
+- **The net worth is derived on every read and never stored.** No
+  `current_net_worth`, no `converted_balance`, no cache (TD-052).
+- **`app_settings` is one row** with `CHECK (id = 1)` and a typed FK to
+  `currencies(code)` (TD-048). Changing the base currency rewrites nothing.
+- **The BCV provider is plain HTTP + DOM parsing** (`golang.org/x/net/html`),
+  anchored on element ids and verifying each block's currency label. **No
+  Playwright, no Chromium, no Python, no sidecar.** All-or-nothing per
+  publication; a currency this application does not have is skipped, never
+  created.
+- **`InsecureSkipVerify` appears nowhere**, and a test enforces it. The BCV's
+  chain is broken and is handled by an additional trust anchor scoped to
+  `www.bcv.org.ve` alone — not to whatever `FX_BCV_URL` names (TD-050).
+- **The provider is never a dependency.** It starts after the listener, never
+  blocks startup, and every failure is a log line or a message on a page — never
+  a 500 and never a reason the application will not open.
+- **The business calendar is Venezuela's**, `database.EconomicLocation`
+  (UTC−04:00). `database.Today` is not UTC (TD-051).
 
 **Not built, and not to be added opportunistically:**
 
-- **No delete of anything.** Archive or correct. No `DeleteTransfer`,
-  `CancelTransfer` or `ReverseTransfer`.
-- **No history of edited records.** M3 overwrites. The undo is a backup.
-- **No FX, exchange rates, reporting currency or consolidated net worth.**
-  Currencies are shown separately and never summed.
+- **No delete of anything.** Archive or correct.
+- **No history of edited records.** The undo is a backup.
+- **No FX attached to a transaction**, no merchant or card rate, no realized or
+  unrealized FX gains.
 - **No cross-currency transfers**, no transfer fees, no split transactions, no
   scheduled or recurring transfers.
+- **No historical net worth and no chart.** `GetNetWorthAt` takes a date because
+  that is the honest shape of a valuation, not because M5 draws history.
+- **No third-party rate mirror** (TD-054).
 - No credit, loans, instalments, calendar, recurring transactions, budgets, tags,
   hierarchical categories, authentication or public API.
 
@@ -188,6 +230,14 @@ Short list, because each cost real time and each is easy to repeat.
 - **A guard that lists what to EXCLUDE rots when the enumeration grows.** M3's
   edit guard read `if current.Type == OpeningBalance`; adding `TRANSFER` silently
   made it wrong. Name what is allowed (TD-045).
+- **Precedence that is not scoped to a date freezes a derived figure silently.**
+  Ordering by source before date would let one manual rate outrank every later
+  publication forever. Nothing fails; the number just stops moving (TD-049).
+- **A date is not "today in UTC".** `database.Today` returned a UTC date for four
+  milestones; for four hours out of every twenty-four that names a day Venezuela
+  has not reached. Nothing caught it because nothing called it (TD-051).
+- **Go does not chase AIA, and Windows does.** A TLS chain that verifies on the
+  development machine can fail in the container. Test the container (TD-050).
 - **A read model that anchors on a semantic property can hide broken data.**
   Picking a transfer's row by "the negative movement" drops a malformed transfer
   with no negative movement out of the listing entirely. Anchor structurally,

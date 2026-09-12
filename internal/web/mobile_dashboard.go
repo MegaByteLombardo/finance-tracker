@@ -25,14 +25,40 @@ type MobileHeaderView struct {
 	AvatarURL     string
 }
 
-// NetWorthView represents the consolidated net worth in the user's base currency.
+// NetWorthView is the consolidated net worth as the mobile header shows it.
+//
+// It is built from web.NetWorth, which the valuation service DERIVES on every
+// read from the ledger, the stored rates and the base currency. Nothing here is
+// stored or cached.
+//
+// It carries no monthly change. M4 shipped one that was a hard-coded "+2.4%"
+// with no computation behind it, which in a finance application is worse than
+// showing nothing: a fabricated trend is indistinguishable from a real one.
+// A genuine change needs the net worth AT A PAST DATE, which is the historical
+// milestone's job, not this one's.
 type NetWorthView struct {
-	AmountFormatted  string
-	CurrencyCode     string
-	CurrencyLabel    string
-	MonthlyChange    string
-	MonthlyChangeMsg string
-	IsPositiveChange bool
+	// AmountFormatted is the total, already computed in integer minor units by
+	// the only code allowed to do arithmetic on money. A template must never add
+	// to it or scale it.
+	AmountFormatted string
+
+	// CurrencyCode is the valuation base.
+	CurrencyCode string
+
+	// CurrencyLabel reads "USD - moneda base".
+	CurrencyLabel string
+
+	// RatesAsOf says which day's rates produced the figure, so the number on the
+	// screen can be traced to a publication.
+	RatesAsOf string
+
+	// Complete is false when some currency could not be valued. The template
+	// MUST then show IncompleteMessage rather than presenting the total as the
+	// user's net worth.
+	Complete bool
+
+	// IncompleteMessage names what is missing and is empty when Complete.
+	IncompleteMessage string
 }
 
 // CurrencyBalanceItem represents a single currency's consolidated balance.
@@ -107,8 +133,10 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 		now := time.Now().UTC()
 		dateFormatted := formatDateSpanish(now)
 
+		// The per-currency balances, exactly as the ledger derived them. They are
+		// never converted here: each one is money held in that currency, and the
+		// consolidated figure is computed once, by the valuation service.
 		var balanceItems []CurrencyBalanceItem
-		var primaryTotal string
 		var primaryCurrency string
 
 		for _, t := range totals {
@@ -118,19 +146,30 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 				FormattedTotal: t.TotalFormatted,
 			})
 			if t.CurrencyCode == "USD" || primaryCurrency == "" {
-				primaryTotal = t.TotalFormatted
 				primaryCurrency = t.CurrencyCode
 			}
 		}
 
 		if primaryCurrency == "" {
 			primaryCurrency = "USD"
-			primaryTotal = "0.00"
 		}
 
 		var mRecentTxs []MobileTransactionItem
 		for _, tx := range recentTxs {
 			mRecentTxs = append(mRecentTxs, mapMobileTransactionItem(tx))
+		}
+
+		// The consolidated net worth, derived on every read. A failure to value
+		// must not take the dashboard down: the per-currency balances below are
+		// the ledger's own figures and are still worth showing, so the header
+		// degrades to a message instead.
+		netWorth := NetWorthView{CurrencyCode: primaryCurrency, CurrencyLabel: primaryCurrency + " · moneda base"}
+		if worth, verr := svcs.Valuation.GetCurrentNetWorth(ctx); verr != nil {
+			logger.Error("computing the net worth for the mobile dashboard", slog.Any("error", verr))
+			netWorth.AmountFormatted = "-"
+			netWorth.IncompleteMessage = "No se pudo calcular el patrimonio consolidado."
+		} else {
+			netWorth = toNetWorthView(worth)
 		}
 
 		data := MobileDashboardView{
@@ -140,14 +179,7 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 				FormattedDate: dateFormatted,
 				UserInitials:  "A",
 			},
-			NetWorth: NetWorthView{
-				AmountFormatted:  primaryTotal + " " + primaryCurrency,
-				CurrencyCode:     primaryCurrency,
-				CurrencyLabel:    primaryCurrency + " · balance",
-				MonthlyChange:    "Ledger",
-				MonthlyChangeMsg: "Saldos derivados de movimientos",
-				IsPositiveChange: true,
-			},
+			NetWorth: netWorth,
 			Balances: CurrencyBalancesView{
 				Currencies:      balanceItems,
 				ViewAccountsURL: "/mobile/cuentas",
@@ -192,13 +224,13 @@ func DefaultMobileMockData() MobileDashboardView {
 			UserInitials:  "A",
 			AvatarURL:     "",
 		},
+		// No invented figure and no invented trend: the mock shows the shape of
+		// the view, not a plausible-looking net worth.
 		NetWorth: NetWorthView{
-			AmountFormatted:  "$ 5,842.37",
-			CurrencyCode:     "USD",
-			CurrencyLabel:    "USD · moneda base",
-			MonthlyChange:    "+2.4%",
-			MonthlyChangeMsg: "+2.4% este mes",
-			IsPositiveChange: true,
+			AmountFormatted: "0.00",
+			CurrencyCode:    "USD",
+			CurrencyLabel:   "USD · moneda base",
+			Complete:        true,
 		},
 		Balances: CurrencyBalancesView{
 			Currencies: []CurrencyBalanceItem{

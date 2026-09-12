@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the architecture **as actually implemented at M3**.
+This document describes the architecture **as actually implemented at M5**.
 Layers that do not exist yet are marked as such and are not described as if they
 did.
 
@@ -24,13 +24,26 @@ operational surface without adding capability.
 | Logging | `log/slog` (standard library) |
 | Storage | SQLite, a single local file |
 | Migrations | `github.com/pressly/goose/v3`, SQL embedded in the binary |
+| HTML parsing | `golang.org/x/net/html`, for the exchange-rate provider only |
+| Exact decimals | `math/big` (standard library) — no decimal dependency |
 | Packaging | Docker, multi-stage build |
 | Runtime image | `gcr.io/distroless/static-debian13:nonroot`, uid 65532 |
 
-There are still exactly two direct dependencies: `modernc.org/sqlite` and
-`github.com/pressly/goose/v3`. M3 added backups, restore and a new domain without
-adding a third. No web framework, no router, no ORM, no
-configuration library, no dependency-injection container.
+There are **three** direct dependencies: `modernc.org/sqlite`,
+`github.com/pressly/goose/v3` and, from M5, `golang.org/x/net` v0.59.0.
+
+The third one earned its place narrowly. M5 reads the Banco Central de
+Venezuela's published rates out of an HTML page, and the two alternatives were
+matching that page with regular expressions — which cannot tell an attribute from
+text, breaks on an added space, and fails by silently matching the wrong thing —
+or writing an HTML5 parser. Only `html` and `html/atom` reach the binary
+(`go list -deps ./cmd/web`); nothing else in `x/net` does.
+
+**No decimal library was added.** Exchange rates are exact through `math/big`;
+see [TD-046](technical-decisions.md).
+
+Still no web framework, no router, no ORM, no configuration library, no
+dependency-injection container, and no headless browser.
 
 ## Dependency direction
 
@@ -39,11 +52,12 @@ cmd/web                         serve (default) | restore
    ↓
 HTTP                    (internal/httpserver, internal/web)
    ↓
+cross-domain reads      (internal/valuation)
 cross-domain workflows  (internal/application)
    ↓
 domain services         (internal/currency, internal/account,
                          internal/category, internal/paymentmethod,
-                         internal/ledger)
+                         internal/ledger, internal/fx, internal/settings)
    ↓
 repositories            (same packages)
    ↓
@@ -54,6 +68,8 @@ SQLite
 internal/money is a leaf: it depends on nothing and everything above may use it.
 internal/backup sits beside the database layer -- it snapshots and restores the
 file rather than reading the domain.
+internal/fx reaches OUT as well as down: it is the only package that makes a
+network request, and it is the only one whose failure is routine.
 ```
 
 Dependencies point downward only. HTTP does not build SQL; the database layer
@@ -259,6 +275,73 @@ thin wrapper that begins, delegates and commits. This is what
 `internal/application` composes, and it is the `DBTX` mechanism of TD-021 applied
 one layer up.
 
+### `internal/fx` *(M5)*
+
+Reference exchange rates: what a source said one currency was worth in another,
+on a given day, and how to turn those observations into an exact conversion
+factor.
+
+Everything here is **reference / valuation FX**, used to express balances the
+user already holds in a single currency. It is never the rate a particular
+operation happened at; `transactions` carries no rate and gained no
+`exchange_rate_id`. The two are different facts and the package documentation says
+so at the top, because conflating them would make a stored number ambiguous
+forever.
+
+It is the **only package in this application that makes a network request**, and
+the only one whose failure is routine. That shapes it:
+
+- `RateProvider` is the one interface in the package, and it exists because there
+  are genuinely two implementations — the BCV's website and the fixture-backed one
+  the tests drive. It is not a plugin framework.
+- **Manual entry is a use case, not a provider.** A provider fetches: it has a
+  network, a document and a publication date of its own. A person typing a rate
+  has none of those, and its source is not theirs to choose — the backend sets
+  `MANUAL`, so a form submission cannot claim to be the Banco Central.
+- The provider takes an `*http.Client` and a base URL, which is the seam the tests
+  use with `httptest.Server`. No HTTP interface was invented: the standard library
+  already has one.
+- `provider_bcv.go` parses the DOM with `golang.org/x/net/html`, anchoring on
+  element ids and **verifying that each block states the currency it is expected
+  to state**. A rearranged page fails loudly rather than being read as a dollar
+  rate. A missing rate is recoverable and visible; a wrong one is neither.
+- `bcv_tls.go` holds the one uncomfortable thing in this milestone: the BCV serves
+  a broken certificate chain, and reaching it needs an additional trust anchor
+  scoped to that one hostname. It is documented in full at the top of the file and
+  in [TD-050](technical-decisions.md). `InsecureSkipVerify` appears nowhere in the
+  repository and a test keeps it that way.
+- `refresh.go` is one goroutine and one ticker. Every failure it meets is a log
+  line, because there is nobody to return an error to.
+
+### `internal/settings` *(M5)*
+
+The application's own configuration, as opposed to the deployment's, which is
+`internal/config`'s. One model, one repository, one service, one row.
+
+The base currency of valuation lives here rather than in an environment variable
+because it must be a foreign key to a row in `currencies`
+([TD-048](technical-decisions.md)). It translates `currency`'s errors into its
+own, the way every domain package here does.
+
+### `internal/valuation` *(M5)*
+
+The consolidated net worth: everything the user holds, expressed in one currency.
+
+It reads from `ledger`, `fx` and `settings`, which do not know about each other,
+and it **writes nothing**. That is why it is not in `internal/application` —
+that package exists for writes that must span two domains atomically (TD-030), and
+the atomicity argument simply does not apply to a read. It is not inside `fx`
+either, which would make the package that owns exchange rates depend on the
+ledger.
+
+**Nothing it produces is stored.** No column, no table, no cache. The net worth is
+a function of the movements, the rates and the base currency, recomputed on every
+read; see [TD-052](technical-decisions.md).
+
+A currency it cannot value is **reported**, not raised: the result carries
+`Complete = false` and the list of missing pairs, so the interface can show what
+is known and name what is not.
+
 ### `internal/application`
 
 Cross-domain workflows, and nothing else. One today: `OpenAccount`, which creates
@@ -266,7 +349,9 @@ an account and records its opening balance in a single `sql.Tx`.
 
 A workflow earns a place here by coordinating two domains atomically. Pass-through
 wrappers do not belong in it, and neither does anything a single domain service
-can already do.
+can already do — **and neither does a read**. M5's consolidated net worth spans
+three domains and went to `internal/valuation` instead, because it writes nothing
+and the atomicity that justifies this package does not apply to it.
 
 ### `internal/httpserver`
 
@@ -385,8 +470,20 @@ Startup, in order:
 
 ```text
 configuration → logger → database (opened and verified) → migrations
-              → listener → HTTP server
+              → listener → HTTP server → [exchange rate refresher]
 ```
+
+**The exchange rate refresher starts after the server is listening, and never
+before.** That ordering is a decision, not an accident of where the line sits.
+Rates come from a government website that is regularly slow, occasionally
+unreachable and entirely outside this application's control; fetching them during
+startup — the way migrations run during startup — would turn somebody else's
+downtime into this application's downtime, for a feature that only changes how a
+total is *presented*.
+
+So accounts, the ledger, balances, manual rates and every rate already stored are
+available the moment the listener opens, and the refresher catches up in its own
+time. **Migrations are a precondition; an external rate source is not.**
 
 **Migrations run before anything listens.** Serving requests against a
 half-migrated schema would be worse than not serving at all, so a migration
@@ -407,10 +504,11 @@ consistent version.
 Rollbacks are never run automatically. `Up` is the only exported function in
 `internal/migrations`.
 
-Shutdown, on `SIGINT` or `SIGTERM`: stop accepting connections, drain in-flight
-requests under a bounded timeout, wait for the serve loop to return, then close
-the database. The database closes **last** — closing it while requests are still
-draining would break them.
+Shutdown, on `SIGINT` or `SIGTERM`: stop the rate refresher and wait for it,
+stop accepting connections, drain in-flight requests under a bounded timeout, wait
+for the serve loop to return, snapshot, then close the database. The database
+closes **last** — closing it while requests are still draining, or while a fetch
+is holding the single connection, would break them.
 
 Default signal handling is restored once shutdown begins, so a second `Ctrl+C`
 can still kill a process wedged mid-shutdown.

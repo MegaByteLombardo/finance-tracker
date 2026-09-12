@@ -13,6 +13,7 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/backup"
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/dbtest"
+	"github.com/MegaByteLombardo/finance-tracker/internal/fx"
 	"github.com/MegaByteLombardo/finance-tracker/internal/web"
 	"github.com/MegaByteLombardo/finance-tracker/internal/web/adapter"
 )
@@ -24,7 +25,9 @@ func newTestServices(t *testing.T, db *sql.DB) *web.Services {
 	if err != nil {
 		t.Fatalf("creating backup service: %v", err)
 	}
-	return adapter.New(db, backups)
+	// No provider: the adapter must be fully usable with the external source
+	// switched off, which is also how a machine with no network runs.
+	return adapter.New(db, backups, fx.NewService(db, nil, logger))
 }
 
 // 1. Compile-time assertions for all consumer interfaces

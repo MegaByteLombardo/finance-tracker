@@ -45,6 +45,13 @@ func TestTablesHaveExactlyTheExpectedColumns(t *testing.T) {
 		"account_movements": {
 			"id", "transaction_id", "account_id", "amount_minor", "created_at",
 		},
+		"exchange_rates": {
+			"id", "base_currency_code", "quote_currency_code", "effective_date", "rate",
+			"source", "is_active", "fetched_at", "created_at", "updated_at",
+		},
+		"app_settings": {
+			"id", "base_currency_code", "created_at", "updated_at",
+		},
 	}
 
 	for table, want := range tests {
@@ -892,6 +899,7 @@ func TestNoStoredBalanceAnywhere(t *testing.T) {
 
 var businessTables = []string{
 	"currencies", "accounts", "categories", "payment_methods", "transactions", "account_movements",
+	"exchange_rates", "app_settings",
 }
 
 func TestExpectedIndexesExist(t *testing.T) {
@@ -910,6 +918,9 @@ func TestExpectedIndexesExist(t *testing.T) {
 		"idx_transactions_payment_method_id",
 		"idx_account_movements_account_id",
 		"idx_account_movements_transaction_id",
+		"idx_exchange_rates_observation",
+		"idx_exchange_rates_lookup",
+		"idx_exchange_rates_quote_currency_code",
 	}
 
 	for _, index := range want {

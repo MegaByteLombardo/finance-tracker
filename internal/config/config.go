@@ -12,8 +12,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Environment names the deployment context. It selects the log handler and is
@@ -46,6 +48,33 @@ const (
 	//
 	// Zero disables pruning entirely.
 	DefaultBackupRetention = 10
+
+	// DefaultFXProviderEnabled turns the automatic exchange-rate source on.
+	//
+	// It defaults to on because a personal finance application that silently
+	// stops updating its rates is worse than one that logs a warning every few
+	// hours. Turning it off is fully supported and degrades nothing structural:
+	// manual entry, lookup and valuation all work identically without it.
+	DefaultFXProviderEnabled = true
+
+	// DefaultFXProviderURL is the Banco Central de Venezuela's published rate
+	// page.
+	//
+	// It is duplicated from fx.DefaultBCVURL rather than imported, so that this
+	// package keeps depending on nothing but the standard library -- the same
+	// reasoning that duplicates the minor-unit bounds into internal/money. A
+	// test asserts the two agree.
+	DefaultFXProviderURL = "https://www.bcv.org.ve/"
+
+	// DefaultFXTimeout bounds one fetch of the external source, end to end.
+	DefaultFXTimeout = 15 * time.Second
+
+	// DefaultFXRefreshInterval is how often the background refresher WAKES UP,
+	// which is not how often it fetches: a fetch happens at most once per
+	// Venezuelan calendar day. What this really sets is the retry cadence on a
+	// day when the source is down -- six attempts rather than the twenty-four an
+	// hourly tick would make.
+	DefaultFXRefreshInterval = 4 * time.Hour
 )
 
 // Config is the fully validated configuration of a single process.
@@ -62,6 +91,29 @@ type Config struct {
 
 	// BackupRetention bounds how many shutdown backups are kept. Zero keeps all.
 	BackupRetention int
+
+	// FXProviderEnabled turns the automatic exchange-rate source on or off.
+	//
+	// With it off the application is fully functional: accounts, the ledger,
+	// balances, manually entered rates and the consolidated net worth all work.
+	// The external source is a convenience, never a dependency.
+	FXProviderEnabled bool
+
+	// FXProviderURL is where the Banco Central de Venezuela's rates are read
+	// from. It is configurable so a test or a rehearsal can point it elsewhere.
+	//
+	// The additional TLS trust anchor the real host needs is applied ONLY when
+	// this names www.bcv.org.ve; see internal/fx. Pointing this at another
+	// address gets ordinary verification, which is the whole point of it being
+	// a constant in the code rather than following this setting.
+	FXProviderURL string
+
+	// FXTimeout bounds one fetch of the external source.
+	FXTimeout time.Duration
+
+	// FXRefreshInterval is how often the background refresher wakes up. It is
+	// not how often it fetches: see DefaultFXRefreshInterval.
+	FXRefreshInterval time.Duration
 }
 
 // Load reads the configuration through getenv.
@@ -81,6 +133,11 @@ func Load(getenv func(string) string) (Config, error) {
 		LogLevel:        DefaultLogLevel,
 		BackupDir:       DefaultBackupDir,
 		BackupRetention: DefaultBackupRetention,
+
+		FXProviderEnabled: DefaultFXProviderEnabled,
+		FXProviderURL:     DefaultFXProviderURL,
+		FXTimeout:         DefaultFXTimeout,
+		FXRefreshInterval: DefaultFXRefreshInterval,
 	}
 
 	var errs []error
@@ -135,6 +192,43 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 	}
 
+	if raw, set := lookup(getenv, "FX_BCV_ENABLED"); set {
+		// Accepted spellings are ParseBool's, which covers true/false, 1/0 and
+		// t/f. Anything else is a configuration mistake rather than a silent
+		// "false", because switching the source off by typo is exactly the kind
+		// of thing nobody notices until the rates are a month old.
+		enabled, err := strconv.ParseBool(raw)
+		if err != nil {
+			errs = append(errs, fmt.Errorf(
+				"FX_BCV_ENABLED=%q: must be true or false", raw))
+		} else {
+			cfg.FXProviderEnabled = enabled
+		}
+	}
+
+	if raw, set := lookup(getenv, "FX_BCV_URL"); set {
+		parsed, err := url.Parse(raw)
+		switch {
+		case err != nil:
+			errs = append(errs, fmt.Errorf("FX_BCV_URL=%q: not a valid URL: %w", raw, err))
+		case parsed.Scheme != "http" && parsed.Scheme != "https":
+			errs = append(errs, fmt.Errorf(
+				"FX_BCV_URL=%q: must start with http:// or https://", raw))
+		case parsed.Host == "":
+			errs = append(errs, fmt.Errorf("FX_BCV_URL=%q: has no host", raw))
+		default:
+			cfg.FXProviderURL = raw
+		}
+	}
+
+	if raw, set := lookup(getenv, "FX_BCV_TIMEOUT"); set {
+		cfg.FXTimeout = parseDuration(&errs, "FX_BCV_TIMEOUT", raw, cfg.FXTimeout)
+	}
+
+	if raw, set := lookup(getenv, "FX_REFRESH_EVERY"); set {
+		cfg.FXRefreshInterval = parseDuration(&errs, "FX_REFRESH_EVERY", raw, cfg.FXRefreshInterval)
+	}
+
 	if raw, set := lookup(getenv, "LOG_LEVEL"); set {
 		var level slog.Level
 		if err := level.UnmarshalText([]byte(raw)); err != nil {
@@ -149,6 +243,28 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// parseDuration reads a Go duration such as "15s" or "4h", collecting any
+// problem rather than returning early, so that a misconfigured deployment still
+// reports every mistake in one startup attempt.
+//
+// A non-positive duration is refused rather than quietly meaning "no timeout":
+// FX_BCV_TIMEOUT=0 would let one stalled request hold a connection forever, and
+// FX_REFRESH_EVERY=0 would make a ticker panic.
+func parseDuration(errs *[]error, key, raw string, fallback time.Duration) time.Duration {
+	value, err := time.ParseDuration(raw)
+	switch {
+	case err != nil:
+		*errs = append(*errs, fmt.Errorf(
+			"%s=%q: must be a duration such as 30s, 5m or 4h", key, raw))
+		return fallback
+	case value <= 0:
+		*errs = append(*errs, fmt.Errorf("%s=%q: must be greater than zero", key, raw))
+		return fallback
+	default:
+		return value
+	}
 }
 
 // lookup reads key and reports whether the caller provided it at all.

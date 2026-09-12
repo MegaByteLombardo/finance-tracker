@@ -13,7 +13,7 @@ import (
 
 // expectedVersion is the highest migration version in this package. Bump it
 // when a migration is added; the test then proves the new one actually ran.
-const expectedVersion = 10
+const expectedVersion = 12
 
 func TestUpAppliesEveryMigration(t *testing.T) {
 	t.Parallel()

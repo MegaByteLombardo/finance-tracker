@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // MobileAccountOption provides account info with current balance for the mobile picker.
@@ -104,11 +103,14 @@ func handleMobileNewOperation(logger *slog.Logger, renderer *Renderer, svcs *Ser
 
 		viewData := MobileOperationFormView{
 			SelectedType: opType,
-			CurrentDate:  time.Now().Format("2006-01-02"),
-			Accounts:     accountOptions,
-			Categories:   catItems,
-			Methods:      methods,
-			Currencies:   currencies,
+			// The business date in Venezuela, not the server's local date and not
+			// UTC. This is a FINANCIAL date on a form that records money moving,
+			// and after 20:00 in Caracas a UTC "today" is already tomorrow.
+			CurrentDate: todayForForms(),
+			Accounts:    accountOptions,
+			Categories:  catItems,
+			Methods:     methods,
+			Currencies:  currencies,
 		}
 
 		pageData := PageData{

@@ -313,9 +313,9 @@ the earlier checks should have been too.
 
 ---
 
-## M4 — Internal Transfers · `IN PROGRESS`
+## M4 — Internal Transfers · `CLOSED`
 
-**Backend, contract, and desktop presentation integration complete.**
+**Closed:** 2026-09-11
 
 Moving money between two of the user's own accounts. It is the first milestone to
 use the capability the ledger was designed around in M2: **one transaction with
@@ -383,8 +383,121 @@ edits.
 yes; deleting no.
 
 ### Presentation layer integration
- 
-Delivered: the transfer creation form (`GET /transfers/new`, `POST /transfers`), the edit form (`GET /transfers/{id}/edit`, `POST /transfers/{id}`), routing guards in `transactions.go` redirecting transfer edits to `/transfers/{id}/edit`, and rendering transfers with source/destination detail and positive amounts across transaction lists and the dashboard. Mobile UI screens remain in prototype/preview status.
+
+Delivered: the transfer creation form (`GET /transfers/new`, `POST /transfers`),
+the edit form (`GET /transfers/{id}/edit`, `POST /transfers/{id}`), routing guards
+in `transactions.go` redirecting transfer edits to `/transfers/{id}/edit`, and
+rendering transfers with source/destination detail and positive amounts across
+transaction lists and the dashboard.
+
+### Verification
+
+Quality gates at close: `gofmt -l .` silent, `go vet ./...` clean,
+`go test ./... -count=1` green, `go test -race ./...` green in the Linux
+container, `git diff --check` clean, `docker compose build` successful.
+
+### One thing M4 shipped that should not have
+
+The mobile dashboard header carried a **hard-coded "+2.4% este mes"** and a mock
+net worth of `$5,842.37`, both invented, with no computation behind either. In a
+finance application a fabricated figure is worse than a blank one: it is
+indistinguishable from a real one. **Both were removed in M5**, where the net
+worth became a real derived figure and the monthly change was dropped rather than
+faked — a genuine one needs the net worth at a past date, which is M6's work.
+
+---
+
+---
+
+## M5 — Multi-Currency, Exchange Rates & Current Net Worth · `IN PROGRESS`
+
+**Backend, contract and presentation plumbing complete. Interface polish
+outstanding.**
+
+The first milestone that answers "what is all of this worth?" in one number —
+and the first one that had to be careful about what that number is allowed to
+mean.
+
+### The rule the whole milestone hangs on
+
+```
+Reference / Valuation FX        ≠        Transaction FX
+```
+
+M5 implements **only the first**. A reference rate says what a currency was worth
+on a day, and is used to express balances the user already holds in one currency,
+for presentation. A transaction rate is the rate a particular operation actually
+happened at. **`transactions` gained no `exchange_rate_id`, no transaction carries
+a rate, and nothing in M5 prepares for one.**
+
+### Scope
+
+- **`exchange_rates`.** Observations, not truths: one source, one pair, one
+  economic day. Several can exist for one day and precedence chooses between them
+  rather than one overwriting the other, so evidence is never destroyed.
+- **Exact decimals, no dependency.** `rate` is a canonical decimal `TEXT`;
+  arithmetic is `math/big.Rat`, which divides exactly — necessary because
+  inversion and cross rates are not finite decimals. `shopspring/decimal` was
+  rejected on a specific fact: its `Div` rounds by default (TD-046).
+- **Round half to even, once, per currency**, so the components a screen shows add
+  up exactly to the total that screen shows (TD-047).
+- **`app_settings`**, one row, holding the base currency of valuation as a typed
+  column with a real foreign key (TD-048). Changing it rewrites nothing.
+- **Precedence within a date, never across dates.** `MANUAL` beats `BCV_OFFICIAL`
+  on the day it names and nowhere else. The obvious alternative would have let a
+  rate typed once in January freeze the user's net worth for a year, silently
+  (TD-049).
+- **The BCV provider**: plain HTTP, DOM parsing with `golang.org/x/net/html`,
+  anchored on element ids and verifying that each block states the currency it is
+  expected to state. No Playwright, no Chromium, no Python, no sidecar.
+- **All-or-nothing per publication.** One document, one Fecha Valor, one
+  transaction.
+- **Automatic refresh** at most once per Venezuelan calendar day, started *after*
+  the server is listening, with every failure a log line.
+- **Valuation**: direct, inverted and single-pivot cross rates, all exact, each
+  reporting the observations it used.
+- **A missing rate is reported, not guessed**: `Complete = false` plus the pairs
+  and the amounts at stake. Never zero, never a partial total presented as whole.
+
+### Decisions worth naming
+
+- **The BCV's TLS chain is broken** — it serves an intermediate that is not its
+  leaf's issuer — and Go does not chase AIA on Linux. It works on Windows and
+  fails in the container, which is the worst possible distribution of failure. It
+  is handled with an additional trust anchor **scoped to that one hostname**, with
+  `InsecureSkipVerify` nowhere in the repository and a test enforcing that
+  (TD-050).
+- **`database.Today` was wrong and nothing had noticed**, because nothing called
+  it: it returned a UTC date, which for four hours out of every twenty-four names
+  a day Venezuela has not reached. The business calendar is now a fixed UTC−04:00
+  zone (TD-051).
+- **The BCV publishes forward.** Its page on Friday 2026-09-11 carried a Fecha
+  Valor of Tuesday 2026-09-15. A fallback to the nearest observation was designed
+  and then **rejected**: reaching forward is look-ahead bias, and a label on the
+  screen does not undo a number computed from the future. The gap is the honest
+  answer (TD-053).
+- **No third-party mirror.** Both candidates were tested. One no longer resolves
+  in DNS; the other publishes four decimal places where the BCV publishes eight,
+  as a JSON number, under a date that is not the Fecha Valor (TD-054).
+- **M4's mobile header showed a hard-coded "+2.4%" monthly change with nothing
+  behind it.** It is gone. A fabricated trend in a finance application is worse
+  than showing nothing, and a real one needs the net worth at a past date.
+
+### Delivered
+
+Migrations `00011` and `00012` (schema version 12); `internal/fx`,
+`internal/settings`, `internal/valuation`; `money.Decimal` and exact conversion;
+the contract in [m5-contract.md](m5-contract.md); the presentation plumbing,
+routes, settings and rates screens, and the real net worth on both the desktop and
+the mobile dashboard.
+
+### Not in M5
+
+Cross-currency transfers, FX attached to a transaction, merchant or card FX,
+realized and unrealized FX gains, the historical net-worth chart, a third-party
+mirror, browser automation of any kind, an external scraper service, a public REST
+API, budgets, forecasting, credit and debt, recurring transactions, **any delete**,
+and audit history of edits.
 
 ---
 
@@ -400,21 +513,22 @@ below has acceptance criteria yet, by design.
 
 | Milestone | Theme | Status |
 | --- | --- | --- |
-| M4 | Internal Transfers | `IN PROGRESS` |
-| M5 | Dashboard | `PLANNED` |
-| M6 | Multi-Currency & FX | `PLANNED` |
-| M7 | Historical Net Worth | `PLANNED` |
+| M5 | Multi-Currency, Exchange Rates & Current Net Worth | `IN PROGRESS` |
+| M6 | Historical Net Worth | `PLANNED` |
+| M7 | Dashboard & Analytics | `PLANNED` |
 | M8 | Credit & Debt | `PLANNED` |
 | M9 | Instalments & Calendar | `PLANNED` |
-| M10 | Analytics | `PLANNED` |
-| M11 | Hardening | `PLANNED` |
+| M10 | Hardening | `PLANNED` |
 
-The roadmap has now been renumbered twice, which is what "provisional" above
-means in practice. Everything after M3 shifted by one when M3 became Data Safety
-rather than Dashboard; transfers then moved from M6 to M4, ahead of both Dashboard
-and FX, because the ledger already supported them and a dashboard showing money
-that appears to vanish between two accounts would have been the wrong thing to
-build first.
+The roadmap has now been renumbered three times, which is what "provisional"
+above means in practice. Everything after M3 shifted by one when M3 became Data
+Safety rather than Dashboard; transfers then moved from M6 to M4, ahead of both
+Dashboard and FX, because the ledger already supported them and a dashboard
+showing money that appears to vanish between two accounts would have been the
+wrong thing to build first. FX then moved ahead of Dashboard for the same kind of
+reason: a dashboard whose headline figure could not be computed would have been a
+dashboard with a hole in it — which is exactly what M4 shipped, with a hard-coded
+"+2.4%" standing in for a number nothing could produce yet.
 
 ### Known carry-over
 
@@ -424,11 +538,18 @@ Parked items, none blocking:
   so the usual form does not apply. The clean approach is a self-check flag on
   the binary, worth adding when something is orchestrating restarts.
 - **Request-logging middleware.** Deferred until there are endpoints worth
-  tracing. The domain services built in M1 have no HTTP surface yet, so there is
-  still nothing to trace.
+  tracing.
 - **Migration `status` / `down` interface.** No CLI or flags were added: the
   startup logs report what happened, and `goose_db_version` is one query away in
   the sqlite3 CLI. Revisit if a rollback is ever needed in anger.
 - **Purpose dimension for accounts.** `account_type` classifies the container
   only. If distinguishing savings from day-to-day money ever has a real
   consumer, it arrives as its own decision rather than as more enum values.
+- **Historical backfill of exchange rates.** M5 stores what it is told and what it
+  fetches from today onward; there is no history before the first run. Until a
+  trustworthy source exists it is manual entry, one observation at a time. M6 will
+  have to decide whether that is enough.
+- **Cosmetic dates in the mobile shell.** The greeting and the date headings still
+  read the clock in UTC. They are display text, not financial dates — the form
+  defaults and the valuation date were fixed in M5 — but they should follow the
+  same calendar.

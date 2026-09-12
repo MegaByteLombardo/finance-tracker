@@ -67,7 +67,21 @@ func handleDashboard(logger *slog.Logger, renderer *Renderer, svcs *Services) ht
 			})
 		}
 
+		// The consolidated net worth. A failure to value must not take the
+		// dashboard down: every figure below it comes from the ledger and needs
+		// no exchange rate at all.
+		var netWorth NetWorth
+		var netWorthError string
+		if worth, verr := svcs.Valuation.GetCurrentNetWorth(ctx); verr != nil {
+			logger.Error("computing the net worth", slog.Any("error", verr))
+			netWorthError = "No se pudo calcular el patrimonio consolidado."
+		} else {
+			netWorth = worth
+		}
+
 		data := DashboardView{
+			NetWorth:           netWorth,
+			NetWorthError:      netWorthError,
 			CurrencySections:   currencySections,
 			CurrencyTotals:     totals,
 			RecentTransactions: txs,

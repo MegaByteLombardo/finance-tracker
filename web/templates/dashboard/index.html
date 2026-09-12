@@ -19,8 +19,88 @@
 </div>
 {{ end }}
 
+<!-- Consolidated net worth. Derived on every request from the ledger, the stored
+     reference rates and the base currency; never stored, never cached. -->
+<section class="net-worth-panel" aria-labelledby="net-worth-title" style="margin-bottom: var(--space-8);">
+  {{ if .NetWorthError }}
+  <div class="alert alert-warning" role="alert">{{ .NetWorthError }}</div>
+  {{ else }}
+  <div class="card">
+    <div class="card-header">
+      <h2 id="net-worth-title" class="card-title" style="font-size: 1rem;">Patrimonio neto</h2>
+      <span class="text-muted" style="font-size: 0.8125rem;">
+        Base: {{ .NetWorth.BaseCurrencyCode }}{{ if not .NetWorth.RatesAsOf.IsZero }} · Tasas al {{ formatDate .NetWorth.RatesAsOf }}{{ end }}
+      </span>
+    </div>
+    <div class="card-body" style="padding: var(--space-4);">
+      <p class="net-worth-total" style="font-size: 2rem; font-weight: 700; margin: 0 0 var(--space-4) 0;">
+        {{ formatAmount .NetWorth.TotalFormatted }} {{ .NetWorth.BaseCurrencyCode }}
+      </p>
+
+      {{ if not .NetWorth.Complete }}
+      <div class="alert alert-warning" role="alert">
+        <div>
+          <strong>Este total está incompleto.</strong>
+          {{ range .NetWorth.Missing }}
+          Falta una tasa {{ .FromCurrencyCode }} → {{ .ToCurrencyCode }} para valorar
+          {{ .BalanceFormatted }} {{ .FromCurrencyCode }}.
+          {{ end }}
+          <a href="/settings/exchange-rates" style="margin-left: 8px; font-weight: 600; color: inherit; text-decoration: underline;">Agregar tasa &rarr;</a>
+        </div>
+      </div>
+      {{ end }}
+
+      {{ if .NetWorth.Components }}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Moneda</th>
+            <th class="numeric">Saldo</th>
+            <th class="numeric">En {{ $.NetWorth.BaseCurrencyCode }}</th>
+            <th>Cómo se valoró</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .NetWorth.Components }}
+          <tr>
+            <td><strong>{{ .CurrencyCode }}</strong> <span class="text-muted">{{ .CurrencyName }}</span></td>
+            <td class="numeric">{{ formatAmount .BalanceFormatted }}</td>
+            <td class="numeric">
+              {{ if .Valued }}{{ formatAmount .ConvertedFormatted }}{{ else }}&mdash;{{ end }}
+            </td>
+            <td style="font-size: 0.8125rem;">
+              {{ if not .Valued }}
+              <span class="badge badge-warning">sin tasa</span>
+              {{ else if .Resolution }}
+                {{ .Resolution.MethodLabel }}
+                {{ if .Resolution.UsesManualOverride }}
+                <span class="badge badge-warning" title="Se usó una tasa manual en lugar de la publicada para esa misma fecha">
+                  override manual
+                </span>
+                {{ end }}
+                {{ range .Resolution.Legs }}
+                <div class="text-muted">
+                  {{ .Pair }} = {{ .Rate }}{{ if .Inverted }} (invertida){{ end }}
+                  · {{ .SourceLabel }} · {{ formatDate .EffectiveDate }}
+                </div>
+                {{ end }}
+              {{ end }}
+            </td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+      {{ end }}
+    </div>
+  </div>
+  {{ end }}
+</section>
+
 <div class="notice-box">
-  <strong>Multi-currency notice:</strong> Balances are derived directly from ledger movements in their native currency. Finance Tracker does not convert or aggregate balances across different currencies.
+  <strong>Cómo se calcula:</strong> los saldos se derivan de los movimientos del ledger en su propia
+  moneda y nunca se suman entre monedas. El patrimonio neto de arriba es una <em>valoración</em>
+  calculada al momento con tasas de referencia; no se guarda en ninguna parte y no modifica ningún
+  saldo. La tasa de una transacción concreta es otra cosa y no existe en esta aplicación.
 </div>
 
 <!-- Account Balances by Currency -->

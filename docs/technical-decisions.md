@@ -1561,3 +1561,338 @@ exists so that a form's options and the handler's validation cannot drift apart.
 This continues M2's reasoning for three separate `Record*` methods: one method
 per use case makes an invalid combination something with no signature to arrive
 through, rather than something that is merely rejected.
+
+---
+
+## TD-046 — An exchange rate is a canonical decimal string, and its arithmetic is `math/big`
+
+**Status:** Accepted · **Milestone:** M5
+
+**Decision.** `exchange_rates.rate` is `TEXT` holding a canonical decimal —
+`"842.20670000"` — and every operation on it is performed on `math/big.Int` and
+`math/big.Rat` through a new `money.Decimal` type. No decimal dependency was
+added.
+
+**Rationale.** Three options were weighed: TEXT, an integer mantissa plus a scale
+column, and a third-party decimal package.
+
+The first thing that settles it is that **the storage choice does not decide
+exactness.** Valuation needs inversion (`1/842.2067`) and division (a cross
+rate), and neither result is a finite decimal in general. Any decimal
+representation — TEXT, mantissa/scale, or a library — has to round to express
+one. So the arithmetic has to be rational regardless, and `big.Rat` divides
+exactly by construction. What remains to choose is only fidelity and legibility.
+
+On those, TEXT wins outright. It stores exactly what the source published,
+trailing zeros included, so the precision of the statement is preserved and the
+stored value can be compared with the published one as a string. It is one column
+rather than two that can fall out of step, it has one spelling per value rather
+than several, and the owner of this database opens it with the sqlite3 CLI —
+`842.20670000` reads where `84220670000` paired with `8` does not. That is the
+same argument that made timestamps TEXT in TD-016.
+
+The usual objection to TEXT is that SQLite cannot compare it numerically.
+**Nothing in this application orders or range-filters by rate**: the lookup is by
+pair and date, both exact. The one numeric property the database does need — that
+a rate is greater than zero — is expressed honestly without a cast: stripping the
+decimal point and then the leading zeros leaves an empty string exactly when the
+value is zero.
+
+`github.com/shopspring/decimal` was rejected on a specific fact rather than on
+principle: its `Div` uses `DivisionPrecision = 16` and **rounds by default**,
+which is precisely the trap this project exists to avoid.
+`github.com/govalues/decimal` is pre-1.0 and capped at 19 digits. `math/big` is
+the standard library and its division is exact.
+
+**Consequence.** `internal/money` gained `Decimal`, `ParseDecimal`, `ConvertMinor`
+and exact half-even rounding. This is where TD-027 said the FX arithmetic would
+land, and it is why `money` was its own package rather than part of `currency`.
+
+The `Decimal` type holds its unscaled integer behind a **pointer** that nothing
+hands out, and every accessor allocates. A `big.Int` embedded by value would make
+every copy of a `Decimal` share one backing slice, so a single in-place `math/big`
+operation — which is how that API is normally used — would reach through every
+copy ever made of it.
+
+---
+
+## TD-047 — Valuation rounds half to even, once, per currency
+
+**Status:** Accepted · **Milestone:** M5
+
+**Decision.** A conversion is computed exactly as a rational and rounded **once**,
+**half to even**, into the destination currency's minor units. The rounding
+happens **per currency component**, never per account, and the consolidated total
+is the plain integer sum of the rounded components.
+
+**Rationale, in two parts.**
+
+*Why half to even.* This is a valuation, not a payment. Nothing changes hands,
+there is no party to favour, and the same balances are revalued many times a day.
+Half away from zero biases every one of those revaluations upward; half to even
+does not. It is also symmetric about zero, which matters here because a transfer
+may legitimately leave an account overdrawn (TD-043) and a debt must not round by
+a different rule from the credit that cancels it.
+
+*Why per currency.* The alternative — convert each account, then sum —
+accumulates up to half a unit of error per account. The visible consequence
+decides it: with per-currency rounding, **the components a screen shows add up
+exactly to the total that screen shows**. With per-account rounding they do not,
+and a page whose lines do not sum to its own total is the first thing a person
+notices and the last thing they trust.
+
+---
+
+## TD-048 — Application settings are a typed singleton row, not a key/value table
+
+**Status:** Accepted · **Milestone:** M5
+
+**Decision.** `app_settings` has one row, forced by `CHECK (id = 1)`, with
+`base_currency_code` as a typed column carrying a real foreign key to
+`currencies(code)`.
+
+**Rationale.** M0 put configuration in the environment, and that was right while
+every setting described the *deployment*. The base currency of valuation is a
+different kind of fact: it is a choice the user makes from inside the application,
+about their own money.
+
+The deciding argument is the foreign key. **Only a typed column can have one.** A
+generic `settings(key, value)` table holding the string `'USD'` references
+nothing, so archiving or renaming a currency could leave the setting pointing at
+something that no longer exists and nothing in the database would object. A
+generic table also invites unrelated settings to accumulate in a place with no
+schema.
+
+`CHECK (id = 1)` rather than a convention: with two rows, every reader would have
+to pick one, and "the settings" would stop being a meaningful phrase. The row is
+created by the migration rather than lazily, so every read is a plain `SELECT`
+with no "or insert a default" branch, and its absence is an integrity failure
+rather than an ordinary state something has to handle.
+
+This is **not** the beginning of a preferences system. One user, one process, one
+database file. A second setting arrives as a second column when a second setting
+exists.
+
+---
+
+## TD-049 — Source precedence applies within one effective date, never across dates
+
+**Status:** Accepted · **Milestone:** M5
+
+**Decision.** When several sources have spoken about a currency pair, the lookup
+is:
+
+```
+1. the latest effective_date <= the valuation date, from any source
+2. among the observations OF THAT DATE, the highest-precedence source
+```
+
+with `MANUAL` above `BCV_OFFICIAL`.
+
+**Rationale.** The obvious implementation — order by precedence, then by date — is
+silently, catastrophically wrong. A manual rate typed once in January would
+outrank every publication for the rest of the year, and the user's net worth would
+stop moving. Nothing would fail, nothing would be logged, and the figure would
+stay plausible: exactly the shape of bug this project takes most seriously.
+
+Scoped to one date, a manual observation wins precisely where it claims to apply
+and nowhere else, which is what "override" actually means. A test asserts the
+failure mode directly: a manual rate dated Friday must **not** be preferred over a
+published rate dated the following Monday.
+
+**One `MANUAL` concept, not two.** "Manual override" and "manual fallback" were
+considered as separate sources and rejected: with precedence bounded by date, both
+collapse into the same behaviour — a typed rate applies on its own day, and where
+no publication exists it is simply the only observation. A second enum value would
+double the precedence matrix and buy nothing.
+
+**Withdrawing an override is archiving, not deleting.** `is_active = 0` makes the
+published rate underneath apply again while keeping the record that somebody
+disagreed with it — the same retirement mechanism every other table here uses, and
+consistent with this project having no delete anywhere.
+
+---
+
+## TD-050 — The BCV's broken TLS chain is handled with a provider-scoped additional trust anchor
+
+**Status:** Accepted · **Milestone:** M5
+
+**Decision.** The HTTP client used for `www.bcv.org.ve` — and for **no other
+host** — verifies against the system root pool **plus** one embedded Sectigo CA
+certificate. `InsecureSkipVerify` is not used anywhere in this repository, and a
+test walks the source tree to keep it that way.
+
+**The problem, measured rather than assumed.** `www.bcv.org.ve` serves a
+certificate chain that does not verify. Its leaf is issued by *Sectigo Public
+Server Authentication CA DV R36*, but the intermediate it actually sends is
+*Sectigo RSA Domain Validation Secure Server CA* — a different CA, which cannot
+have signed it.
+
+Browsers and curl hide this by fetching the correct intermediate from the leaf's
+Authority Information Access extension. **Go does not do AIA fetching on Linux.**
+Probed on 2026-09-11 (21:59 UTC−04:00) against the real host:
+
+```
+Windows, Go 1.27                     → 200 OK
+gcr.io/distroless/static, Go 1.27    → x509: certificate signed by unknown authority
+system roots + embedded R36          → 200 OK
+```
+
+The first two lines are the dangerous part: this works perfectly on the
+development machine, because Go uses the Windows platform verifier there and
+Windows does chase AIA, and fails only in the container that actually runs.
+
+**What the fix is, stated honestly.** This is **not** "supplying a missing
+intermediate". Go offers no way to inject an extra intermediate into the standard
+verifier, so the certificate is added to the **root** pool, which makes it an
+**additional trust anchor** for that client: anything that CA signs would be
+accepted by this transport. That is a real widening of trust. It is bounded on
+three sides:
+
+- the anchor is a genuine, publicly trusted Sectigo CA — not a self-signed
+  certificate anyone could mint;
+- the pool **starts from the system roots**, so nothing normally trusted is
+  removed;
+- it is applied **only when the configured URL names `www.bcv.org.ve`**. The base
+  URL is configurable through `FX_BCV_URL`, and an extra trust anchor must never
+  follow a configured URL to wherever it happens to point. Any other URL — a test
+  server, a mirror, a typo — gets ordinary verification.
+
+Everything else stays strict: hostname verification on, TLS 1.2 floor, same-host
+redirects only, at most three of them.
+
+The embedded certificate's subject, issuer, SHA-256 fingerprint and validity are
+recorded in code and asserted by a test, so that a replacement — a bad merge, a
+careless refresh, a copy-paste from the wrong tab — fails the build rather than
+silently widening trust to whoever issued the substitute.
+
+**When it stops working.** If Sectigo rotates that CA, or the BCV fixes its chain
+and moves to another one, the fetch fails loudly and manual entry keeps working.
+That is the intended failure mode: a broken fetch is visible, silently weakened
+verification is not.
+
+---
+
+## TD-051 — The business calendar is a fixed UTC−04:00 zone, and `Today` is not UTC
+
+**Status:** Accepted · **Milestone:** M5
+
+**Decision.** `database.EconomicLocation` is `time.FixedZone("-04:00", -4*3600)`,
+and `database.Today` returns the calendar date it is *in Venezuela*, not
+`time.Now().UTC()` truncated to a day.
+
+**Rationale for the second half first, because it was a live bug.** At 21:59 in
+Caracas on 2026-09-11, UTC is already 2026-09-12. A UTC "today" is therefore wrong
+for four hours out of every twenty-four, and in this application that means asking
+for exchange rates effective on a day the user has not reached, and pre-filling a
+financial form with tomorrow's date. `database.Today` had existed since M2 with
+exactly this defect; nothing had caught it because nothing called it yet.
+
+**Rationale for the fixed zone.** `time.LoadLocation("America/Caracas")` is the
+obvious spelling and would fail at runtime: `gcr.io/distroless/static` ships no
+tzdata at all, so it would work in development and break in the container — the
+worst possible distribution of failure.
+
+`import _ "time/tzdata"` fixes that by embedding the database, at roughly 450 KB
+on a 5.8 MB image. It was rejected because **it buys no freshness**: an embedded
+tzdata is frozen at build time exactly like a constant is, so a change to
+Venezuela's offset would require a rebuild either way. Given that, the constant is
+smaller and cannot fail at runtime.
+
+Venezuela observes no daylight saving, so there is no *rule* to get wrong within a
+year — only a permanent offset, which has changed twice in twenty years (2007 and
+2016). If it changes again, `EconomicLocation` is the one place it changes.
+
+---
+
+## TD-052 — Valuation is its own package, and the net worth is never stored
+
+**Status:** Accepted · **Milestone:** M5
+
+**Decision.** `internal/valuation` holds the consolidated net worth. It reads from
+`ledger`, `fx` and `settings`, writes nothing, and stores nothing.
+
+**Why its own package.** It combines three domains that do not know about each
+other. It is not in `internal/application`, because that package exists for
+**writes that must span two domains atomically** (TD-030) and this writes nothing
+— the atomicity argument that justifies `application` simply does not apply. It is
+not inside `fx` either, because that would make the package that owns exchange
+rates depend on the ledger, and `fx` should be about rates.
+
+**Why nothing is stored.** There is no `current_net_worth` column, no
+`converted_balance`, no cache table and no in-memory cache. The net worth is a
+*function* of the ledger, the stored rates and the base currency; a stored copy
+would be a fourth thing that could disagree with the three that produce it, and
+the first time it disagreed nobody would know which was right. This is the same
+reasoning that has kept every balance derived since M2, applied one level up.
+
+A test looks for tables whose names suggest a cached valuation and fails if it
+finds one, so the idea has to be argued for rather than merely added.
+
+**Why a missing rate is not an error.** `GetNetWorthAt` returns `Complete = false`
+plus the list of unresolvable pairs, rather than failing. An error would deny the
+user the part of their net worth that *is* known; a zero would silently shrink the
+total. Reporting the gap explicitly is the only option that is both useful and
+true, and it gives the interface something to act on — the missing pair, the
+amount at stake, and a link to the form that fixes it.
+
+---
+
+## TD-053 — An observation is never used before its effective date
+
+**Status:** Accepted · **Milestone:** M5
+
+**Decision.** The rate lookup is `latest effective_date <= valuation_date`, with
+**no exception and no fallback**. An observation dated after the valuation date
+takes no part in any resolution — direct, inverted or crossed. If it is the only
+one for a pair, that currency is reported **missing**, not approximated.
+
+**Why this needs its own decision.** The BCV publishes **forward**. On Friday
+2026-09-11 its page carried a Fecha Valor of Tuesday 2026-09-15 — verified by
+fetching it. So a fresh installation whose first fetch happens on a Friday can
+hold a perfectly good rate and still be unable to value today, and the tempting
+fix is to fall back to the nearest available observation and label it.
+
+That fix was designed, and then rejected. Reaching forward is **look-ahead bias**:
+it makes a figure about a given day depend on information that did not exist on
+that day. It would be harmless-looking on today's dashboard and quietly wrong
+everywhere the same function is used to value the past, which is precisely what
+the historical milestone will do with it. A label on the screen does not undo a
+number that was computed from the future.
+
+The gap is the honest answer, and it is actionable: the interface names the
+missing pair and offers the form that fixes it. The forward-dated observation is
+still stored and still shown, marked as upcoming, and becomes usable on its own
+date and not one day earlier.
+
+---
+
+## TD-054 — No third-party rate mirror in M5
+
+**Status:** Accepted · **Milestone:** M5
+
+**Decision.** `source` admits `MANUAL` and `BCV_OFFICIAL` and nothing else. No
+`BCV_MIRROR` value exists, not even unused.
+
+**Rationale.** A mirror was genuinely wanted: this application can be switched off
+for days, the BCV's page shows only the current publication, and the historical
+milestone will need past rates. Two candidates were evaluated on 2026-09-11.
+
+`pydolarve.org`, the most-cited historical mirror, **no longer resolves in DNS**.
+
+`ve.dolarapi.com` answers, and its answer disqualifies it:
+
+```json
+{"moneda":"USD","promedio":832.4883,"fechaActualizacion":"2026-09-11T00:00:00-04:00"}
+```
+
+Four decimal places where the BCV publishes eight, delivered as a JSON *number* —
+so it has already been through a float — under a date field that is not the Fecha
+Valor, and holding a value that disagrees with what the BCV's own page was showing
+at that moment.
+
+Storing that as a source called `BCV_MIRROR` would put rows in this database that
+say "BCV" without being the BCV, at reduced precision, dated by a field that means
+something else. Manual backfill is exact and already exists. A value is added to
+the enumeration when a source worth trusting is actually implemented, not in
+anticipation of one.

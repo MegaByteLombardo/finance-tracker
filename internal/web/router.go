@@ -107,5 +107,25 @@ func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
 	mux.HandleFunc("POST /settings/data", handleCreateBackup(logger, svcs))
 	mux.HandleFunc("POST /settings/data/backup", handleCreateBackup(logger, svcs))
 
+	// Settings: the valuation base currency (M5)
+	// "GET /settings" matches that exact path only; "/settings/{$}" would match
+	// "/settings/" and make the bare path a redirect.
+	mux.HandleFunc("GET /settings", handleSettingsIndex(logger, renderer, svcs))
+	mux.HandleFunc("GET /settings/{$}", handleSettingsIndex(logger, renderer, svcs))
+	mux.HandleFunc("POST /settings/base-currency", handleSetBaseCurrency(logger, renderer, svcs))
+
+	// Exchange rates (M5). These are REFERENCE rates, used to value balances;
+	// no transaction carries a rate.
+	mux.HandleFunc("GET /settings/exchange-rates", handleExchangeRatesList(logger, renderer, svcs))
+	mux.HandleFunc("POST /settings/exchange-rates", handleCreateManualRate(logger, renderer, svcs))
+	mux.HandleFunc("POST /settings/exchange-rates/refresh", handleRefreshRates(logger, renderer, svcs))
+	mux.HandleFunc("POST /settings/exchange-rates/{id}", handleUpdateManualRate(logger, renderer, svcs))
+	mux.HandleFunc("POST /settings/exchange-rates/{id}/toggle", handleToggleManualRate(logger, svcs))
+
+	// Mobile equivalents, rendered with the mobile layout against the same
+	// handlers' data.
+	mux.HandleFunc("GET /mobile/configuracion", handleMobileSettings(logger, renderer, svcs))
+	mux.HandleFunc("GET /mobile/tasas", handleMobileExchangeRates(logger, renderer, svcs))
+
 	return mux
 }

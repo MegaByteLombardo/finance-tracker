@@ -1,0 +1,171 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Tasas de cambio</h1>
+    <p class="page-subtitle">
+      Tasas de referencia para valorar el patrimonio en {{ if .BaseCurrencyCode }}{{ .BaseCurrencyCode }}{{ else }}la moneda base{{ end }}
+    </p>
+  </div>
+  {{ if .ProviderEnabled }}
+  <div class="page-actions">
+    <form action="/settings/exchange-rates/refresh" method="POST" style="display: inline;">
+      <button type="submit" class="btn btn-primary">Actualizar tasas BCV</button>
+    </form>
+  </div>
+  {{ end }}
+</div>
+
+<div class="card" style="margin-bottom: var(--space-6);">
+  <div class="card-body" style="padding: var(--space-4); font-size: 0.875rem; color: var(--text-muted); line-height: 1.5;">
+    <p style="margin: 0 0 var(--space-2) 0;">
+      Cada fila dice <code>1 base = tasa cotizada</code>. Por ejemplo
+      <code>USD/VES = 842.20670000</code> significa <em>1 USD = 842,2067 VES</em>.
+    </p>
+    <p style="margin: 0 0 var(--space-2) 0;">
+      La <strong>fecha valor</strong> es la fecha económica que publicó la fuente, no el día en que se
+      descargó. Una tasa rige hasta que se publique la siguiente, así que un domingo se valora con la
+      tasa del viernes sin necesidad de crear una fila para el fin de semana.
+    </p>
+    <p style="margin: 0;">
+      Una tasa <strong>manual</strong> tiene prioridad sobre la publicada <em>en su misma fecha valor</em>,
+      y sólo en ella. Archivar la manual restablece la oficial de ese día sin borrar nada.
+    </p>
+  </div>
+</div>
+
+{{ if .Form.Errors.general }}
+<div class="alert alert-danger" role="alert">{{ .Form.Errors.general }}</div>
+{{ end }}
+
+<div class="card" style="margin-bottom: var(--space-6);">
+  <div class="card-header">
+    <h2 class="card-title" style="font-size: 1rem;">Registrar una tasa manual</h2>
+  </div>
+  <div class="card-body" style="padding: var(--space-4);">
+    <form action="/settings/exchange-rates" method="POST">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="base_currency_code" class="form-label">Moneda base del par</label>
+          <select id="base_currency_code" name="base_currency_code" class="form-select">
+            {{ range .Currencies }}
+            <option value="{{ .Code }}" {{ if eq .Code $.Form.BaseCurrencyCode }}selected{{ end }}>{{ .Code }}</option>
+            {{ end }}
+          </select>
+          {{ if .Form.Errors.base_currency_code }}
+          <p class="form-error">{{ .Form.Errors.base_currency_code }}</p>
+          {{ end }}
+        </div>
+
+        <div class="form-group">
+          <label for="quote_currency_code" class="form-label">Moneda cotizada</label>
+          <select id="quote_currency_code" name="quote_currency_code" class="form-select">
+            {{ range .Currencies }}
+            <option value="{{ .Code }}" {{ if eq .Code $.Form.QuoteCurrencyCode }}selected{{ end }}>{{ .Code }}</option>
+            {{ end }}
+          </select>
+          {{ if .Form.Errors.quote_currency_code }}
+          <p class="form-error">{{ .Form.Errors.quote_currency_code }}</p>
+          {{ end }}
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="rate" class="form-label">Tasa</label>
+          <input type="text" id="rate" name="rate" class="form-input" inputmode="decimal"
+                 value="{{ .Form.Rate }}" placeholder="842.20670000" autocomplete="off">
+          <p class="form-hint">Punto decimal, sin separadores de miles y sin coma.</p>
+          {{ if .Form.Errors.rate }}
+          <p class="form-error">{{ .Form.Errors.rate }}</p>
+          {{ end }}
+        </div>
+
+        <div class="form-group">
+          <label for="effective_date" class="form-label">Fecha valor</label>
+          <input type="date" id="effective_date" name="effective_date" class="form-input"
+                 value="{{ .Form.EffectiveDate }}">
+          {{ if .Form.Errors.effective_date }}
+          <p class="form-error">{{ .Form.Errors.effective_date }}</p>
+          {{ end }}
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Guardar tasa</button>
+    </form>
+  </div>
+</div>
+
+<div class="page-actions" style="margin-bottom: var(--space-4);">
+  {{ if .ShowArchived }}
+  <a href="/settings/exchange-rates" class="btn btn-secondary">Ocultar archivadas</a>
+  {{ else }}
+  <a href="/settings/exchange-rates?archived=1" class="btn btn-secondary">Mostrar archivadas</a>
+  {{ end }}
+</div>
+
+{{ if not .Rates }}
+<div class="empty-state">
+  <div class="empty-state-icon">💱</div>
+  <h3 class="empty-state-title">Todavía no hay tasas</h3>
+  <p class="empty-state-text">
+    Registre una manualmente{{ if .ProviderEnabled }} o descargue las del BCV{{ end }}.
+    Sin tasas, el patrimonio consolidado se mostrará incompleto en lugar de suponer un valor.
+  </p>
+</div>
+{{ else }}
+<div class="card">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Par</th>
+        <th>Tasa</th>
+        <th>Fecha valor</th>
+        <th>Fuente</th>
+        <th>Estado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .Rates }}
+      <tr {{ if not .IsActive }}class="is-archived"{{ end }}>
+        <td><strong>{{ .Pair }}</strong></td>
+        <td class="numeric">{{ .Rate }}</td>
+        <td>
+          {{ formatDate .EffectiveDate }}
+          {{ if .IsUpcoming }}
+          <span class="badge badge-info" title="Publicada con fecha valor futura: todavía no se usa para valorar">
+            próxima
+          </span>
+          {{ end }}
+        </td>
+        <td>
+          <span class="badge {{ if eq .Source "MANUAL" }}badge-warning{{ else }}badge-neutral{{ end }}">
+            {{ .SourceLabel }}
+          </span>
+        </td>
+        <td>{{ if .IsActive }}activa{{ else }}archivada{{ end }}</td>
+        <td class="row-actions">
+          {{ if .IsEditable }}
+          <form action="/settings/exchange-rates/{{ .ID }}" method="POST" class="inline-form">
+            <input type="text" name="rate" value="{{ .Rate }}" class="form-input form-input-sm"
+                   inputmode="decimal" aria-label="Nueva tasa para {{ .Pair }}">
+            <button type="submit" class="btn btn-sm btn-secondary">Guardar</button>
+          </form>
+          <form action="/settings/exchange-rates/{{ .ID }}/toggle" method="POST" class="inline-form">
+            <button type="submit" class="btn btn-sm btn-secondary">
+              {{ if .IsActive }}Archivar{{ else }}Restaurar{{ end }}
+            </button>
+          </form>
+          {{ else }}
+          <span class="text-muted" title="Una tasa publicada por el BCV es el registro de lo que se publicó. Para discrepar, registre una tasa manual con la misma fecha valor.">
+            publicada
+          </span>
+          {{ end }}
+        </td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{ end }}
+{{ end }}

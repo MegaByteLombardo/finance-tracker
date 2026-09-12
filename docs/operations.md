@@ -47,6 +47,15 @@ involved. `.env` is git-ignored and must never be committed.
 | `BACKUP_RETENTION` | `10` | How many **shutdown** snapshots to keep. `0` keeps every one. Other kinds are never pruned. |
 | `HTTP_PORT` | `8080` | Host port published by Compose. Read by `compose.yaml` only, not by the application. |
 | `BACKUP_HOST_DIR` | `./backups` | Host side of the backups bind mount. Read by `compose.yaml` only. |
+| `FX_BCV_ENABLED` | `true` | Whether to fetch exchange rates from the BCV at all. `false` leaves manual entry and everything else working. |
+| `FX_BCV_URL` | `https://www.bcv.org.ve/` | Where the rates are read from. See the note below before pointing this elsewhere. |
+| `FX_BCV_TIMEOUT` | `15s` | Bounds one fetch, end to end. |
+| `FX_REFRESH_EVERY` | `4h` | How often the refresher **wakes up**, not how often it fetches: at most one successful fetch per Venezuelan calendar day. |
+
+`FX_BCV_URL` is configurable for tests and rehearsals, and one thing about it is
+deliberate: the additional TLS trust anchor the real host needs is applied **only**
+when this names `www.bcv.org.ve`. Any other address gets ordinary verification.
+See [TD-050](technical-decisions.md).
 
 Under Docker Compose, `HTTP_ADDR` is fixed to `:8080` inside the container,
 `DB_PATH` to `/data/finance.db` and `BACKUP_DIR` to `/backups`. Use `HTTP_PORT`
@@ -371,10 +380,151 @@ docker compose run --rm app restore --file finance-<stamp>-premigration.db
 docker compose up -d
 ```
 
+## Exchange rates and the BCV
+
+From M5 the application values everything the user holds in a single base
+currency. The rates it uses are **reference rates** — what a source said a
+currency was worth on a day — and never the rate a particular transaction
+happened at. No transaction carries a rate.
+
+### The external source is never a dependency
+
+**Finance Tracker starts and works with no network at all.** Accounts, the ledger,
+balances, manually entered rates and the net worth computed from rates already
+stored are all available the moment the listener opens.
+
+The refresher starts *after* the HTTP server is listening and never blocks
+startup. A DNS failure, a TLS failure, a timeout, a 500 from the BCV or a change
+to its page all produce a log line and nothing else. Migrations are a
+precondition for serving; an external rate source is not.
+
+The same applies in the interface: pressing **Actualizar tasas BCV** when the site
+is down re-renders the page with a message and HTTP 200. Every stored rate stays
+visible and manual entry stays available.
+
+### When rates are fetched
+
+At most **one successful fetch per Venezuelan calendar day**. The refresher wakes
+every `FX_REFRESH_EVERY` (four hours by default) and does nothing unless the day's
+rates have not been collected yet, so the interval is really the retry cadence for
+a day when the source is down — six attempts rather than the twenty-four an hourly
+tick would make.
+
+Staleness is measured on `fetched_at`, not on `effective_date`, and deliberately:
+
+- the BCV holds one Fecha Valor across a weekend, so an `effective_date` two days
+  old is not evidence of anything being wrong;
+- the BCV also publishes **forward** — its page on Friday 2026-09-11 carried a
+  Fecha Valor of Tuesday 2026-09-15.
+
+A rule based on `effective_date` would therefore be wrong in both directions at
+once.
+
+### Reading the logs
+
+```text
+exchange rates refreshed    provider=BCV_OFFICIAL effective_date=2026-09-15 rates=2 skipped=3 duration=412ms
+exchange rate refresh failed provider=BCV_OFFICIAL duration=15.0s error="the rate provider could not be reached: ..."
+```
+
+`skipped` counts observations for currencies this application does not have. They
+are dropped, never created: scraping an external document must not be able to
+bring new entities into the database.
+
+**The body of the response is never logged.** It is 150 KB of somebody else's
+HTML, and nothing in it is worth keeping.
+
+The one line worth an alert is at `ERROR` level:
+
+```text
+the exchange rate provider returned something unexpected  provider=BCV_OFFICIAL error="..."
+```
+
+It means the site answered and this application could not understand it, which
+almost always means the page changed shape and the parser needs updating.
+
+### When the BCV changes its page
+
+The parser anchors on the element ids of the rate blocks and **verifies that each
+block states the currency it is expected to state**, so a rearranged page fails
+rather than being read as a dollar rate. That is on purpose: a missing rate is
+visible and recoverable, a wrong one is neither.
+
+To diagnose one:
+
+1. Fetch the page by hand and look at the rate section:
+   `curl -s https://www.bcv.org.ve/ | grep -o 'id="dolar".\{0,400\}'`
+2. Compare it with the fixtures in `internal/fx/testdata/`, which are the real
+   markup captured on 2026-09-11.
+3. Update `bcvBlocks` and the parsing in `internal/fx/provider_bcv.go`, and add a
+   fixture for whatever the new shape is.
+
+**Nothing is urgent while this is broken.** Manual entry covers it, and the stored
+rates keep working.
+
+### If the fetch starts failing with a certificate error
+
+`www.bcv.org.ve` serves a broken certificate chain: the intermediate it sends is
+not its leaf's issuer. Go does not chase AIA on Linux, so the correct issuer is
+embedded in the binary and added as an additional trust anchor **for that one
+hostname**. See [TD-050](technical-decisions.md) for the full reasoning and its
+boundaries.
+
+If Sectigo rotates that CA, or the BCV moves to a different one, the fetch fails
+with `x509: certificate signed by unknown authority`. The fix is to fetch the new
+issuer from the leaf's AIA extension and replace
+`internal/fx/bcv_issuer.pem`, updating the recorded fingerprint in
+`internal/fx/bcv_tls.go` — a test asserts the two agree, so a mismatched
+replacement fails the build rather than silently widening trust.
+
+```
+openssl s_client -connect www.bcv.org.ve:443 -servername www.bcv.org.ve </dev/null 2>/dev/null \
+  | openssl x509 -noout -text | grep -A2 "Authority Information Access"
+```
+
+**Do not reach for `InsecureSkipVerify`.** It appears nowhere in this repository
+and a test walks the source tree to keep it that way.
+
+### Turning the source off
+
+```
+FX_BCV_ENABLED=false
+```
+
+Everything else keeps working; the refresh button disappears from the interface
+and manual entry is the only way rates arrive.
+
+### Where a rate comes from, and which one wins
+
+Two sources can state different values for the same day, and both are kept.
+`MANUAL` beats `BCV_OFFICIAL` **within one effective date and never across
+dates** — a manual rate typed on the 3rd does not shadow a publication dated the
+10th. Withdrawing a manual override is archiving it, not deleting it; the
+published rate underneath applies again.
+
+To see what the application is actually using:
+
+```sql
+SELECT base_currency_code, quote_currency_code, effective_date, rate, source, is_active
+  FROM exchange_rates
+ ORDER BY effective_date DESC, base_currency_code;
+```
+
+### The business calendar is Venezuela's
+
+The valuation date, the date a form defaults to, and the day the refresher
+considers "today" are all the calendar date in **UTC−04:00**, not UTC. At 21:00 in
+Caracas, UTC is already tomorrow. See [TD-051](technical-decisions.md).
+
 ## Not in scope
 
 CI/CD, cloud deployment, monitoring and alerting, and hot reload remain outside
 the project's scope. Scheduled backups are not implemented either — snapshots are
 taken before migrations, on shutdown and on request, which covers the failure
 this project actually suffered; a cron-style scheduler arrives if a need for one
-does. See [milestones.md](milestones.md).
+does.
+
+The exchange-rate refresher is **not** a general scheduler and should not become
+one: it is one goroutine with one ticker running one job once a day. A second
+periodic job would be the moment to reconsider, not before. See
+[milestones.md](milestones.md).

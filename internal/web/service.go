@@ -66,6 +66,60 @@ type ApplicationService interface {
 	OpenAccount(ctx context.Context, in OpenAccountInput) (OpenAccountResult, error)
 }
 
+// ExchangeRateService is the M5 surface for reference exchange rates.
+//
+// Everything it returns is REFERENCE / VALUATION FX. Nothing here is the rate a
+// transaction happened at, and no transaction carries one.
+type ExchangeRateService interface {
+	// List returns observations, newest effective date first.
+	List(ctx context.Context, in ListExchangeRatesInput) ([]ExchangeRate, error)
+
+	// Get returns one observation, archived or not.
+	Get(ctx context.Context, id int64) (ExchangeRate, error)
+
+	// CreateManual records a rate the user typed. The source is set by the
+	// backend; see CreateManualRateInput.
+	CreateManual(ctx context.Context, in CreateManualRateInput) (ExchangeRate, error)
+
+	// UpdateManual corrects a manual rate's value. It returns
+	// ErrRateNotEditable for an observation from an automatic source.
+	UpdateManual(ctx context.Context, id int64, in UpdateManualRateInput) (ExchangeRate, error)
+
+	// SetManualActive archives or restores a manual rate. Archiving is how an
+	// override is withdrawn; there is no delete.
+	SetManualActive(ctx context.Context, id int64, isActive bool) (ExchangeRate, error)
+
+	// RefreshNow fetches the external source immediately.
+	//
+	// A failure here is ordinary. Report it on the page and leave everything
+	// else working -- never a 500, and never a reason to hide the rates that are
+	// already stored.
+	RefreshNow(ctx context.Context) (RefreshRatesResult, error)
+
+	// ProviderEnabled reports whether an automatic source is configured, so the
+	// interface can omit a button that could not do anything.
+	ProviderEnabled() bool
+}
+
+// SettingsService owns the application's own configuration.
+type SettingsService interface {
+	Get(ctx context.Context) (AppSettings, error)
+
+	// SetBaseCurrency changes the valuation base. It changes no transaction, no
+	// movement and no balance.
+	SetBaseCurrency(ctx context.Context, code string) (AppSettings, error)
+}
+
+// ValuationService computes the consolidated net worth.
+//
+// The result is derived on every call and never stored. A handler must not cache
+// it, and no template may add figures from it together -- the totals are already
+// computed, in integer minor units, by the only code allowed to do arithmetic on
+// money.
+type ValuationService interface {
+	GetCurrentNetWorth(ctx context.Context) (NetWorth, error)
+}
+
 // Services bundles all services needed by the presentation layer.
 type Services struct {
 	Currencies  CurrencyService
@@ -75,4 +129,8 @@ type Services struct {
 	Ledger      LedgerService
 	Backups     BackupService
 	Application ApplicationService
+
+	Rates     ExchangeRateService
+	Settings  SettingsService
+	Valuation ValuationService
 }

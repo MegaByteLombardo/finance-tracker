@@ -13,6 +13,12 @@ import (
 // FakeServices provides an in-memory, thread-safe implementation of all M2 services
 // following the exact rules and invariants defined in docs/m2-contract.md.
 type FakeServices struct {
+	// Rates holds the M5 stand-ins: exchange rates, the valuation base and the
+	// net worth. It is exported so a test can drive the provider's failure paths
+	// and the incomplete-valuation path, which is most of what is interesting
+	// about those screens.
+	Rates *FakeRateStore
+
 	mu           sync.RWMutex
 	currencies   map[string]Currency
 	accounts     map[int64]Account
@@ -1363,6 +1369,9 @@ func (s fakeCategoryService) SetActive(ctx context.Context, id int64, isActive b
 
 // BuildServices returns a configured *Services referencing the fake implementation
 func (fs *FakeServices) BuildServices() *Services {
+	if fs.Rates == nil {
+		fs.Rates = NewFakeRateStore()
+	}
 	return &Services{
 		Currencies:  fs,
 		Accounts:    fakeAccountService{fs},
@@ -1371,6 +1380,10 @@ func (fs *FakeServices) BuildServices() *Services {
 		Ledger:      fs,
 		Backups:     fakeBackupService{fs},
 		Application: fs,
+
+		Rates:     fs.Rates,
+		Settings:  fakeSettingsService{fs.Rates},
+		Valuation: fs.Rates,
 	}
 }
 

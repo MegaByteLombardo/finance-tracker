@@ -1,6 +1,6 @@
 # Data model
 
-Current schema version: **10** (M4). Migrations live in
+Current schema version: **12** (M5). Migrations live in
 [`internal/migrations/`](../internal/migrations) and are applied automatically at startup.
 
 ```
@@ -17,7 +17,19 @@ accounts                       └──── transactions ────┘
   account_id (FK, NOT NULL)      transaction_id (FK, NOT NULL)
         └──────── account_movements ────────┘
                     amount_minor
+
+currencies                     currencies
+  code (PK)                      code (PK)
+     │ 1                            │ 1
+     │ N (base, quote)              │ 1
+exchange_rates                 app_settings          (exactly one row)
+  effective_date · rate · source   base_currency_code
 ```
+
+`exchange_rates` and `app_settings` sit **beside** the ledger, not inside it.
+Nothing in the two tables above them changed when they arrived: no column was
+added anywhere, and `transactions` in particular did **not** gain an
+`exchange_rate_id`. They are read by a valuation, never by a write.
 
 Every foreign key is `ON DELETE RESTRICT ON UPDATE RESTRICT`. Nothing in this
 schema is ever deleted in normal operation.
@@ -649,9 +661,10 @@ signal — it just quietly disagrees.
 
 Amounts are stored as **integer minor units** (`INTEGER` / `int64`) alongside the
 currency they are denominated in; an amount without its currency is meaningless
-and the two are never separated. Exchange rates will use an exact representation
-— integer numerator and denominator, or scaled integers with a recorded scale —
-never a float.
+and the two are never separated. **As of M5 exchange rates are exact too**: a
+canonical decimal string, with every operation performed on `math/big` rationals
+so that inversion and cross rates never round. See `exchange_rates` below and
+[TD-046](technical-decisions.md).
 
 **As of M2 this is enforced schema, not a forward-looking rule.**
 
@@ -739,17 +752,236 @@ ordinary start migrates it forward.
 
 ---
 
+---
+
+## `exchange_rates` *(M5)*
+
+What a source said one currency was worth in another, on a given day.
+
+`CREATE TABLE exchange_rates (...) STRICT;`
+
+**This table is REFERENCE / VALUATION FX and nothing else.** It records rates used
+to express balances the user already holds in a single currency, for presentation.
+It is never the rate a particular operation happened at — a card's rate on a
+purchase, a merchant's rate, the rate a cross-currency transfer settled at. None
+of that exists in this application, `transactions` gained no `exchange_rate_id`,
+and nothing here implies one. Mixing the two would make it impossible to say later
+which one a stored number meant.
+
+### Orientation, fixed for the whole project
+
+```
+1 base_currency_code  =  rate  quote_currency_code
+
+base = USD, quote = VES, rate = '842.20670000'   →   1 USD = 842.2067 VES
+```
+
+The columns are `base` / `quote` rather than `from` / `to` because from/to invites
+a reader to assume a direction of conversion that the row does not state.
+Direction is the caller's question, answered by `internal/fx`, which inverts
+exactly rather than reading a second stored row that could disagree.
+
+Careful: the **base of a pair** is not the application's **base currency of
+valuation**. That one lives in `app_settings` and is called the valuation base
+everywhere in the Go code.
+
+| Column | Type | Null | Default | Constraints |
+| --- | --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | rowid | **PRIMARY KEY** (rowid alias) |
+| `base_currency_code` | `TEXT` | NOT NULL | — | **FK** → `currencies(code)`, `RESTRICT` both ways |
+| `quote_currency_code` | `TEXT` | NOT NULL | — | **FK** → `currencies(code)`, `RESTRICT` both ways |
+| `effective_date` | `TEXT` | NOT NULL | — | date `GLOB` **and** `date(x) IS x` |
+| `rate` | `TEXT` | NOT NULL | — | shape and positivity `CHECK` (below) |
+| `source` | `TEXT` | NOT NULL | — | `CHECK (source IN ('MANUAL','BCV_OFFICIAL'))` |
+| `is_active` | `INTEGER` | NOT NULL | `1` | `CHECK (is_active IN (0,1))` |
+| `fetched_at` | `TEXT` | **NULL** | — | timestamp `GLOB`, plus the table `CHECK` below |
+| `created_at` | `TEXT` | NOT NULL | `strftime(…)` | timestamp `GLOB` |
+| `updated_at` | `TEXT` | NOT NULL | same | timestamp `GLOB` |
+
+```sql
+CREATE UNIQUE INDEX idx_exchange_rates_observation
+    ON exchange_rates(base_currency_code, quote_currency_code, effective_date, source);
+
+CREATE INDEX idx_exchange_rates_lookup
+    ON exchange_rates(base_currency_code, quote_currency_code, effective_date DESC);
+
+CREATE INDEX idx_exchange_rates_quote_currency_code
+    ON exchange_rates(quote_currency_code);
+```
+
+**`rate` is `TEXT`, and that is a decision, not a shortcut.** `REAL` is binary
+floating point and cannot hold `842.20670000` exactly. TEXT rather than an integer
+mantissa plus a scale column because those two would have to be kept consistent by
+hand, because the same value would then have several spellings, and because the
+owner of this database opens it with the sqlite3 CLI — the same argument that made
+timestamps TEXT. **The scale is significant and preserved:** the trailing zeros of
+`'842.20670000'` record the precision the source published at. Full reasoning and
+the rejected alternatives: [TD-046](technical-decisions.md).
+
+What the `CHECK` honestly guarantees, and no more: the value is made only of digits
+and at most one decimal point, starts with a digit — so it carries no sign and no
+leading point — and is not zero.
+
+```sql
+CHECK (length(rate) BETWEEN 1 AND 48
+       AND rate GLOB '[0-9]*'
+       AND NOT rate GLOB '*[^0-9.]*'
+       AND length(rate) - length(replace(rate, '.', '')) <= 1
+       AND ltrim(replace(rate, '.', ''), '0') <> '')
+```
+
+The last clause is how **strict positivity is expressed without a cast**: stripping
+the point and then the leading zeros leaves an empty string exactly when the value
+is zero. `CAST(rate AS REAL) > 0` would have been shorter and would have put a
+float in the one place this project refuses to have one. Canonical form and scale
+bounds are validated in Go, in `internal/money`.
+
+Nothing in this application **orders or range-filters by rate**, so TEXT not
+sorting numerically costs nothing: the lookup is by pair and date, both exact.
+
+**`effective_date` is the ECONOMIC date** — the BCV's "Fecha Valor", or the day a
+manually entered rate applies to. It is emphatically not `fetched_at`, and the two
+disagree **in both directions**:
+
+- the BCV holds one Fecha Valor across a weekend, so Friday's rate is still the
+  rate in force on Sunday;
+- the BCV publishes **forward** — its page on Friday 2026-09-11 carried a Fecha
+  Valor of Tuesday 2026-09-15.
+
+**`fetched_at` belongs to a fetch.** It is present for an automatic source and
+absent for a manual one, enforced by a table `CHECK` written with `IS NULL` /
+`IS NOT NULL` on both sides so it can only be `TRUE` or `FALSE` (TD-025):
+
+```sql
+CHECK ((source =  'MANUAL' AND fetched_at IS NULL)
+       OR
+       (source <> 'MANUAL' AND fetched_at IS NOT NULL))
+```
+
+**`source` is an enumeration, not an `is_manual` boolean**, because provenance is
+the point: two sources can state different values for the same day, and the
+application has to know which to prefer and be able to tell the user which it
+used. There is no `BCV_MIRROR`; see [TD-054](technical-decisions.md).
+
+**`is_active`** retires an observation without destroying it. Archiving a manual
+rate is how an override is withdrawn: valuation ignores archived rows, so the
+official rate underneath applies again. There is no delete, here or anywhere.
+
+### Uniqueness, and why the provider upserts but a person does not
+
+The natural identity of an observation is **one source, one pair, one economic
+day**, which is what the unique index says.
+
+A second run of the scraper on the same day is the same publication being seen
+again, and a corrected publication for the same Fecha Valor is a correction of the
+same fact — neither is a second observation, so the provider **upserts**. A person
+typing a value that already exists has not been told it is there, so a manual
+creation **conflicts** and offers the edit instead. The difference is deliberate.
+
+A manual rate and an official rate for the same day are two different observations
+and **both survive**, which is what makes precedence a decision rather than a
+destructive write.
+
+### Indexes
+
+- **`(base, quote, effective_date, source)`**, unique — the identity above.
+- **`(base, quote, effective_date DESC)`** — the critical path of every valuation:
+  `WHERE base = ? AND quote = ? AND effective_date <= ? ORDER BY effective_date
+  DESC LIMIT 1`. SQLite walks it backwards with no sort. Source precedence is
+  resolved among the rows of the single winning date, a handful at most, so it is
+  not part of the key.
+- **`(quote_currency_code)`** — SQLite does not index the child columns of a
+  foreign key. `base_currency_code` leads both indexes above and is covered;
+  `quote_currency_code` is not, and without this every `RESTRICT` check against
+  `currencies` would scan this table in full.
+
+### Lifecycle
+
+Create → (manual only) correct the value → archive / restore. **There is no
+delete**, and a `BCV_OFFICIAL` row is not editable at all: it records what was
+published, and the way to disagree with a publication is a manual observation for
+the same day.
+
+The pair and the effective date are the **identity** of an observation and never
+change — changing them would name a different observation rather than correct this
+one. They are protected the way `currencies.code` is: by the absence of any code
+path that names them (TD-022).
+
+---
+
+## `app_settings` *(M5)*
+
+The application's own configuration. **Exactly one row, forever.**
+
+`CREATE TABLE app_settings (...) STRICT;`
+
+| Column | Type | Null | Default | Constraints |
+| --- | --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | — | **PRIMARY KEY**, `CHECK (id = 1)` |
+| `base_currency_code` | `TEXT` | NOT NULL | — | **FK** → `currencies(code)`, `RESTRICT` both ways |
+| `created_at` | `TEXT` | NOT NULL | `strftime(…)` | timestamp `GLOB` |
+| `updated_at` | `TEXT` | NOT NULL | same | timestamp `GLOB` |
+
+Seeded by the migration with `USD`.
+
+**`base_currency_code` is the valuation base:** the currency the consolidated net
+worth is expressed in. **Changing it rewrites nothing.** No transaction, no
+movement and no balance changes; each account keeps its own currency and its own
+amounts, and only the presentation of the consolidated figure changes. A test
+compares every ledger row before and after.
+
+**Why a typed column rather than `settings(key, value)`:** only a typed column can
+carry a real foreign key. A `value TEXT` holding `'USD'` references nothing, so
+archiving or renaming a currency could leave the setting pointing at something
+that no longer exists and nothing in the database would object. See
+[TD-048](technical-decisions.md).
+
+**Why `CHECK (id = 1)`:** with two rows, every reader would have to pick one and
+"the settings" would stop being a meaningful phrase. The row is created by the
+migration rather than lazily, so every read is a plain `SELECT` and its absence is
+an integrity failure rather than a state something has to handle.
+
+**No index on `base_currency_code`**, which is the one exception to the rule that
+every foreign key child column is indexed. That rule exists so a `RESTRICT` check
+does not scan the child table; this child table has exactly one row, so the scan
+*is* the row.
+
+This is **not** the beginning of a preferences system. One user, one process, one
+database file. A second setting arrives as a second column when a second setting
+exists.
+
+---
+
+## The net worth is not in this document
+
+There is no `current_net_worth`, no `converted_balance` and no `cached_net_worth`
+column or table, and there will not be one. The consolidated net worth is a
+**function** of three things this schema already holds — the movements, the rates
+and the valuation base — recomputed on every read by `internal/valuation`.
+
+A stored copy would be a fourth thing that could disagree with the three that
+produce it, and the first time it disagreed nobody would know which was right.
+This is the same reasoning that has kept every balance derived since M2, applied
+one level up. A test looks for tables whose names suggest a cached valuation and
+fails if it finds one.
+
+---
+
 ## What this document gains next
 
-Transfers arrived in M4. They added a fourth `transaction_type` and the first
-transaction with **two** movements, and the prediction this section used to make
-held: no table gained a column, `account_movements.transaction_id` was already
-not unique, and the balance derivation already summed whatever was there. The
-only schema change was widening two `CHECK` constraints, which in SQLite means
-rebuilding the table — migration `00010`, following the child-first order
-[TD-037](technical-decisions.md) established.
+FX arrived in M5, and the prediction this section used to make held: exchange
+rates needed an exact non-integer representation, and they got one —
+[TD-046](technical-decisions.md) chose a canonical decimal string with `math/big`
+arithmetic over a mantissa/scale pair and over a third-party decimal package. The
+ledger was not touched: no table gained a column, `transactions` has no
+`exchange_rate_id`, and the balance derivation is unchanged.
 
-FX adds exchange rates, which need an exact non-integer representation — an
-integer numerator and denominator, or scaled integers with a recorded scale.
-That is the next real decision this document will carry, and it is the reason
-`internal/money` is its own package rather than part of `currency`.
+What M5 deliberately did **not** add is the thing the next milestone will need: a
+way to ask what the net worth was on a past date and get an answer cheaply.
+`valuation.GetNetWorthAt` already takes a date and already refuses to use an
+observation effective after it ([TD-053](technical-decisions.md)), so the
+arithmetic is ready; what is missing is history of the *balances*, which today
+means summing every movement from the beginning for every point on a chart. That
+is the next real decision this document will carry, and it is the reason
+`account_movements` has an index on `account_id` and not on `(account_id,
+created_at)`.

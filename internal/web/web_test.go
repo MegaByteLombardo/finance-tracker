@@ -112,9 +112,15 @@ func TestDashboardWithAccounts(t *testing.T) {
 		t.Errorf("expected VES balance 10,000.00 in dashboard")
 	}
 
-	// Verify currencies are grouped separately and notice is present
-	if !strings.Contains(bodyStr, "Finance Tracker does not convert or aggregate balances across different currencies") {
-		t.Errorf("expected no-FX warning notice in body")
+	// The currencies are still grouped separately and their balances are still
+	// the ledger's own figures. M5 added a consolidated VALUATION above them; it
+	// did not start summing balances across currencies, and the page has to keep
+	// saying which of the two figures is which.
+	if !strings.Contains(bodyStr, "nunca se suman entre monedas") {
+		t.Errorf("the dashboard no longer states that balances are not summed across currencies")
+	}
+	if !strings.Contains(bodyStr, "Patrimonio neto") {
+		t.Errorf("the dashboard does not show the consolidated net worth")
 	}
 
 	// Verify recent transactions appear

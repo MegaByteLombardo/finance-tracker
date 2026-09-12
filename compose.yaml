@@ -28,6 +28,13 @@ services:
       # this project lost data once already.
       BACKUP_DIR: /backups
       BACKUP_RETENTION: ${BACKUP_RETENTION:-10}
+      # Exchange rates (M5). The external source is a convenience, never a
+      # dependency: with FX_BCV_ENABLED=false, or with no network, the
+      # application starts and works exactly the same minus automatic rates.
+      FX_BCV_ENABLED: ${FX_BCV_ENABLED:-true}
+      FX_BCV_URL: ${FX_BCV_URL:-https://www.bcv.org.ve/}
+      FX_BCV_TIMEOUT: ${FX_BCV_TIMEOUT:-15s}
+      FX_REFRESH_EVERY: ${FX_REFRESH_EVERY:-4h}
     volumes:
       - finance_data:/data
       # Long syntax so create_host_path can be disabled. Without it, a missing

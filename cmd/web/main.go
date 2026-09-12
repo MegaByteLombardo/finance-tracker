@@ -34,6 +34,7 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/backup"
 	"github.com/MegaByteLombardo/finance-tracker/internal/config"
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
+	"github.com/MegaByteLombardo/finance-tracker/internal/fx"
 	"github.com/MegaByteLombardo/finance-tracker/internal/httpserver"
 	"github.com/MegaByteLombardo/finance-tracker/internal/migrations"
 	"github.com/MegaByteLombardo/finance-tracker/internal/web"
@@ -151,7 +152,26 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return errors.Join(fmt.Errorf("listening on %q: %w", cfg.HTTPAddr, err), db.Close())
 	}
 
-	webSvcs := adapter.New(db, backups)
+	// The exchange-rate service, and the external provider behind it if one is
+	// configured.
+	//
+	// A provider that cannot be BUILT -- a malformed URL, an unreadable embedded
+	// certificate -- is a configuration error and ends startup, because nothing
+	// about it will fix itself. A provider that cannot be REACHED is not: that
+	// is handled later, at fetch time, and never stops this process.
+	var provider fx.RateProvider
+	if cfg.FXProviderEnabled {
+		bcv, perr := fx.NewBCVProvider(cfg.FXProviderURL, nil, cfg.FXTimeout)
+		if perr != nil {
+			return errors.Join(fmt.Errorf("preparing the exchange rate provider: %w", perr), db.Close())
+		}
+		provider = bcv
+	} else {
+		logger.Info("the automatic exchange rate provider is disabled by configuration")
+	}
+	rates := fx.NewService(db, provider, logger)
+
+	webSvcs := adapter.New(db, backups, rates)
 	webRouter := web.NewRouter(logger, webSvcs, web.DefaultConfig())
 
 	srv := httpserver.New(logger, db, webRouter)
@@ -169,9 +189,33 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	logger.Info("http server listening", slog.String("addr", listener.Addr().String()))
 
+	// The background rate refresher starts AFTER the server is listening, and
+	// never before.
+	//
+	// This ordering is the whole resilience decision, stated as code. Exchange
+	// rates come from a government website that is regularly slow, occasionally
+	// unreachable, and entirely outside this application's control. Fetching
+	// them during startup -- the way migrations run during startup -- would make
+	// somebody else's downtime into this application's downtime, for a feature
+	// that only changes how a total is PRESENTED.
+	//
+	// So: accounts, the ledger, balances, manual rates and every stored rate are
+	// available the moment the listener opens. The refresher then catches up in
+	// its own time, and every failure it meets is a log line.
+	refreshCtx, stopRefresher := context.WithCancel(context.WithoutCancel(ctx))
+	refresherDone := make(chan struct{})
+	go func() {
+		defer close(refresherDone)
+		fx.NewRefresher(rates, cfg.FXRefreshInterval, logger).Run(refreshCtx)
+	}()
+
 	select {
 	case err := <-serveErr:
 		// The server fell over on its own; the listener is already closed.
+		// The refresher still has to be stopped and waited for before the
+		// database is closed underneath it.
+		stopRefresher()
+		<-refresherDone
 		return errors.Join(fmt.Errorf("http server: %w", err), db.Close())
 	case <-ctx.Done():
 		logger.Info("shutdown signal received")
@@ -180,6 +224,12 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	// Restore default signal handling: a second Ctrl+C should be able to kill a
 	// process that is wedged mid-shutdown.
 	stop()
+
+	// The refresher is stopped before the drain, not after: a fetch in flight
+	// holds the single SQLite connection, and the database must not be closed
+	// underneath it. Its context is cancelled and it is waited for.
+	stopRefresher()
+	<-refresherDone
 
 	// A fresh context -- the one above is already cancelled, and Shutdown needs
 	// a live deadline of its own.

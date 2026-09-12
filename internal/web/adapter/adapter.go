@@ -3,14 +3,18 @@ package adapter
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/account"
 	"github.com/MegaByteLombardo/finance-tracker/internal/application"
 	"github.com/MegaByteLombardo/finance-tracker/internal/backup"
 	"github.com/MegaByteLombardo/finance-tracker/internal/category"
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
+	"github.com/MegaByteLombardo/finance-tracker/internal/fx"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
 	"github.com/MegaByteLombardo/finance-tracker/internal/paymentmethod"
+	"github.com/MegaByteLombardo/finance-tracker/internal/settings"
+	"github.com/MegaByteLombardo/finance-tracker/internal/valuation"
 	"github.com/MegaByteLombardo/finance-tracker/internal/web"
 )
 
@@ -330,14 +334,28 @@ var (
 )
 
 // New builds the presentation layer's services over a real database and backup service.
-func New(db *sql.DB, backups *backup.Service) *web.Services {
+func New(db *sql.DB, backups *backup.Service, rates *fx.Service) *web.Services {
+	ledgerService := ledger.NewService(db)
+	settingsService := settings.NewService(db)
+	currencyService := currency.NewService(db)
+
 	return &web.Services{
-		Currencies:  &currencyAdapter{svc: currency.NewService(db)},
+		Currencies:  &currencyAdapter{svc: currencyService},
 		Accounts:    &accountAdapter{svc: account.NewService(db)},
 		Categories:  &categoryAdapter{svc: category.NewService(db)},
 		Methods:     &paymentMethodAdapter{svc: paymentmethod.NewService(db)},
-		Ledger:      &ledgerAdapter{svc: ledger.NewService(db)},
+		Ledger:      &ledgerAdapter{svc: ledgerService},
 		Backups:     &backupAdapter{svc: backups},
 		Application: &applicationAdapter{svc: application.NewService(db)},
+
+		// M5. The rate service arrives from the composition root rather than
+		// being built here, because it holds the provider -- which is
+		// configuration, and which the caller may deliberately have switched
+		// off.
+		Rates:    &exchangeRateAdapter{svc: rates, now: time.Now},
+		Settings: &settingsAdapter{svc: settingsService},
+		Valuation: &valuationAdapter{
+			svc: valuation.NewService(ledgerService, rates, settingsService, currencyService),
+		},
 	}
 }

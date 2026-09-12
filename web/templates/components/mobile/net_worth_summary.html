@@ -6,16 +6,15 @@
   </div>
   <div class="net-worth-meta">
     <span class="net-worth-base-tag">{{ .CurrencyLabel }}</span>
-    <span class="net-worth-change {{ if .IsPositiveChange }}is-positive{{ else }}is-negative{{ end }}" aria-label="Variación mensual {{ .MonthlyChangeMsg }}">
-      <svg class="change-trend-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        {{ if .IsPositiveChange }}
-          <polyline points="18 15 12 9 6 15"></polyline>
-        {{ else }}
-          <polyline points="6 9 12 15 18 9"></polyline>
-        {{ end }}
-      </svg>
-      <span>{{ .MonthlyChangeMsg }}</span>
-    </span>
+    {{ if .RatesAsOf }}
+    <span class="net-worth-rates-asof">Tasas al {{ .RatesAsOf }}</span>
+    {{ end }}
   </div>
+  {{ if not .Complete }}
+  <p class="net-worth-incomplete" role="status">
+    {{ .IncompleteMessage }}
+    <a href="/mobile/tasas">Agregar tasa</a>
+  </p>
+  {{ end }}
 </section>
 {{ end }}

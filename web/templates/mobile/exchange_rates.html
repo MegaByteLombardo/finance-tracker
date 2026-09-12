@@ -1,0 +1,51 @@
+{{ define "content" }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+
+    <header class="mobile-section">
+      <span class="section-eyebrow">Tasas de cambio</span>
+      <h1 class="section-title">
+        Referencia{{ if .Rates.BaseCurrencyCode }} · base {{ .Rates.BaseCurrencyCode }}{{ end }}
+      </h1>
+      <p class="section-note">
+        Cada fila dice <code>1 base = tasa cotizada</code>. La fecha valor es la fecha económica que
+        publicó la fuente, no el día de la descarga.
+      </p>
+    </header>
+
+    {{ if .Rates.ProviderEnabled }}
+    <section class="mobile-section">
+      <form action="/settings/exchange-rates/refresh" method="POST">
+        <button type="submit" class="mobile-btn mobile-btn-primary">Actualizar tasas BCV</button>
+      </form>
+    </section>
+    {{ end }}
+
+    <section class="mobile-section" aria-labelledby="rates-heading">
+      <h2 id="rates-heading" class="section-title">Tasas registradas</h2>
+      {{ if not .Rates.Rates }}
+      <p class="section-note">
+        Todavía no hay tasas. Sin ellas el patrimonio se muestra incompleto en lugar de suponer un valor.
+      </p>
+      {{ else }}
+      <ul class="mobile-list">
+        {{ range .Rates.Rates }}
+        <li class="mobile-list-item">
+          <div class="mobile-list-main">
+            <span class="mobile-list-title">{{ .Pair }}</span>
+            <span class="mobile-list-subtitle">
+              {{ formatDate .EffectiveDate }} · {{ .SourceLabel }}{{ if .IsUpcoming }} · próxima{{ end }}{{ if not .IsActive }} · archivada{{ end }}
+            </span>
+          </div>
+          <span class="mobile-list-amount">{{ .Rate }}</span>
+        </li>
+        {{ end }}
+      </ul>
+      {{ end }}
+    </section>
+
+    {{ template "bottom_navigation" .Navigation }}
+  </div>
+</div>
+{{ end }}

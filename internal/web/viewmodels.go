@@ -33,6 +33,15 @@ type PageData struct {
 
 // DashboardView holds all data needed for the Dashboard page
 type DashboardView struct {
+	// NetWorth is the consolidated figure, DERIVED on every request from the
+	// ledger, the stored rates and the base currency. It is never stored.
+	//
+	// When NetWorthError is set the rest of the page still renders: the
+	// per-currency balances below are the ledger's own figures and do not depend
+	// on any exchange rate.
+	NetWorth      NetWorth
+	NetWorthError string
+
 	CurrencySections   []CurrencySection
 	CurrencyTotals     []CurrencyTotal
 	RecentTransactions []TransactionView
