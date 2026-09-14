@@ -130,7 +130,7 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 			return
 		}
 
-		now := time.Now().UTC()
+		now := time.Now().In(economicLocation)
 		dateFormatted := formatDateSpanish(now)
 
 		// The per-currency balances, exactly as the ledger derived them. They are

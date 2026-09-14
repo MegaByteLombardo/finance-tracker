@@ -27,7 +27,12 @@
   {{ else }}
   <div class="card">
     <div class="card-header">
-      <h2 id="net-worth-title" class="card-title" style="font-size: 1rem;">Patrimonio neto</h2>
+      <h2 id="net-worth-title" class="card-title" style="font-size: 1rem;">
+        Patrimonio neto
+        {{ if not .NetWorth.Complete }}
+        <span class="badge badge-warning" style="font-size: 0.75rem; vertical-align: middle; margin-left: 6px;">incompleto</span>
+        {{ end }}
+      </h2>
       <span class="text-muted" style="font-size: 0.8125rem;">
         Base: {{ .NetWorth.BaseCurrencyCode }}{{ if not .NetWorth.RatesAsOf.IsZero }} · Tasas al {{ formatDate .NetWorth.RatesAsOf }}{{ end }}
       </span>
@@ -35,12 +40,15 @@
     <div class="card-body" style="padding: var(--space-4);">
       <p class="net-worth-total" style="font-size: 2rem; font-weight: 700; margin: 0 0 var(--space-4) 0;">
         {{ formatAmount .NetWorth.TotalFormatted }} {{ .NetWorth.BaseCurrencyCode }}
+        {{ if not .NetWorth.Complete }}
+        <span class="text-muted" style="font-size: 1rem; font-weight: 500;">(parcial)</span>
+        {{ end }}
       </p>
 
       {{ if not .NetWorth.Complete }}
       <div class="alert alert-warning" role="alert">
         <div>
-          <strong>Este total está incompleto.</strong>
+          <strong>Este total está incompleto:</strong>
           {{ range .NetWorth.Missing }}
           Falta una tasa {{ .FromCurrencyCode }} → {{ .ToCurrencyCode }} para valorar
           {{ .BalanceFormatted }} {{ .FromCurrencyCode }}.
@@ -72,14 +80,16 @@
               {{ if not .Valued }}
               <span class="badge badge-warning">sin tasa</span>
               {{ else if .Resolution }}
-                {{ .Resolution.MethodLabel }}
-                {{ if .Resolution.UsesManualOverride }}
-                <span class="badge badge-warning" title="Se usó una tasa manual en lugar de la publicada para esa misma fecha">
-                  override manual
-                </span>
-                {{ end }}
+                <div>
+                  <strong>{{ .Resolution.MethodLabel }}</strong>
+                  {{ if .Resolution.UsesManualOverride }}
+                  <span class="badge badge-warning" title="Se usó una tasa manual en lugar de la publicada para esa misma fecha">
+                    override manual
+                  </span>
+                  {{ end }}
+                </div>
                 {{ range .Resolution.Legs }}
-                <div class="text-muted">
+                <div class="text-muted" style="margin-top: 2px;">
                   {{ .Pair }} = {{ .Rate }}{{ if .Inverted }} (invertida){{ end }}
                   · {{ .SourceLabel }} · {{ formatDate .EffectiveDate }}
                 </div>

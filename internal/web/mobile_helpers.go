@@ -20,6 +20,7 @@ func formatDateSpanish(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
+	t = t.In(economicLocation)
 	weekday := spanishDays[t.Weekday()]
 	day := t.Day()
 	month := spanishMonths[t.Month()]
@@ -31,14 +32,14 @@ func formatDateHeadingSpanish(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	now := time.Now().UTC()
-	tUTC := t.UTC()
+	now := time.Now().In(economicLocation)
+	tEcon := t.In(economicLocation)
 
-	day := tUTC.Day()
-	month := spanishMonths[tUTC.Month()]
+	day := tEcon.Day()
+	month := spanishMonths[tEcon.Month()]
 
-	isToday := tUTC.Year() == now.Year() && tUTC.YearDay() == now.YearDay()
-	isYesterday := tUTC.Year() == now.Year() && tUTC.YearDay() == now.YearDay()-1
+	isToday := tEcon.Year() == now.Year() && tEcon.YearDay() == now.YearDay()
+	isYesterday := tEcon.Year() == now.Year() && tEcon.YearDay() == now.YearDay()-1
 
 	if isToday {
 		return fmt.Sprintf("Hoy, %d de %s", day, month)
@@ -47,10 +48,10 @@ func formatDateHeadingSpanish(t time.Time) string {
 		return fmt.Sprintf("Ayer, %d de %s", day, month)
 	}
 
-	if tUTC.Year() == now.Year() {
+	if tEcon.Year() == now.Year() {
 		return fmt.Sprintf("%d de %s", day, month)
 	}
-	return fmt.Sprintf("%d de %s %d", day, month, tUTC.Year())
+	return fmt.Sprintf("%d de %s %d", day, month, tEcon.Year())
 }
 
 // inferCategoryIconAndEmoji picks appropriate UI icons and emojis based on category name.

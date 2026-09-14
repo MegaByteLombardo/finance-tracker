@@ -4,12 +4,12 @@
     <h1 class="mobile-greeting">{{ .Greeting }}</h1>
     <p class="mobile-date">{{ .FormattedDate }}</p>
   </div>
-  <button class="mobile-avatar-btn" type="button" aria-label="Perfil y ajustes de {{ .UserName }}" title="Perfil y ajustes">
+  <a href="/mobile/configuracion" class="mobile-avatar-btn" aria-label="Perfil y ajustes de {{ .UserName }}" title="Perfil y ajustes">
     {{ if .AvatarURL }}
       <img src="{{ .AvatarURL }}" alt="{{ .UserName }}" class="mobile-avatar-img">
     {{ else }}
       <span class="mobile-avatar-initials">{{ .UserInitials }}</span>
     {{ end }}
-  </button>
+  </a>
 </header>
 {{ end }}

@@ -46,7 +46,7 @@
       <div class="form-row">
         <div class="form-group">
           <label for="base_currency_code" class="form-label">Moneda base del par</label>
-          <select id="base_currency_code" name="base_currency_code" class="form-select">
+          <select id="base_currency_code" name="base_currency_code" class="form-control">
             {{ range .Currencies }}
             <option value="{{ .Code }}" {{ if eq .Code $.Form.BaseCurrencyCode }}selected{{ end }}>{{ .Code }}</option>
             {{ end }}
@@ -58,7 +58,7 @@
 
         <div class="form-group">
           <label for="quote_currency_code" class="form-label">Moneda cotizada</label>
-          <select id="quote_currency_code" name="quote_currency_code" class="form-select">
+          <select id="quote_currency_code" name="quote_currency_code" class="form-control">
             {{ range .Currencies }}
             <option value="{{ .Code }}" {{ if eq .Code $.Form.QuoteCurrencyCode }}selected{{ end }}>{{ .Code }}</option>
             {{ end }}
@@ -72,9 +72,9 @@
       <div class="form-row">
         <div class="form-group">
           <label for="rate" class="form-label">Tasa</label>
-          <input type="text" id="rate" name="rate" class="form-input" inputmode="decimal"
+          <input type="text" id="rate" name="rate" class="form-control" inputmode="decimal"
                  value="{{ .Form.Rate }}" placeholder="842.20670000" autocomplete="off">
-          <p class="form-hint">Punto decimal, sin separadores de miles y sin coma.</p>
+          <p class="form-help">Punto decimal, sin separadores de miles y sin coma.</p>
           {{ if .Form.Errors.rate }}
           <p class="form-error">{{ .Form.Errors.rate }}</p>
           {{ end }}
@@ -82,7 +82,7 @@
 
         <div class="form-group">
           <label for="effective_date" class="form-label">Fecha valor</label>
-          <input type="date" id="effective_date" name="effective_date" class="form-input"
+          <input type="date" id="effective_date" name="effective_date" class="form-control"
                  value="{{ .Form.EffectiveDate }}">
           {{ if .Form.Errors.effective_date }}
           <p class="form-error">{{ .Form.Errors.effective_date }}</p>
@@ -147,7 +147,7 @@
         <td class="row-actions">
           {{ if .IsEditable }}
           <form action="/settings/exchange-rates/{{ .ID }}" method="POST" class="inline-form">
-            <input type="text" name="rate" value="{{ .Rate }}" class="form-input form-input-sm"
+            <input type="text" name="rate" value="{{ .Rate }}" class="form-control form-control-sm"
                    inputmode="decimal" aria-label="Nueva tasa para {{ .Pair }}">
             <button type="submit" class="btn btn-sm btn-secondary">Guardar</button>
           </form>
@@ -157,8 +157,8 @@
             </button>
           </form>
           {{ else }}
-          <span class="text-muted" title="Una tasa publicada por el BCV es el registro de lo que se publicó. Para discrepar, registre una tasa manual con la misma fecha valor.">
-            publicada
+          <span class="text-muted" style="font-size: 0.8125rem;" title="Una tasa publicada por el BCV es el registro de lo que se publicó. Para discrepar, registre una tasa manual con la misma fecha valor.">
+            publicada · Para discrepar, registre una tasa manual
           </span>
           {{ end }}
         </td>

@@ -142,7 +142,7 @@ func handleMobileTransactions(logger *slog.Logger, renderer *Renderer, svcs *Ser
 			return
 		}
 
-		now := time.Now().UTC()
+		now := time.Now().In(economicLocation)
 		monthName := spanishMonths[now.Month()]
 		if len(monthName) > 0 {
 			monthName = strings.ToUpper(monthName[:1]) + monthName[1:]

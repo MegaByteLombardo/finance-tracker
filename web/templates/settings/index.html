@@ -21,10 +21,10 @@
       cada cuenta conserva su moneda y sus importes, y sólo cambia cómo se presenta el total.
     </p>
 
-    <form action="/settings/base-currency" method="POST">
+    <form action="/settings/base-currency" method="POST" style="max-width: 440px;">
       <div class="form-group">
         <label for="base_currency_code" class="form-label">Moneda base</label>
-        <select id="base_currency_code" name="base_currency_code" class="form-select">
+        <select id="base_currency_code" name="base_currency_code" class="form-control">
           {{ range .Currencies }}
           <option value="{{ .Code }}" {{ if eq .Code $.BaseCurrencyCode }}selected{{ end }}>
             {{ .Code }} — {{ .Name }}{{ if not .IsActive }} (archivada){{ end }}
