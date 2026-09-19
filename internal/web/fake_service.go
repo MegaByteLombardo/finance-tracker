@@ -1141,11 +1141,26 @@ func (fs *FakeServices) resolveTransfer(
 // movementInto is the effect one stored transaction has on one account.
 //
 // The fake keeps one row per transaction, mirroring the real read model, so a
-// transfer's two movements are folded into a single row: the source is the row's
-// own account and the destination lives in the Transfer detail. Every balance
+// two-sided transaction's movements are folded into a single row: the source is
+// the row's own account and the destination lives in the detail. Every balance
 // has to see both, or a transfer would take money out of one account and put it
 // nowhere.
+//
+// An exchange is the same shape with one difference that matters: the two
+// amounts are DIFFERENT numbers, in two different currencies, so each side takes
+// its own. Reusing the transfer branch would credit the destination with the
+// source's bolívares.
 func movementInto(tx TransactionView, accountID int64) int64 {
+	if tx.Exchange != nil {
+		var effect int64
+		if tx.Exchange.SourceAccountID == accountID {
+			effect -= tx.Exchange.SourceAmountMinor
+		}
+		if tx.Exchange.DestinationAccountID == accountID {
+			effect += tx.Exchange.DestinationAmountMinor
+		}
+		return effect
+	}
 	if tx.Transfer != nil {
 		var effect int64
 		if tx.Transfer.SourceAccountID == accountID {

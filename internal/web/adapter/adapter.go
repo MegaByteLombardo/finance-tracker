@@ -178,6 +178,22 @@ func (a *ledgerAdapter) UpdateTransfer(ctx context.Context, id int64, in web.Upd
 	return *toWebTransactionView(&view), nil
 }
 
+func (a *ledgerAdapter) RecordExchange(ctx context.Context, in web.RecordExchangeInput) (web.TransactionView, error) {
+	view, err := a.svc.RecordExchange(ctx, toDomainRecordExchangeInput(in))
+	if err != nil {
+		return web.TransactionView{}, TranslateLedgerError(err)
+	}
+	return *toWebTransactionView(&view), nil
+}
+
+func (a *ledgerAdapter) UpdateExchange(ctx context.Context, id int64, in web.UpdateExchangeInput) (web.TransactionView, error) {
+	view, err := a.svc.UpdateExchange(ctx, id, toDomainUpdateExchangeInput(in))
+	if err != nil {
+		return web.TransactionView{}, TranslateLedgerError(err)
+	}
+	return *toWebTransactionView(&view), nil
+}
+
 func (a *ledgerAdapter) UpdateTransaction(ctx context.Context, id int64, in web.UpdateTransactionInput) (web.TransactionView, error) {
 	view, err := a.svc.UpdateTransaction(ctx, id, toDomainUpdateTransactionInput(in))
 	if err != nil {

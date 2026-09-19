@@ -61,6 +61,35 @@ func mapMobileTransactionItem(tx TransactionView) MobileTransactionItem {
 		}
 	}
 
+	// A currency exchange carries TWO amounts in two currencies, so it fills both
+	// amount fields. Neither one alone is "the amount": one is what was
+	// delivered and the other what was received, and there is no conversion
+	// between them that this application would be entitled to perform.
+	if tx.Type == TransactionTypeFXExchange && tx.Exchange != nil {
+		detail := tx.Exchange
+
+		merchant := exchangeHeadline(detail)
+		if tx.Description != nil && *tx.Description != "" {
+			merchant = *tx.Description
+		}
+
+		return MobileTransactionItem{
+			ID:              idStr,
+			Merchant:        merchant,
+			AccountName:     detail.SourceAccountName + " → " + detail.DestinationAccountName,
+			CategoryName:    "Cambio de divisas",
+			DateLabel:       dateLabel,
+			AmountFormatted: "- " + formatAmountString(detail.SourceAmountFormatted) + " " + detail.SourceCurrencyCode,
+			SecondaryAmountFormatted: "+ " + formatAmountString(detail.DestinationAmountFormatted) +
+				" " + detail.DestinationCurrencyCode,
+			RateLabel:    exchangeRateLabel(detail.ExecutionRate),
+			Type:         "FX_EXCHANGE",
+			CategoryIcon: "exchange",
+			IsPositive:   false,
+			CurrencyCode: detail.SourceCurrencyCode,
+		}
+	}
+
 	if tx.Type == TransactionTypeIncome {
 		merchant := "Ingreso"
 		if tx.Description != nil && *tx.Description != "" {
@@ -279,4 +308,38 @@ func DefaultMobileTransactionsMockData() MobileTransactionsPageView {
 			ActiveTab: "movimientos",
 		},
 	}
+}
+
+// exchangeHeadline names an exchange in Spanish, the way the mobile interface
+// speaks.
+//
+// It is PRESENTATION ONLY: the ledger stores one type, FX_EXCHANGE, and which
+// currency was bought is simply which one was the destination. There is no
+// BUY_USD and no SELL_USD anywhere below the interface.
+func exchangeHeadline(d *ExchangeDetail) string {
+	switch {
+	case d.IsPurchaseOf("USD"):
+		return "Compra de USD"
+	case d.IsSaleOf("USD"):
+		return "Venta de USD"
+	default:
+		return "Cambio " + d.SourceCurrencyCode + " → " + d.DestinationCurrencyCode
+	}
+}
+
+// exchangeRateLabel renders the derived execution rate: "1 USD = 842.2067 VES",
+// prefixed with "≈" when the rate has no finite decimal expansion.
+//
+// The orientation is the backend's and must not be reversed here: the inverse of
+// a rate is a different number, not the same string with the codes swapped.
+func exchangeRateLabel(rate ExecutionRate) string {
+	if rate.RateFormatted == "" {
+		return ""
+	}
+	approximately := ""
+	if !rate.Exact {
+		approximately = "≈ "
+	}
+	return "1 " + rate.BaseCurrencyCode + " = " + approximately +
+		formatAmountString(rate.RateFormatted) + " " + rate.QuoteCurrencyCode
 }

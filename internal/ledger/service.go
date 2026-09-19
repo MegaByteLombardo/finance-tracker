@@ -385,6 +385,13 @@ func amountFor(txType TransactionType, amount string, minorUnit int) (int64, err
 		return 0, fmt.Errorf(
 			"%w: a transfer is recorded through RecordTransfer, not as a single movement", ErrInvalidInput)
 
+	case FXExchange:
+		// Unreachable for the same reason, and for one more: an exchange has two
+		// amounts in two different currencies, so there is not even a single
+		// scale at which this function could read one of them.
+		return 0, fmt.Errorf(
+			"%w: an exchange is recorded through RecordExchange, not as a single movement", ErrInvalidInput)
+
 	default:
 		return 0, fmt.Errorf("%w: unknown transaction type %q", ErrInvalidInput, txType)
 	}

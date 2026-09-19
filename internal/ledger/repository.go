@@ -80,15 +80,22 @@ func (r *Repository) InsertMovement(ctx context.Context, m Movement) (Movement, 
 // has no negative movement at all — and a listing that hides a broken row is
 // worse than one that reports it. Reporting it is scanView's job.
 //
-// The last four selected columns describe a transfer's OTHER movement, and the
-// joins that produce them are confined to transfers, so nothing changes for the
-// three types that have a single movement. cm is pinned to one row by the same
-// min(id) device, so a transaction with more movements than M4 can represent
-// still yields one row instead of several — again, so that the inconsistency is
+// The last selected columns describe the OTHER movement of a two-sided
+// transaction — a TRANSFER or an FX_EXCHANGE — and the joins that produce them
+// are confined to those two types, so nothing changes for the three that have a
+// single movement. cm is pinned to one row by the same min(id) device, so a
+// transaction with more movements than this application can represent still
+// yields one row instead of several — again, so that the inconsistency is
 // reported rather than multiplied.
 //
-// The movement count is computed only for transfers: CASE does not evaluate the
-// branch it does not take, so an income costs nothing for it.
+// The other movement's CURRENCY is joined as well, and it is not redundant. A
+// transfer's two accounts share one currency, so cur describes both; an
+// exchange's do not, and cur then describes only the side the money left.
+// Without ccur an exchange could not be rendered at all without a second query
+// per row.
+//
+// The movement count is computed only for the two-sided types: CASE does not
+// evaluate the branch it does not take, so an income costs nothing for it.
 const viewQuery = `
 	SELECT t.id, t.transaction_type, t.effective_date, t.description,
 	       t.payment_method_id, pm.name,
@@ -97,7 +104,8 @@ const viewQuery = `
 	       a.currency_code, cur.symbol, cur.minor_unit,
 	       m.amount_minor, t.created_at,
 	       cm.id, cm.account_id, ca.name, cm.amount_minor,
-	       CASE WHEN t.transaction_type = 'TRANSFER'
+	       ca.currency_code, ccur.symbol, ccur.minor_unit,
+	       CASE WHEN t.transaction_type IN ('TRANSFER', 'FX_EXCHANGE')
 	            THEN (SELECT count(*) FROM account_movements am WHERE am.transaction_id = t.id)
 	            ELSE 1 END
 	  FROM account_movements m
@@ -107,10 +115,11 @@ const viewQuery = `
 	  LEFT JOIN categories cat     ON cat.id = t.category_id
 	  LEFT JOIN payment_methods pm ON pm.id  = t.payment_method_id
 	  LEFT JOIN account_movements cm
-	         ON t.transaction_type = 'TRANSFER'
+	         ON t.transaction_type IN ('TRANSFER', 'FX_EXCHANGE')
 	        AND cm.id = (SELECT min(am.id) FROM account_movements am
 	                      WHERE am.transaction_id = t.id AND am.id <> m.id)
-	  LEFT JOIN accounts ca ON ca.id = cm.account_id
+	  LEFT JOIN accounts ca   ON ca.id = cm.account_id
+	  LEFT JOIN currencies ccur ON ccur.code = ca.currency_code
 	 WHERE m.id = (SELECT min(am.id) FROM account_movements am
 	                WHERE am.transaction_id = t.id)`
 
@@ -306,12 +315,16 @@ func scanView(s scanner) (TransactionView, error) {
 		currencySymbol  sql.NullString
 		createdAt       string
 
-		// The other movement of a transfer. NULL for every other type.
-		otherMovementID  sql.NullInt64
-		otherAccountID   sql.NullInt64
-		otherAccountName sql.NullString
-		otherAmountMinor sql.NullInt64
-		movementCount    int
+		// The other movement of a transfer or an exchange. NULL for every other
+		// type.
+		otherMovementID     sql.NullInt64
+		otherAccountID      sql.NullInt64
+		otherAccountName    sql.NullString
+		otherAmountMinor    sql.NullInt64
+		otherCurrencyCode   sql.NullString
+		otherCurrencySymbol sql.NullString
+		otherCurrencyMinor  sql.NullInt64
+		movementCount       int
 	)
 
 	if err := s.Scan(&v.ID, &transactionType, &effectiveDate, &description,
@@ -321,6 +334,7 @@ func scanView(s scanner) (TransactionView, error) {
 		&v.CurrencyCode, &currencySymbol, &v.MinorUnit,
 		&v.AmountMinor, &createdAt,
 		&otherMovementID, &otherAccountID, &otherAccountName, &otherAmountMinor,
+		&otherCurrencyCode, &otherCurrencySymbol, &otherCurrencyMinor,
 		&movementCount); err != nil {
 		return TransactionView{}, err
 	}
@@ -418,6 +432,58 @@ func scanView(s scanner) (TransactionView, error) {
 			DestinationAccountName: destination.accountName,
 			AmountMinor:            destination.amountMinor,
 			AmountFormatted:        money.Format(destination.amountMinor, v.MinorUnit),
+		}
+	}
+
+	// An exchange is assembled from both of its movements AND both of their
+	// currencies, and refused if the two are not the shape this package
+	// guarantees. The rules live in exchange.go, with the code that maintains
+	// them.
+	if v.Type == FXExchange {
+		if err := checkExchangeMovementCount(v.ID, movementCount); err != nil {
+			return TransactionView{}, err
+		}
+		if !otherMovementID.Valid || !otherAccountID.Valid || !otherAmountMinor.Valid ||
+			!otherCurrencyCode.Valid || !otherCurrencyMinor.Valid {
+			// Unreachable while the count is 2, and checked anyway: the
+			// alternative is reading a NULL as a zero-valued account or, worse,
+			// as a currency with a scale of nothing.
+			return TransactionView{}, fmt.Errorf(
+				"transaction %d: %w: only one of its two movements could be read",
+				v.ID, ErrInconsistentExchange)
+		}
+
+		var otherSymbol *string
+		if otherCurrencySymbol.Valid {
+			value := otherCurrencySymbol.String
+			otherSymbol = &value
+		}
+
+		source, destination, err := splitExchangeBySign(v.ID,
+			exchangeSide{
+				movementID:     v.MovementID,
+				accountID:      v.AccountID,
+				accountName:    v.AccountName,
+				amountMinor:    v.AmountMinor,
+				currencyCode:   v.CurrencyCode,
+				currencySymbol: v.CurrencySymbol,
+				minorUnit:      v.MinorUnit,
+			},
+			exchangeSide{
+				movementID:     otherMovementID.Int64,
+				accountID:      otherAccountID.Int64,
+				accountName:    otherAccountName.String,
+				amountMinor:    otherAmountMinor.Int64,
+				currencyCode:   otherCurrencyCode.String,
+				currencySymbol: otherSymbol,
+				minorUnit:      int(otherCurrencyMinor.Int64),
+			})
+		if err != nil {
+			return TransactionView{}, err
+		}
+
+		if v.Exchange, err = exchangeDetailFrom(v.ID, source, destination); err != nil {
+			return TransactionView{}, err
 		}
 	}
 	return v, nil

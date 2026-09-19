@@ -560,6 +560,13 @@ html, body {
   color: #7e22ce;
 }
 
+/* A currency exchange is deliberately not the transfer colour: they are
+   different financial events and must be distinguishable at a glance. */
+.cat-icon-exchange {
+  background-color: #f5f3ff;
+  color: #6d28d9;
+}
+
 .tx-info-block {
   flex: 1;
   min-width: 0;
@@ -598,6 +605,19 @@ html, body {
 
 .tx-amount-badge.is-expense {
   color: var(--m-text-primary);
+}
+
+/* The second line of a currency exchange: the amount received, beside the rate
+   the exchange happened at. */
+.tx-exchange-received {
+  margin-top: 1px;
+}
+
+.tx-exchange-rate {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--m-text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .tx-secondary-line {
@@ -882,6 +902,13 @@ html, body {
 .transfer-pill {
   background-color: var(--m-accent-bg);
   color: var(--m-accent);
+}
+
+/* A currency exchange is deliberately not the transfer colour: they are
+   different financial events and must be told apart at a glance. */
+.exchange-pill {
+  background-color: #f5f3ff;
+  color: #6d28d9;
 }
 
 .op-text-block {
@@ -1514,6 +1541,22 @@ html, body {
   color: var(--m-accent);
 }
 
+.op-type-tab.is-active.type-exchange {
+  color: #6d28d9;
+}
+
+/* Four tabs rather than three: each one gets less room, so the label has to
+   stop being able to push the control wider than the screen. */
+.op-type-segmented-control .op-type-tab {
+  min-width: 0;
+  padding-left: 8px;
+  padding-right: 8px;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Amount Hero Display */
 .amount-hero-display {
   background-color: var(--m-bg-subtle);
@@ -1637,6 +1680,19 @@ html, body {
 }
 
 .op-native-select:focus,
+/* The second amount of a currency exchange, and the help text under it. */
+.op-amount-input {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.op-field-help {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.8125rem;
+  color: var(--m-text-secondary);
+}
+
 .op-native-input:focus {
   border-color: var(--m-accent);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
@@ -1718,6 +1774,10 @@ html, body {
 
 .op-submit-btn.btn-transfer {
   background-color: var(--m-accent);
+}
+
+.op-submit-btn.btn-exchange {
+  background-color: #6d28d9;
 }
 
 .op-submit-btn:hover {

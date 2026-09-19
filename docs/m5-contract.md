@@ -37,6 +37,15 @@ Reference / Valuation FX        ≠        Transaction FX
 rate. Nothing in this contract may be attached to one. Conflating the two would
 make it impossible to say later which one a stored number meant.
 
+> **Narrowed by M5.5.** The row above says "Transaction FX: No", and that stayed
+> true of everything it described. What M5.5 added is strictly smaller: an
+> `FX_EXCHANGE` between two of the user's own accounts, where **both amounts are
+> entered** and the rate is **derived from them on every read and stored
+> nowhere**. `transactions` still has no rate column of any kind, recording an
+> exchange still reads and writes no row of `exchange_rates`, and the rate a
+> purchase or a card payment happened at still does not exist. See
+> [m5.5-contract.md](m5.5-contract.md).
+
 ---
 
 ## 2. Orientation, fixed for the whole project

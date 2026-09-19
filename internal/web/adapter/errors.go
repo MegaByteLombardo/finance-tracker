@@ -120,10 +120,10 @@ func TranslateLedgerError(err error) error {
 		return nil
 	}
 
-	var accountErr *ledger.TransferAccountError
+	var accountErr *ledger.AccountSideError
 	if errors.As(err, &accountErr) {
-		return &web.TransferAccountError{
-			Side:      toWebTransferSide(accountErr.Side),
+		return &web.AccountSideError{
+			Side:      toWebMovementSide(accountErr.Side),
 			AccountID: accountErr.AccountID,
 			Err:       translateLedgerSentinel(err),
 		}
@@ -131,11 +131,11 @@ func TranslateLedgerError(err error) error {
 	return translateLedgerSentinel(err)
 }
 
-func toWebTransferSide(side ledger.TransferSide) web.TransferSide {
+func toWebMovementSide(side ledger.MovementSide) web.MovementSide {
 	if side == ledger.DestinationSide {
-		return web.TransferSideDestination
+		return web.MovementSideDestination
 	}
-	return web.TransferSideSource
+	return web.MovementSideSource
 }
 
 func translateLedgerSentinel(err error) error {
@@ -168,8 +168,12 @@ func translateLedgerSentinel(err error) error {
 		return translateError(web.ErrSameAccount, err)
 	case errors.Is(err, ledger.ErrCurrencyMismatch):
 		return translateError(web.ErrCurrencyMismatch, err)
+	case errors.Is(err, ledger.ErrSameCurrency):
+		return translateError(web.ErrSameCurrency, err)
 	case errors.Is(err, ledger.ErrInconsistentTransfer):
 		return translateError(web.ErrInconsistentTransfer, err)
+	case errors.Is(err, ledger.ErrInconsistentExchange):
+		return translateError(web.ErrInconsistentExchange, err)
 	default:
 		return err
 	}

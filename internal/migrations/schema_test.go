@@ -607,6 +607,14 @@ func TestTransactionShapePerType(t *testing.T) {
 		{"TRANSFER", true, nil, false},
 		{"TRANSFER", false, methodBankTransfer, false},
 		{"TRANSFER", true, methodBankTransfer, false},
+		// An exchange is neither earned nor spent — the same wealth is simply
+		// denominated differently afterwards — so it has no category, and it is
+		// not an operation whose channel is interesting, so it has no payment
+		// method. A commission charged on top is a separate EXPENSE.
+		{"FX_EXCHANGE", false, nil, true},
+		{"FX_EXCHANGE", true, nil, false},
+		{"FX_EXCHANGE", false, methodBankTransfer, false},
+		{"FX_EXCHANGE", true, methodBankTransfer, false},
 		// The column is a foreign key now, so an id nobody defined is refused.
 		{"INCOME", true, 9999, false},
 	}
@@ -653,6 +661,11 @@ func TestTransactionConstraints(t *testing.T) {
 		"lowercase type":          {"opening_balance", nil, nil, "2026-09-05"},
 		"lowercase transfer":      {"transfer", nil, nil, "2026-09-05"},
 		"pluralised transfer":     {"TRANSFERS", nil, nil, "2026-09-05"},
+		"lowercase exchange":      {"fx_exchange", nil, nil, "2026-09-05"},
+		"hyphenated exchange":     {"FX-EXCHANGE", nil, nil, "2026-09-05"},
+		"exchange without prefix": {"EXCHANGE", nil, nil, "2026-09-05"},
+		"invented buy type":       {"BUY_USD", nil, nil, "2026-09-05"},
+		"invented sell type":      {"SELL_USD", nil, nil, "2026-09-05"},
 		"null type":               {nil, nil, nil, "2026-09-05"},
 		"empty description":       {"OPENING_BALANCE", nil, "", "2026-09-05"},
 		"blank description":       {"OPENING_BALANCE", nil, "   ", "2026-09-05"},

@@ -86,6 +86,15 @@ func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
 	mux.HandleFunc("GET /transfers/{id}/edit", handleEditTransferForm(logger, renderer, svcs))
 	mux.HandleFunc("POST /transfers/{id}", handleUpdateTransfer(logger, renderer, svcs))
 
+	// Currency exchanges (M5.5). An FX_EXCHANGE is a real operation between two
+	// accounts in DIFFERENT currencies, with two amounts. It is not a transfer,
+	// and it has nothing to do with the reference rates administered under
+	// /settings/exchange-rates.
+	mux.HandleFunc("GET /exchanges/new", handleNewExchangeForm(logger, renderer, svcs))
+	mux.HandleFunc("POST /exchanges", handleCreateExchange(logger, renderer, svcs))
+	mux.HandleFunc("GET /exchanges/{id}/edit", handleEditExchangeForm(logger, renderer, svcs))
+	mux.HandleFunc("POST /exchanges/{id}", handleUpdateExchange(logger, renderer, svcs))
+
 	// Categories
 	mux.HandleFunc("GET /categories", handleCategoriesList(logger, renderer, svcs))
 	mux.HandleFunc("GET /categories/new", handleNewCategoryForm(logger, renderer, svcs))

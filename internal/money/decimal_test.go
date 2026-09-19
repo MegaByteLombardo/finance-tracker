@@ -627,3 +627,103 @@ func TestCrossRateIsExact(t *testing.T) {
 		t.Errorf("200.00 EUR at the real BCV cross = %d, want 23222", converted)
 	}
 }
+
+// --- NewDecimalFromRat -------------------------------------------------------
+
+// The bridge back out of exact arithmetic. It exists for values this application
+// COMPUTES rather than parses -- the rate an exchange actually happened at -- so
+// what it has to get right is the scale: the smallest one that states the value,
+// and an honest answer when there is no such scale at all.
+func TestNewDecimalFromRat(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		num, den  int64
+		maxScale  int32
+		want      string
+		wantExact bool
+	}{
+		// 85000.00 VES / 100.00 USD, in minor units: no decimals are needed and
+		// none are kept.
+		{"a whole number keeps no decimals", 8500000, 10000, money.MaxScale, "850", true},
+
+		// 84220.67 VES / 100.00 USD.
+		{"the acceptance rate", 8422067, 10000, money.MaxScale, "842.2067", true},
+
+		{"a half", 1, 2, money.MaxScale, "0.5", true},
+		{"a value below one", 1, 8, money.MaxScale, "0.125", true},
+		{"zero", 0, 7, money.MaxScale, "0", true},
+		{"a negative value", -3, 4, money.MaxScale, "-0.75", true},
+		{"exactly one", 5, 5, money.MaxScale, "1", true},
+
+		// A third has no finite decimal expansion, so it is rounded at
+		// maxScale and reported as approximate.
+		{"a third", 1, 3, money.MaxScale, "0.333333333333", false},
+		{"two thirds rounds half to even upward", 2, 3, money.MaxScale, "0.666666666667", false},
+		{"a third of a hundred", 100, 3, money.MaxScale, "33.333333333333", false},
+
+		// The tie rule is the same one every other rounding in this package
+		// uses: half to even. 0.125 at two places is 0.12, not 0.13.
+		{"a tie rounds to the even neighbour", 125, 1000, 2, "0.12", false},
+		{"and the other way for an odd quotient", 375, 1000, 2, "0.38", false},
+		{"a negative tie is symmetric", -125, 1000, 2, "-0.12", false},
+
+		{"a scale of zero rounds to an integer", 5, 2, 0, "2", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			d, exact, err := money.NewDecimalFromRat(big.NewRat(tc.num, tc.den), tc.maxScale)
+			if err != nil {
+				t.Fatalf("money.NewDecimalFromRat(%d/%d, %d): %v", tc.num, tc.den, tc.maxScale, err)
+			}
+			if got := d.String(); got != tc.want {
+				t.Errorf("money.NewDecimalFromRat(%d/%d, %d) = %q, want %q",
+					tc.num, tc.den, tc.maxScale, got, tc.want)
+			}
+			if exact != tc.wantExact {
+				t.Errorf("exact = %v, want %v", exact, tc.wantExact)
+			}
+
+			// Whatever comes out must be a value this package can read back,
+			// or the rate could not survive a round trip through a form.
+			if _, err := money.ParseDecimal(d.String()); err != nil {
+				t.Errorf("the result %q cannot be parsed back: %v", d.String(), err)
+			}
+		})
+	}
+}
+
+// The source Rat belongs to the caller. math/big's API is in-place, and a
+// function that quietly rewrote its argument would corrupt a value the caller
+// still holds.
+func TestNewDecimalFromRatDoesNotMutateItsArgument(t *testing.T) {
+	t.Parallel()
+
+	r := big.NewRat(8422067, 10000)
+	before := r.RatString()
+
+	if _, _, err := money.NewDecimalFromRat(r, money.MaxScale); err != nil {
+		t.Fatalf("NewDecimalFromRat: %v", err)
+	}
+	if after := r.RatString(); after != before {
+		t.Errorf("the argument is %s afterwards, was %s", after, before)
+	}
+}
+
+func TestNewDecimalFromRatRefusesWhatItCannotRepresent(t *testing.T) {
+	t.Parallel()
+
+	if _, _, err := money.NewDecimalFromRat(nil, money.MaxScale); !errors.Is(err, money.ErrInvalidDecimal) {
+		t.Errorf("a nil value returned %v, want money.ErrInvalidDecimal", err)
+	}
+	if _, _, err := money.NewDecimalFromRat(big.NewRat(1, 2), -1); !errors.Is(err, money.ErrInvalidDecimal) {
+		t.Errorf("a negative scale returned %v, want money.ErrInvalidDecimal", err)
+	}
+	if _, _, err := money.NewDecimalFromRat(big.NewRat(1, 2), money.MaxScale+1); !errors.Is(err, money.ErrInvalidDecimal) {
+		t.Errorf("a scale beyond money.MaxScale returned %v, want money.ErrInvalidDecimal", err)
+	}
+}

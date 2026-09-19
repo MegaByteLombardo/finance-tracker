@@ -470,6 +470,15 @@ body {
   border: 1px solid #bfdbfe;
 }
 
+/* A currency exchange is deliberately NOT the transfer colour. The two are
+   different financial events and a reader scanning the ledger must be able to
+   tell them apart without reading the accounts. */
+.badge-exchange {
+  background-color: #f5f3ff;
+  color: #6d28d9;
+  border: 1px solid #ddd6fe;
+}
+
 .badge-active {
   background-color: var(--success-bg);
   color: var(--success-text);

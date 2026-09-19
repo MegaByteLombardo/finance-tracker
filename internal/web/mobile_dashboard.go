@@ -94,10 +94,23 @@ type MobileTransactionItem struct {
 	CategoryName    string
 	DateLabel       string
 	AmountFormatted string
-	Type            string // "EXPENSE", "INCOME", "TRANSFER"
-	CategoryIcon    string // "cart", "briefcase", "coffee", "pill", "entertainment", "car", "transfer"
+	Type            string // "EXPENSE", "INCOME", "TRANSFER", "FX_EXCHANGE"
+	CategoryIcon    string // "cart", "briefcase", "coffee", "pill", "entertainment", "car", "transfer", "exchange"
 	IsPositive      bool
 	CurrencyCode    string
+
+	// SecondaryAmountFormatted is the OTHER side of a currency exchange, in the
+	// other currency: AmountFormatted holds what was delivered and this holds
+	// what was received.
+	//
+	// It is empty for every other type, and that emptiness is what the template
+	// checks. An exchange is the only transaction with two amounts, and folding
+	// them into one string would either hide a currency or invent a conversion.
+	SecondaryAmountFormatted string
+
+	// RateLabel is the derived execution rate, already rendered — "1 USD =
+	// 842.2067 VES". Empty for everything that is not an exchange.
+	RateLabel string
 }
 
 // RecentTransactionsView holds the recent transactions feed.

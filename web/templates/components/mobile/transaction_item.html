@@ -41,6 +41,15 @@
         <line x1="17" y1="17" x2="22" y2="17"></line>
         <line x1="17" y1="7" x2="22" y2="7"></line>
       </svg>
+    {{ else if eq .CategoryIcon "exchange" }}
+      <!-- Cambio de divisas -->
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="17 1 21 5 17 9"></polyline>
+        <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+        <polyline points="7 23 3 19 7 15"></polyline>
+        <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+        <line x1="12" y1="2" x2="12" y2="22"></line>
+      </svg>
     {{ else }}
       <!-- Transacción genérica -->
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -58,6 +67,14 @@
         {{ .AmountFormatted }}
       </span>
     </div>
+    {{ if .SecondaryAmountFormatted }}
+    <!-- A currency exchange has two amounts, in two currencies. Both are shown;
+         neither is converted into the other, here or anywhere. -->
+    <div class="tx-primary-line tx-exchange-received">
+      <span class="tx-name tx-exchange-rate">{{ .RateLabel }}</span>
+      <span class="tx-amount-badge is-income">{{ .SecondaryAmountFormatted }}</span>
+    </div>
+    {{ end }}
     <div class="tx-secondary-line">
       <span class="tx-meta-account-cat">{{ .AccountName }} · {{ .CategoryName }}</span>
       <span class="tx-meta-date">{{ .DateLabel }}</span>

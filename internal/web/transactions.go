@@ -469,8 +469,25 @@ func handleEditTransactionForm(logger *slog.Logger, renderer *Renderer, svcs *Se
 			return
 		}
 
-		if tx.Type == TransactionTypeTransfer {
+		// Each type is edited through the screen built for it. Written as a
+		// switch that NAMES every type, so that a type added later lands in the
+		// default and is refused, rather than falling through to the
+		// income-and-expense form and being silently mangled there. That is the
+		// presentation-layer half of TD-045; the M4 bug it prevents is exactly
+		// the one the ledger's guard prevents on the write side.
+		switch tx.Type {
+		case TransactionTypeTransfer:
 			http.Redirect(w, r, "/transfers/"+idStr+"/edit", http.StatusSeeOther)
+			return
+		case TransactionTypeFXExchange:
+			http.Redirect(w, r, "/exchanges/"+idStr+"/edit", http.StatusSeeOther)
+			return
+		case TransactionTypeIncome, TransactionTypeExpense, TransactionTypeOpeningBalance:
+			// Handled below.
+		default:
+			logger.Error("no edit screen for this transaction type",
+				slog.String("type", string(tx.Type)), slog.Int64("id", id))
+			http.Error(w, "This transaction cannot be edited here.", http.StatusBadRequest)
 			return
 		}
 
@@ -601,8 +618,24 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 			return
 		}
 
-		if existing.Type == TransactionTypeTransfer {
-			http.Error(w, "This form records income and expenses only. Use the transfer form to update a transfer.", http.StatusBadRequest)
+		// The guard names what this handler ACCEPTS (TD-045). An FX_EXCHANGE has
+		// two movements in two currencies; letting one through would rewrite one
+		// of them and leave the other, which is money created out of nothing.
+		switch existing.Type {
+		case TransactionTypeIncome, TransactionTypeExpense, TransactionTypeOpeningBalance:
+			// Handled below.
+		case TransactionTypeTransfer:
+			http.Error(w, "This form records income and expenses only. Use the transfer form to update a transfer.",
+				http.StatusBadRequest)
+			return
+		case TransactionTypeFXExchange:
+			http.Error(w, "This form records income and expenses only. Use the exchange form to update a currency exchange.",
+				http.StatusBadRequest)
+			return
+		default:
+			logger.Error("no update path for this transaction type",
+				slog.String("type", string(existing.Type)), slog.Int64("id", id))
+			http.Error(w, "This transaction cannot be updated here.", http.StatusBadRequest)
 			return
 		}
 

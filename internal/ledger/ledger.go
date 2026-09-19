@@ -27,6 +27,7 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/account"
 	"github.com/MegaByteLombardo/finance-tracker/internal/category"
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
+	"github.com/MegaByteLombardo/finance-tracker/internal/money"
 )
 
 // Errors this package returns. Callers distinguish them with errors.Is.
@@ -55,21 +56,44 @@ var (
 	// ErrAccountInactive means the account exists but has been archived, so no
 	// new movement may be recorded against it.
 	ErrAccountInactive = errors.New("transaction account is inactive")
-	// ErrSameAccount means a transfer named the same account as its source and
-	// its destination.
+	// ErrSameAccount means a transfer or an exchange named the same account as
+	// its source and its destination.
 	//
 	// Such a transfer moves nothing: its two movements would cancel out in the
-	// same balance. It is refused rather than accepted as a no-op, because a
-	// user who submitted it meant to move money somewhere.
-	ErrSameAccount = errors.New("a transfer needs two different accounts")
-	// ErrCurrencyMismatch means a transfer's two accounts are denominated in
+	// same balance. An exchange is worse than a no-op — it would claim money
+	// changed currency without leaving the account that holds only one. Both are
+	// refused rather than accepted, because a user who submitted one meant to
+	// move money somewhere.
+	ErrSameAccount = errors.New("the source and the destination must be two different accounts")
+	// ErrCurrencyMismatch means a TRANSFER's two accounts are denominated in
 	// different currencies.
 	//
-	// M4 has no exchange rates and performs no conversion, so a cross-currency
-	// transfer cannot be represented: it would need a source amount, a
-	// destination amount and the rate between them. That belongs to the FX
-	// milestone.
+	// A transfer moves one sum of money, so it has one amount and one currency;
+	// two currencies would need two amounts, and that operation is an
+	// FX_EXCHANGE, recorded through RecordExchange. TRANSFER was not widened to
+	// accept it: the two are different financial events, and one of them leaves
+	// the total held in its currency unchanged while the other does not.
 	ErrCurrencyMismatch = errors.New("a transfer needs both accounts in the same currency")
+	// ErrSameCurrency means an FX_EXCHANGE's two accounts are denominated in the
+	// SAME currency.
+	//
+	// It is ErrCurrencyMismatch's mirror image, and it exists for the same
+	// reason: an exchange between two accounts in one currency is not an
+	// exchange. Moving money between two accounts that share a currency is a
+	// TRANSFER, recorded through RecordTransfer, and accepting it here would let
+	// two movements of unequal magnitude sum to something other than zero inside
+	// a single currency — money created or destroyed, silently.
+	ErrSameCurrency = errors.New("an exchange needs the two accounts in different currencies")
+	// ErrInconsistentExchange means a stored FX_EXCHANGE is not the shape this
+	// package guarantees: two movements, opposite signs, two different accounts,
+	// two different currencies.
+	//
+	// Like ErrInconsistentTransfer it is an integrity failure rather than a
+	// validation failure, and it is reported rather than papered over. Note what
+	// is NOT among the rules: the two magnitudes are unrelated. 8,500,000
+	// céntimos and 10,000 cents are the same exchange, and comparing them would
+	// be comparing two different kinds of thing.
+	ErrInconsistentExchange = errors.New("stored exchange is inconsistent")
 	// ErrInconsistentTransfer means a stored TRANSFER is not the shape this
 	// package guarantees: two movements, opposite signs, equal magnitude, two
 	// different accounts.
@@ -110,42 +134,58 @@ var (
 	ErrCurrencyChangeNotConfirmed = errors.New("moving this transaction changes its currency")
 )
 
-// TransferSide names which end of a transfer something refers to.
-type TransferSide string
+// MovementSide names which end of a two-sided transaction something refers to.
+//
+// Two types have two ends: a TRANSFER and an FX_EXCHANGE. The idea is the same
+// for both — money left one account and arrived in another — so there is one
+// type for it rather than one per transaction type.
+type MovementSide string
 
 const (
 	// SourceSide is the account money leaves.
-	SourceSide TransferSide = "source"
+	SourceSide MovementSide = "source"
 	// DestinationSide is the account money arrives in.
-	DestinationSide TransferSide = "destination"
+	DestinationSide MovementSide = "destination"
 )
 
-// TransferAccountError says which of a transfer's two accounts was rejected.
+// TransferSide is the name M4 froze for MovementSide, kept because
+// docs/m4-contract.md is part of the contract. It is the SAME type, not a
+// parallel one, so nothing has to convert between them.
+type TransferSide = MovementSide
+
+// AccountSideError says which of a two-sided transaction's accounts was
+// rejected.
 //
-// A transfer form has two account fields, and "account not found" alone cannot
-// tell it which one to mark. Rather than split ErrAccountNotFound and
-// ErrAccountInactive into four sentinels, this wraps them: errors.Is still
-// matches the sentinel, and errors.As recovers the side.
+// A transfer form, and an exchange form, each have two account fields, and
+// "account not found" alone cannot tell either which one to mark. Rather than
+// split ErrAccountNotFound and ErrAccountInactive into four sentinels, this
+// wraps them: errors.Is still matches the sentinel, and errors.As recovers the
+// side.
 //
-//	var accountErr *ledger.TransferAccountError
+//	var accountErr *ledger.AccountSideError
 //	switch {
 //	case errors.As(err, &accountErr) && accountErr.Side == ledger.SourceSide:
 //	    // mark the "from" field
 //	}
-type TransferAccountError struct {
+type AccountSideError struct {
 	// Side is which account was rejected.
-	Side TransferSide
+	Side MovementSide
 	// AccountID is the id that was given for it.
 	AccountID int64
 	// Err is ErrAccountNotFound or ErrAccountInactive.
 	Err error
 }
 
-func (e *TransferAccountError) Error() string {
+func (e *AccountSideError) Error() string {
 	return fmt.Sprintf("%s account %d: %s", e.Side, e.AccountID, e.Err)
 }
 
-func (e *TransferAccountError) Unwrap() error { return e.Err }
+func (e *AccountSideError) Unwrap() error { return e.Err }
+
+// TransferAccountError is the name M4 froze for AccountSideError, kept for the
+// same reason TransferSide is. It is an alias, so errors.As with either
+// spelling matches the same value.
+type TransferAccountError = AccountSideError
 
 // TransactionType is what kind of financial event a transaction records.
 type TransactionType string
@@ -172,18 +212,44 @@ const (
 	// the channel an external operation used; this type records that money moved
 	// between two accounts we own.
 	Transfer TransactionType = "TRANSFER"
+	// FXExchange is money actually exchanged between two of the user's own
+	// accounts denominated in DIFFERENT currencies: bolívares left one account
+	// and dollars arrived in another. It has exactly two movements, one negative
+	// in the source and one positive in the destination, and their magnitudes
+	// are UNRELATED — they are quantities of two different currencies.
+	//
+	// It is not a transfer. A transfer's two movements cancel out, so the total
+	// held in its currency is unchanged; an exchange changes the totals held in
+	// both of its currencies, which is the entire point of it. Nothing about
+	// TRANSFER was widened to accept two currencies.
+	//
+	// It is not income and not an expense: nothing was earned and nothing was
+	// consumed, so it carries no category, and it is not an operation whose
+	// channel is interesting, so it carries no payment method.
+	//
+	// There is no BUY and no SELL. Which currency was bought is stated by which
+	// account was the destination; a screen may call it "Compra de USD", but
+	// that is a label inferred from the pair, not a type stored in the ledger.
+	//
+	// The rate the exchange happened at is NOT stored. It is the source amount
+	// divided by the destination amount, derived exactly on every read, and a
+	// stored third copy could only ever disagree with the two amounts. It is
+	// also unrelated to the reference rates in exchange_rates, which say what a
+	// source published, not what this operation cost.
+	FXExchange TransactionType = "FX_EXCHANGE"
 )
 
 // TransactionTypes lists every valid type, in the order a UI would present
 // them.
 //
-// Transfer is last because it is appended rather than inserted: a caller
-// rendering this list must not have its existing order change underneath it.
-// Knowing the value does not make it offerable — a transfer is created and
-// edited only through RecordTransfer and UpdateTransfer, never through the
+// Transfer and FXExchange are last because each was appended rather than
+// inserted: a caller rendering this list must not have its existing order
+// change underneath it. Knowing a value does not make it offerable — a transfer
+// is created and edited only through RecordTransfer and UpdateTransfer, and an
+// exchange only through RecordExchange and UpdateExchange, never through the
 // income-and-expense use cases.
 func TransactionTypes() []TransactionType {
-	return []TransactionType{Income, Expense, OpeningBalance, Transfer}
+	return []TransactionType{Income, Expense, OpeningBalance, Transfer, FXExchange}
 }
 
 // Valid reports whether t is a known transaction type.
@@ -297,10 +363,24 @@ type TransactionView struct {
 	// anchoring rule to interpret.
 	Transfer *TransferDetail
 
+	// Exchange is set if and only if Type is FXExchange, and carries the WHOLE
+	// exchange: both movements, both accounts, BOTH CURRENCIES, both amounts and
+	// the rate the operation happened at.
+	//
+	// For an exchange, this is the only field that should be read to render it,
+	// and the reason is stronger than it is for a transfer. The
+	// movement-centric fields below describe one side only, and for an exchange
+	// that means CurrencyCode, MinorUnit and AmountFormatted all describe the
+	// currency the money LEFT. A caller that read AmountFormatted and
+	// CurrencyCode would render "-85,000.00 VES" and have no way to discover
+	// that 100.00 USD arrived.
+	Exchange *ExchangeDetail
+
 	// The account the money moved in.
 	//
-	// For a transfer this is the SOURCE account and MovementID is its negative
-	// movement. Use Transfer instead; see above.
+	// For a transfer and for an exchange this is the SOURCE account and
+	// MovementID is its negative movement. Use Transfer or Exchange instead; see
+	// above.
 	MovementID     int64
 	AccountID      int64
 	AccountName    string
@@ -354,6 +434,107 @@ type TransferDetail struct {
 	// AmountFormatted is AmountMinor rendered exactly at the currency's scale,
 	// without a sign. Display this rather than computing it.
 	AmountFormatted string
+}
+
+// ExecutionRate is the rate an FX_EXCHANGE ACTUALLY HAPPENED AT, derived from
+// its two amounts.
+//
+// It is not stored anywhere and must never be. The two movements state it
+// exactly — 84,220.67 VES for 100.00 USD is 842.2067 VES per USD — so a stored
+// copy would be a third source of truth able to disagree with the two that
+// caused it. It is recomputed on every read, from big.Rat, with no float
+// anywhere.
+//
+// It is NOT a reference rate and has nothing to do with exchange_rates. Nothing
+// here is published by anybody, nothing here participates in valuing a balance,
+// and recording an exchange writes no row to that table. See
+// docs/m5.5-contract.md.
+//
+// # Orientation
+//
+// The same one the whole project uses: 1 BaseCurrencyCode = Rate
+// QuoteCurrencyCode. Which of the two currencies is the base is decided by one
+// rule, applied in order:
+//
+//  1. If exactly one side is USD, USD is the base. "1 USD = 842.2067 VES" is
+//     how the rate was quoted to the user, whichever direction they traded in.
+//  2. Otherwise the base is whichever side makes the rate at least 1, so that a
+//     pair is read in units of the cheaper currency: "1 EUR = 95.40 VES", never
+//     "1 VES = 0.0104 EUR".
+//  3. If both orientations give exactly 1, the destination is the base. The
+//     tie-break exists so that the answer is always the same one.
+//
+// The base is therefore NOT always the destination. A buy and a sell of the same
+// currency pair produce a rate a person can compare, which is the whole reason
+// the choice is made here rather than in a template.
+type ExecutionRate struct {
+	// BaseCurrencyCode is the "1" side of the quote.
+	BaseCurrencyCode string
+	// QuoteCurrencyCode is the side the rate is expressed in.
+	QuoteCurrencyCode string
+
+	// Rate is the exact value, as a decimal carrying the smallest scale that
+	// states it: "850" for a whole number, "842.2067" for the acceptance case.
+	Rate money.Decimal
+	// RateFormatted is Rate rendered as its canonical decimal string. Display
+	// this rather than computing anything.
+	RateFormatted string
+
+	// Exact reports whether the rate is representable in decimal at all.
+	//
+	// It is false for a pair like 100 VES for 3 USD, whose rate is a third of a
+	// hundred and has no finite decimal expansion. RateFormatted is then rounded
+	// half to even at money.MaxScale places, and an interface that shows it must
+	// say so — "≈" — rather than presenting an approximation as the fact.
+	Exact bool
+}
+
+// ExchangeDetail is a whole FX_EXCHANGE: what left, what arrived, in which two
+// currencies, and at what rate.
+//
+// It is deliberately self-sufficient, more so than TransferDetail has to be.
+// A transfer has one currency, so TransactionView's own currency fields describe
+// it; an exchange has two, and only one of them appears up there. Every field
+// needed to render an exchange is here, so nothing above this package has to
+// know that TransactionView anchors on the source movement or that its
+// CurrencyCode names only one of the two currencies involved.
+type ExchangeDetail struct {
+	// The source: the account the money left, its negative movement, and the
+	// currency it was denominated in.
+	SourceMovementID     int64
+	SourceAccountID      int64
+	SourceAccountName    string
+	SourceCurrencyCode   string
+	SourceCurrencySymbol *string
+	SourceMinorUnit      int
+
+	// SourceAmountMinor is the amount DELIVERED, always POSITIVE, in the source
+	// currency's minor units. The stored movement holds its negation.
+	SourceAmountMinor int64
+	// SourceAmountFormatted is it rendered at the source currency's scale,
+	// unsigned. Display this rather than computing it.
+	SourceAmountFormatted string
+
+	// The destination: the account the money arrived in, its positive movement,
+	// and the currency it was denominated in.
+	DestinationMovementID     int64
+	DestinationAccountID      int64
+	DestinationAccountName    string
+	DestinationCurrencyCode   string
+	DestinationCurrencySymbol *string
+	DestinationMinorUnit      int
+
+	// DestinationAmountMinor is the amount RECEIVED, always positive, in the
+	// destination currency's minor units. The stored movement holds it as it is.
+	DestinationAmountMinor int64
+	// DestinationAmountFormatted is it rendered at the destination currency's
+	// scale, unsigned.
+	DestinationAmountFormatted string
+
+	// ExecutionRate is what the operation cost, derived from the two amounts
+	// above. There is no field here for a reference rate, and there is nowhere
+	// to put one.
+	ExecutionRate ExecutionRate
 }
 
 // AccountBalance is one account with its balance derived from its movements.
@@ -496,7 +677,80 @@ type UpdateTransferInput struct {
 	//
 	// It does NOT permit a cross-currency transfer. The two accounts must still
 	// share a currency as each other; this only concerns which currency that is.
+	// A cross-currency operation is an FX_EXCHANGE and is recorded through
+	// RecordExchange.
 	AllowCurrencyChange bool
+}
+
+// RecordExchangeInput is the input to Service.RecordExchange.
+//
+// It has no category and no payment method — not as fields left empty, but
+// absent from the struct — and no type: this input records an exchange and
+// nothing else.
+//
+// It carries TWO amounts, and that is the shape of the operation rather than a
+// convenience. The user knows what was debited and what was credited; those are
+// the two facts a statement shows. It carries NO rate: supplying a rate and one
+// amount would make the application compute the other, and the computed one
+// would then disagree with the bank by a céntimo whenever the bank rounded
+// differently. The rate is derived from the two amounts, not the other way
+// round.
+type RecordExchangeInput struct {
+	// SourceAccountID is the account the money leaves. It must exist, be
+	// active, and differ from the destination.
+	SourceAccountID int64
+
+	// SourceAmount is the amount DELIVERED, a positive decimal string read at
+	// the source account's currency scale: "85000.00" for bolívares.
+	//
+	// It is positive because the direction is the pair of accounts. Sending
+	// "-85000.00" is an error rather than a synonym for the other direction.
+	SourceAmount string
+
+	// DestinationAccountID is the account the money arrives in. It must exist,
+	// be active, and be denominated in a DIFFERENT currency from the source —
+	// two accounts in one currency are a TRANSFER, not an exchange.
+	DestinationAccountID int64
+
+	// DestinationAmount is the amount RECEIVED, a positive decimal string read
+	// at the destination account's currency scale: "100.00" for dollars.
+	//
+	// It is not compared with SourceAmount. They are quantities of two different
+	// currencies, so there is no magnitude relation between them to check.
+	DestinationAmount string
+
+	// Description is optional. nil means none; an empty string is a caller
+	// mistake and is rejected.
+	Description *string
+
+	// EffectiveDate is "YYYY-MM-DD" and is required.
+	EffectiveDate string
+}
+
+// UpdateExchangeInput is the input to Service.UpdateExchange.
+//
+// Like every other edit input it is a REPLACEMENT, not a patch: every editable
+// field is sent on every call and the service revalidates exactly what a
+// creation would.
+//
+// There is no Type: an exchange cannot become anything else, and nothing else
+// can become an exchange.
+//
+// There is also no AllowCurrencyChange, and its absence is deliberate rather
+// than an omission. That flag exists on the transfer and transaction edits
+// because those carry ONE amount, so moving them to another currency re-reads
+// the same digits at another scale and silently means a different sum of money.
+// An exchange names both currencies explicitly, one amount for each, and each
+// amount is read at its own account's scale: changing an account changes which
+// currency that side is in, and the amount beside it says how much of it there
+// was. There is no reinterpretation to confirm.
+type UpdateExchangeInput struct {
+	SourceAccountID      int64
+	SourceAmount         string
+	DestinationAccountID int64
+	DestinationAmount    string
+	Description          *string
+	EffectiveDate        string
 }
 
 // UpdateTransactionInput is the input to Service.UpdateTransaction.

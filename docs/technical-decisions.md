@@ -1896,3 +1896,94 @@ say "BCV" without being the BCV, at reduced precision, dated by a field that mea
 something else. Manual backfill is exact and already exists. A value is added to
 the enumeration when a source worth trusting is actually implemented, not in
 anticipation of one.
+
+
+---
+
+## TD-055 — A currency exchange is its own transaction type, and its rate is derived
+
+**Status:** Accepted · **Milestone:** M5.5
+
+**Decision.** Money actually exchanged between two of the user's own accounts in
+two different currencies is `transaction_type = 'FX_EXCHANGE'`: **one transaction
+with two movements**, one negative in the source account and one positive in the
+destination, in two different currencies and of **unrelated magnitude**.
+
+The rate it happened at is **derived from the two amounts on every read** and
+stored nowhere. `transactions` gained no `exchange_rate_id`, no `fx_rate` and no
+column of any kind.
+
+**Rationale, in three parts.**
+
+*Why not a widened `TRANSFER`.* A transfer's two movements are equal and
+opposite, so the total held in its currency is identical before and after — that
+invariant is the entire point of the type, and it is what `splitTransfer`
+enforces on every read. An exchange breaks it deliberately: bolívares go down and
+dollars go up, and the two magnitudes are quantities of different things. Adding
+a second currency to `TRANSFER` would have meant weakening the one rule that made
+it trustworthy, for every transfer ever recorded, in order to accommodate an
+operation that is not a transfer.
+
+*Why not `BUY_USD` / `SELL_USD`.* They would be two names for one event,
+distinguished by a fact the movements already state: which account was the
+destination. "Compra de USD" is a label a screen infers; encoding it as a type
+would let the label and the movements disagree.
+
+*Why the rate is not stored.* The two amounts state it exactly — 84,220.67 ÷ 100
+is 842.2067, with nothing left over. A stored copy would be a third source of
+truth able to disagree with the two that produced it, and the disagreement would
+be invisible: an edit that corrected an amount and not the rate would leave a row
+that looks fine and means nothing. Deriving it costs one `big.Rat` division per
+read, on a screen that shows fifty rows.
+
+**Alternatives considered.** A rate-driven input mode — the user types a rate and
+one amount, the application computes the other — was considered and left out of
+scope. It sounds convenient and is a trap: the computed amount would disagree
+with the bank by a céntimo whenever the bank rounded differently, and the ledger
+would then be wrong about what actually moved. The user knows both amounts;
+they are on the statement.
+
+A fee or commission field was also rejected. If the bank charged one separately
+it is an ordinary `EXPENSE` under a category such as "Bank fees". If it was
+deducted from the exchange, the two real amounts already include it and the
+derived rate already reflects what it cost.
+
+---
+
+## TD-056 — Reference FX and execution FX are never reconciled
+
+**Status:** Accepted · **Milestone:** M5.5
+
+**Decision.** The rate an `FX_EXCHANGE` happened at takes **no part** in
+`internal/valuation`. Recording or editing one reads no row of `exchange_rates`
+and writes none. The difference between what the user paid and what the BCV
+published is **not** converted into an expense, an income, a fee, a gain or a
+loss; no such row exists and no code creates one.
+
+The visible consequence is intended: **after an exchange at a rate other than the
+reference rate, the valued net worth changes.** Buying dollars above the official
+rate reduces it; buying below it raises it.
+
+**Rationale.** M5 fixed the distinction and this is the first milestone that can
+break it. A reference rate answers "what is this worth today?"; an execution rate
+answers "what did I get for it on the 16th?". They are different questions about
+different moments, and the two obvious ways to connect them are both wrong:
+
+- *Using the execution rate to value balances.* One trade would then set the
+  price of everything held in that currency until the next one — the same failure
+  TD-049 rejected for manual rates across dates, with a worse input.
+- *Booking the difference as a gain or a loss.* That is cost-basis accounting. It
+  needs lot tracking, a policy for which lot was sold, and a decision about
+  unrealized movement on every revaluation. None of it exists, and inventing a
+  single-number version of it would produce a figure that looks like accounting
+  and is not.
+
+The honest answer is that the net worth moved because the money did. A user who
+paid above the official rate really is worth less at the official rate than they
+were an hour earlier, and the application says so rather than papering over it
+with an invented offsetting entry.
+
+**Alternatives considered.** Storing the reference rate of the day alongside the
+exchange, "for comparison". Rejected: it is `exchange_rate_id` wearing a hat, it
+would go stale the moment a `MANUAL` rate for that day was added, and the
+comparison it enables is one nothing in this application has asked for.

@@ -69,6 +69,23 @@ const (
 	// income-and-expense form must never present it or accept it; see
 	// TransactionTypesForIncomeExpenseForm.
 	TransactionTypeTransfer TransactionType = "TRANSFER"
+	// TransactionTypeFXExchange is money actually exchanged between two of the
+	// user's own accounts in DIFFERENT currencies: bolívares left one and
+	// dollars arrived in another.
+	//
+	// It is not a transfer. A transfer's two movements cancel out; an exchange's
+	// do not, and their magnitudes are quantities of two different currencies
+	// with no arithmetic relation between them. It has no category and no
+	// payment method.
+	//
+	// There is no BUY and no SELL. "Compra de USD" and "Venta de USD" are labels
+	// a screen infers from which account was the destination; the ledger stores
+	// one type.
+	//
+	// Knowing this value does not make it offerable. An exchange has two
+	// accounts, two amounts and two currencies, so it is created and edited only
+	// through RecordExchange/UpdateExchange and the /exchanges routes.
+	TransactionTypeFXExchange TransactionType = "FX_EXCHANGE"
 )
 
 // TransactionTypes lists every type a transaction can have, which is not the
@@ -79,6 +96,7 @@ func TransactionTypes() []TransactionType {
 		TransactionTypeExpense,
 		TransactionTypeOpeningBalance,
 		TransactionTypeTransfer,
+		TransactionTypeFXExchange,
 	}
 }
 
@@ -164,6 +182,81 @@ type TransferDetail struct {
 	AmountFormatted string
 }
 
+// ExecutionRate is the rate an FX_EXCHANGE actually happened at, derived by the
+// backend from its two amounts.
+//
+// It is NOT a reference rate. Nothing here was published by anybody, nothing
+// here values a balance, and nothing here comes from or goes to the exchange
+// rates screen. See docs/m5.5-contract.md.
+//
+// Orientation is the project's, always: 1 BaseCurrencyCode = RateFormatted
+// QuoteCurrencyCode. Which side is the base was decided by the backend; a
+// template must never swap the two codes to show the other direction, because
+// the inverse is a different number, not the same string relabelled.
+type ExecutionRate struct {
+	BaseCurrencyCode  string
+	QuoteCurrencyCode string
+
+	// RateFormatted is the canonical decimal string. Display it; never parse it
+	// into a JavaScript number and never reformat it.
+	RateFormatted string
+
+	// Exact is false when the rate has no finite decimal expansion, so
+	// RateFormatted is a rounded approximation. A screen showing one must say
+	// so.
+	Exact bool
+}
+
+// ExchangeDetail is a whole FX_EXCHANGE: what left, what arrived, in which two
+// currencies, and at what rate.
+//
+// For an FX_EXCHANGE this is the ONLY thing a template should read. The
+// movement-centric fields of TransactionView describe the source side alone, so
+// its CurrencyCode, MinorUnit and AmountFormatted all name the currency the
+// money LEFT — rendering them would show "-85,000.00 VES" with no way to
+// discover that 100.00 USD arrived.
+type ExchangeDetail struct {
+	SourceMovementID     int64
+	SourceAccountID      int64
+	SourceAccountName    string
+	SourceCurrencyCode   string
+	SourceCurrencySymbol *string
+	SourceMinorUnit      int
+	// SourceAmountMinor is the amount delivered, always positive.
+	SourceAmountMinor int64
+	// SourceAmountFormatted is it at the source currency's scale, unsigned.
+	SourceAmountFormatted string
+
+	DestinationMovementID     int64
+	DestinationAccountID      int64
+	DestinationAccountName    string
+	DestinationCurrencyCode   string
+	DestinationCurrencySymbol *string
+	DestinationMinorUnit      int
+	// DestinationAmountMinor is the amount received, always positive.
+	DestinationAmountMinor int64
+	// DestinationAmountFormatted is it at the destination currency's scale,
+	// unsigned.
+	DestinationAmountFormatted string
+
+	ExecutionRate ExecutionRate
+}
+
+// IsPurchaseOf reports whether this exchange bought the given currency, which is
+// true when that currency is the destination.
+//
+// It is a presentation convenience and nothing more: the ledger has one type,
+// and "Compra de USD" is a label, not a fact stored anywhere.
+func (d ExchangeDetail) IsPurchaseOf(code string) bool {
+	return d.DestinationCurrencyCode == code
+}
+
+// IsSaleOf reports whether this exchange sold the given currency, which is true
+// when that currency is the source. Same caveat as IsPurchaseOf.
+func (d ExchangeDetail) IsSaleOf(code string) bool {
+	return d.SourceCurrencyCode == code
+}
+
 type TransactionView struct {
 	ID            int64
 	Type          TransactionType
@@ -182,6 +275,12 @@ type TransactionView struct {
 	// the complete, self-sufficient representation of one. Read it instead of
 	// the movement-centric fields below whenever the type is TRANSFER.
 	Transfer *TransferDetail
+
+	// Exchange is set if and only if Type is TransactionTypeFXExchange, and is
+	// the complete, self-sufficient representation of one — both currencies
+	// included. Read it instead of the movement-centric fields below whenever
+	// the type is FX_EXCHANGE.
+	Exchange *ExchangeDetail
 
 	MovementID     int64
 	AccountID      int64
@@ -344,6 +443,40 @@ type UpdateTransferInput struct {
 	AllowCurrencyChange bool
 }
 
+// RecordExchangeInput exchanges money between two of the user's own accounts in
+// two DIFFERENT currencies.
+//
+// Both amounts are positive decimal strings, each in its own account's currency.
+// The direction is which account was named as the source, never a sign, and
+// whether this was a purchase or a sale of dollars follows from that.
+//
+// There is no rate field and there must never be one. The backend derives the
+// execution rate from the two amounts; supplying one instead would make the
+// application compute an amount the bank already decided.
+type RecordExchangeInput struct {
+	SourceAccountID      int64
+	SourceAmount         string
+	DestinationAccountID int64
+	DestinationAmount    string
+	Description          *string
+	EffectiveDate        string
+}
+
+// UpdateExchangeInput replaces every editable field of an exchange.
+//
+// There is no Type: an exchange cannot become anything else, and nothing else
+// can become an exchange. There is no AllowCurrencyChange either — both
+// currencies and both amounts are named explicitly, so changing an account
+// reinterprets nothing.
+type UpdateExchangeInput struct {
+	SourceAccountID      int64
+	SourceAmount         string
+	DestinationAccountID int64
+	DestinationAmount    string
+	Description          *string
+	EffectiveDate        string
+}
+
 type Backup struct {
 	Name      string
 	Reason    string
@@ -382,40 +515,64 @@ var (
 	ErrTypeChangeNotAllowed       = errors.New("type change not allowed")
 	ErrCurrencyChangeNotConfirmed = errors.New("currency change not confirmed")
 
-	// ErrSameAccount means a transfer named one account as both its source and
-	// its destination.
-	ErrSameAccount = errors.New("a transfer needs two different accounts")
-	// ErrCurrencyMismatch means a transfer's two accounts are in different
-	// currencies, which M4 cannot represent because it has no exchange rates.
+	// ErrSameAccount means a transfer or an exchange named one account as both
+	// its source and its destination.
+	ErrSameAccount = errors.New("the source and the destination must be two different accounts")
+	// ErrCurrencyMismatch means a TRANSFER's two accounts are in different
+	// currencies. A transfer moves one sum of money; two currencies mean two
+	// amounts, which is an FX_EXCHANGE and belongs on the exchange form.
 	ErrCurrencyMismatch = errors.New("a transfer needs both accounts in the same currency")
+	// ErrSameCurrency means an FX_EXCHANGE's two accounts are in the SAME
+	// currency, which is a transfer rather than an exchange. It is
+	// ErrCurrencyMismatch's mirror image.
+	ErrSameCurrency = errors.New("an exchange needs the two accounts in different currencies")
 	// ErrInconsistentTransfer means a stored transfer is not two balanced
 	// movements in two different accounts. It is an integrity failure, not a
 	// validation one: no input can cause it, so it warrants a 500 rather than a
 	// message on a form.
 	ErrInconsistentTransfer = errors.New("stored transfer is inconsistent")
+	// ErrInconsistentExchange means a stored exchange is not two opposite
+	// movements in two different accounts of two different currencies. Like
+	// ErrInconsistentTransfer it is an integrity failure and warrants a 500.
+	ErrInconsistentExchange = errors.New("stored exchange is inconsistent")
 )
 
-// TransferSide names which end of a transfer an error refers to, so that a form
-// can mark the right field.
-type TransferSide string
+// MovementSide names which end of a two-sided transaction — a transfer or an
+// exchange — an error refers to, so that a form can mark the right field.
+type MovementSide string
 
 const (
-	TransferSideSource      TransferSide = "source"
-	TransferSideDestination TransferSide = "destination"
+	MovementSideSource      MovementSide = "source"
+	MovementSideDestination MovementSide = "destination"
 )
 
-// TransferAccountError says which of a transfer's two accounts was rejected.
+// TransferSide is the name docs/m4-contract.md froze for MovementSide. It is the
+// SAME type, so nothing has to convert between the two spellings.
+type TransferSide = MovementSide
+
+const (
+	TransferSideSource      = MovementSideSource
+	TransferSideDestination = MovementSideDestination
+)
+
+// AccountSideError says which of a two-sided transaction's accounts was
+// rejected.
 //
 // errors.Is still matches ErrAccountNotFound or ErrAccountInactive; errors.As
 // recovers the side.
-type TransferAccountError struct {
-	Side      TransferSide
+type AccountSideError struct {
+	Side      MovementSide
 	AccountID int64
 	Err       error
 }
 
-func (e *TransferAccountError) Error() string {
+func (e *AccountSideError) Error() string {
 	return fmt.Sprintf("%s account %d: %s", e.Side, e.AccountID, e.Err)
 }
 
-func (e *TransferAccountError) Unwrap() error { return e.Err }
+func (e *AccountSideError) Unwrap() error { return e.Err }
+
+// TransferAccountError is the name docs/m4-contract.md froze for
+// AccountSideError, kept as an alias so errors.As with either spelling matches
+// the same value.
+type TransferAccountError = AccountSideError

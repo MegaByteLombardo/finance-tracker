@@ -196,14 +196,45 @@ and payment methods; internal same-currency transfers.
 - **The business calendar is Venezuela's**, `database.EconomicLocation`
   (UTC−04:00). `database.Today` is not UTC (TD-051).
 
+**M5.5 (closed): currency exchange transactions.**
+
+- A **`FX_EXCHANGE`** is ONE transaction with **TWO** movements in **DIFFERENT**
+  currencies: negative in the source, positive in the destination. Their
+  magnitudes are UNRELATED — never compare them. `category_id` and
+  `payment_method_id` are NULL, enforced by a table CHECK. **Nothing was added
+  to `transactions`.**
+- **`FX_EXCHANGE` ≠ `TRANSFER`.** A transfer's movements cancel out and share a
+  currency; an exchange's do neither. `TRANSFER` was NOT widened, and must not be.
+  `ErrSameCurrency` is `ErrCurrencyMismatch`'s mirror image.
+- **No `BUY_USD`, no `SELL_USD`.** Which currency was bought is which one was the
+  destination. "Compra de USD" is a label a screen infers, never a stored type.
+- **`Reference FX` ≠ `Execution FX`.** The execution rate is DERIVED from the two
+  amounts on every read, with `math/big`, and stored NOWHERE. Recording or
+  editing an exchange reads no row of `exchange_rates` and writes none (TD-055,
+  TD-056).
+- **Orientation:** `1 base = rate quote`. Base is USD if exactly one side is USD;
+  otherwise whichever side makes the rate ≥ 1; a tie goes to the destination.
+  The rate carries the smallest scale that states it exactly, and reports
+  `Exact = false` when there is no such scale.
+- **Valuation is untouched.** An exchange away from the reference rate moves the
+  valued net worth. That difference is NEVER an expense, income, fee, gain or
+  loss.
+- **`UpdateExchange` has no `AllowCurrencyChange`**: both currencies and both
+  amounts are explicit, so nothing is reinterpreted at another scale.
+- **`MovementSide` / `AccountSideError`** are M4's `TransferSide` /
+  `TransferAccountError` renamed as **aliases**, not parallel types.
+
 **Not built, and not to be added opportunistically:**
 
 - **No delete of anything.** Archive or correct.
 - **No history of edited records.** The undo is a backup.
-- **No FX attached to a transaction**, no merchant or card rate, no realized or
-  unrealized FX gains.
+- **No FX attached to an ordinary transaction**, no merchant or card rate, no
+  realized or unrealized FX gains, no cost basis. An `FX_EXCHANGE` derives its
+  own rate; no transaction carries a rate column.
+- **No FX fee model** and **no rate-driven input** (a rate plus one amount, with
+  the other computed). Both amounts are always entered.
 - **No cross-currency transfers**, no transfer fees, no split transactions, no
-  scheduled or recurring transfers.
+  scheduled or recurring transfers, no scheduled or automatic exchanges.
 - **No historical net worth and no chart.** `GetNetWorthAt` takes a date because
   that is the honest shape of a valuation, not because M5 draws history.
 - **No third-party rate mirror** (TD-054).
@@ -229,7 +260,15 @@ Short list, because each cost real time and each is easy to repeat.
   directory must also remember what it already issued (TD-033).
 - **A guard that lists what to EXCLUDE rots when the enumeration grows.** M3's
   edit guard read `if current.Type == OpeningBalance`; adding `TRANSFER` silently
-  made it wrong. Name what is allowed (TD-045).
+  made it wrong. Name what is allowed (TD-045). It happened a second time in M5.5,
+  in the PRESENTATION layer: two handlers read `if type == TRANSFER`, and
+  `FX_EXCHANGE` would have fallen straight through to the income form. The rule
+  applies to every layer, not only the domain.
+- **A form whose shape is patched in by a script is wrong until the script
+  runs.** The mobile operation form hard-coded the income endpoint and field
+  names, and a click handler rewrote them; a deep link to `?type=TRANSFER`
+  therefore posted a transfer to `/transactions`. Render the shape server-side and
+  let the script keep it in step.
 - **Precedence that is not scoped to a date freezes a derived figure silently.**
   Ordering by source before date would let one manual rate outrank every later
   publication forever. Nothing fails; the number just stops moving (TD-049).

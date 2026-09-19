@@ -362,3 +362,63 @@ func pow10(n int) *big.Int {
 	}
 	return new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(n)), nil)
 }
+
+// NewDecimalFromRat renders an exact rational as a Decimal.
+//
+// It exists because some numbers this application must SHOW are computed rather
+// than parsed. The rate an exchange actually happened at is one: it is the
+// source amount divided by the destination amount, an exact fraction that no
+// input string ever stated. Dividing exactly is what big.Rat is for; turning
+// the result into something a person can read is what this does.
+//
+//	85000.00 VES / 100.00 USD  ->  "850",       exact
+//	84220.67 VES / 100.00 USD  ->  "842.2067",  exact
+//	    100 VES /      3 USD   ->  "33.333333333333", NOT exact
+//
+// The scale is the SMALLEST that represents the value exactly, so a rate that
+// happens to be a whole number reads as one rather than as "850.000000000000".
+// A value that cannot be written in maxScale decimal places is rounded there,
+// HALF TO EVEN -- the same rule and the same code as every other rounding in
+// this package -- and exact reports false so that a caller can say so rather
+// than presenting an approximation as a fact.
+//
+// maxScale must be between 0 and MaxScale. r must be non-nil.
+func NewDecimalFromRat(r *big.Rat, maxScale int32) (_ Decimal, exact bool, err error) {
+	if r == nil {
+		return Decimal{}, false, fmt.Errorf("%w: a value is required", ErrInvalidDecimal)
+	}
+	if maxScale < 0 || maxScale > MaxScale {
+		return Decimal{}, false, fmt.Errorf("%w: scale %d is outside the supported range 0-%d",
+			ErrInvalidDecimal, maxScale, MaxScale)
+	}
+
+	// Copies, not the Rat's storage: Num and Denom both return pointers into
+	// the receiver, and the multiplication below would rewrite the caller's
+	// value in place.
+	num := new(big.Int).Set(r.Num())
+	den := new(big.Int).Set(r.Denom())
+
+	num.Mul(num, pow10(int(maxScale)))
+
+	quotient, remainder := new(big.Int).QuoRem(num, den, new(big.Int))
+	if remainder.Sign() != 0 {
+		// Not representable at this scale. roundHalfEven re-divides rather than
+		// adjusting the quotient in place, so that the one implementation of the
+		// tie rule stays the only one.
+		return Decimal{unscaled: roundHalfEven(num, den), scale: maxScale}, false, nil
+	}
+
+	// Exact. Drop the trailing zeros the scaling introduced, so that the value
+	// carries the scale it needs and no more.
+	scale := maxScale
+	ten := big.NewInt(10)
+	for scale > 0 {
+		trimmed, rest := new(big.Int).QuoRem(quotient, ten, new(big.Int))
+		if rest.Sign() != 0 {
+			break
+		}
+		quotient = trimmed
+		scale--
+	}
+	return Decimal{unscaled: quotient, scale: scale}, true, nil
+}

@@ -38,6 +38,17 @@ type LedgerService interface {
 	RecordTransfer(ctx context.Context, in RecordTransferInput) (TransactionView, error)
 	UpdateTransfer(ctx context.Context, id int64, in UpdateTransferInput) (TransactionView, error)
 
+	// RecordExchange and UpdateExchange are the ONLY way an FX_EXCHANGE is
+	// created or corrected. Every other use case refuses one, and UpdateExchange
+	// refuses everything that is not one.
+	//
+	// Neither reads nor writes an exchange rate. The rates administered on the
+	// exchange rates screen are REFERENCE rates used to value balances; what
+	// these record is what the user actually traded at, stated by the two
+	// amounts.
+	RecordExchange(ctx context.Context, in RecordExchangeInput) (TransactionView, error)
+	UpdateExchange(ctx context.Context, id int64, in UpdateExchangeInput) (TransactionView, error)
+
 	UpdateTransaction(ctx context.Context, id int64, in UpdateTransactionInput) (TransactionView, error)
 	UpdateOpeningBalance(ctx context.Context, id int64, in UpdateOpeningBalanceInput) (TransactionView, error)
 

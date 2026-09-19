@@ -307,11 +307,11 @@ func resolveTransfer(ctx context.Context, exec database.DBTX, r transferRequest)
 
 	source, err := resolveAccount(ctx, exec, r.sourceAccountID)
 	if err != nil {
-		return resolvedTransfer{}, transferAccountError(SourceSide, r.sourceAccountID, err)
+		return resolvedTransfer{}, accountSideError(SourceSide, r.sourceAccountID, err)
 	}
 	destination, err := resolveAccount(ctx, exec, r.destinationAccountID)
 	if err != nil {
-		return resolvedTransfer{}, transferAccountError(DestinationSide, r.destinationAccountID, err)
+		return resolvedTransfer{}, accountSideError(DestinationSide, r.destinationAccountID, err)
 	}
 
 	if source.ID == destination.ID {
@@ -368,14 +368,15 @@ func resolveTransfer(ctx context.Context, exec database.DBTX, r transferRequest)
 	}, nil
 }
 
-// transferAccountError says which end of the transfer an account error came
-// from, so that a form can mark the right field.
+// accountSideError says which end of a two-sided transaction an account error
+// came from, so that a form can mark the right field. Transfers and exchanges
+// both go through it.
 //
 // Only the two conditions a form can act on are wrapped. A failure to read the
 // database is passed through untouched: it is not about that account.
-func transferAccountError(side TransferSide, accountID int64, err error) error {
+func accountSideError(side MovementSide, accountID int64, err error) error {
 	if errors.Is(err, ErrAccountNotFound) || errors.Is(err, ErrAccountInactive) {
-		return &TransferAccountError{Side: side, AccountID: accountID, Err: err}
+		return &AccountSideError{Side: side, AccountID: accountID, Err: err}
 	}
 	return err
 }

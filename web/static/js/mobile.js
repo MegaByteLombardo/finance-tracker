@@ -143,6 +143,8 @@ document.addEventListener('DOMContentLoaded', () => {
           matchFilter = true;
         } else if (currentFilter === 'transfer' && type === 'transfer') {
           matchFilter = true;
+        } else if (currentFilter === 'fx_exchange' && type === 'fx_exchange') {
+          matchFilter = true;
         } else if (currentFilter === 'usd' && currency === 'usd') {
           matchFilter = true;
         } else if (currentFilter === 'ves' && currency === 'ves') {
@@ -238,11 +240,51 @@ document.addEventListener('DOMContentLoaded', () => {
   const opTypeTabs = document.querySelectorAll('.op-type-tab');
   const opInputType = document.getElementById('op-input-type');
   const opSubmitBtn = document.getElementById('op-submit-button');
+  const opForm = document.getElementById('mobile-operation-form');
+  const opAmountInput = document.getElementById('op-amount-input');
+  const opAmountLabel = document.getElementById('op-amount-label');
   const categoryGroup = document.getElementById('op-category-group');
   const destinationGroup = document.getElementById('op-destination-group');
+  const destinationAmountGroup = document.getElementById('op-destination-amount-group');
+  const destinationHelp = document.getElementById('op-destination-help');
+  const destinationAmount = document.getElementById('op-destination-amount');
+  const impliedRate = document.getElementById('op-implied-rate');
   const methodGroup = document.getElementById('op-method-group');
   const labelOriginAccount = document.getElementById('label-origin-account');
+  const srcSelect = document.getElementById('op-account-select');
+  const dstSelect = document.getElementById('op-dest-account-select');
   const catChips = document.querySelectorAll('.op-cat-chip');
+
+  // The four shapes this one form can take. It is the same table the server
+  // renders the initial state from (MobileOperationShape in Go), restated here
+  // because switching tabs must not need a round trip. A test in internal/web
+  // asserts the two agree.
+  const OPERATION_SHAPES = {
+    EXPENSE: {
+      action: '/transactions', sourceField: 'account_id', amountField: 'amount',
+      originLabel: 'Cuenta', amountLabel: 'Monto de la operación',
+      submitLabel: 'Registrar Gasto', submitClass: 'btn-expense', tabClass: 'type-expense',
+      category: true, method: true, destination: false, destinationAmount: false
+    },
+    INCOME: {
+      action: '/transactions', sourceField: 'account_id', amountField: 'amount',
+      originLabel: 'Cuenta de abono', amountLabel: 'Monto de la operación',
+      submitLabel: 'Registrar Ingreso', submitClass: 'btn-income', tabClass: 'type-income',
+      category: true, method: true, destination: false, destinationAmount: false
+    },
+    TRANSFER: {
+      action: '/transfers', sourceField: 'source_account_id', amountField: 'amount',
+      originLabel: 'Cuenta de origen', amountLabel: 'Monto de la operación',
+      submitLabel: 'Registrar Transferencia', submitClass: 'btn-transfer', tabClass: 'type-transfer',
+      category: false, method: false, destination: true, destinationAmount: false
+    },
+    FX_EXCHANGE: {
+      action: '/exchanges', sourceField: 'source_account_id', amountField: 'source_amount',
+      originLabel: 'Cuenta de origen (entregado)', amountLabel: 'Monto entregado',
+      submitLabel: 'Registrar Cambio', submitClass: 'btn-exchange', tabClass: 'type-exchange',
+      category: false, method: false, destination: true, destinationAmount: true
+    }
+  };
 
   function filterCategoriesForType(targetType) {
     let firstSelected = false;
@@ -262,68 +304,142 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  if (opTypeTabs.length > 0) {
-    // Initial category filter
-    const initialType = opInputType ? opInputType.value : 'EXPENSE';
-    if (initialType === 'INCOME' || initialType === 'EXPENSE') {
-      filterCategoriesForType(initialType);
+  function currencyOf(select) {
+    if (!select) return null;
+    const option = select.options[select.selectedIndex];
+    return option ? option.getAttribute('data-currency') : null;
+  }
+
+  // The destination is restricted to the accounts the chosen operation can
+  // actually reach: the SAME currency for a transfer, a DIFFERENT one for an
+  // exchange. This mirrors the rule the backend enforces rather than replacing
+  // it -- a disabled option is a hint, and the server refuses the same
+  // combinations whatever the browser did.
+  function restrictDestination(type) {
+    if (!srcSelect || !dstSelect) return;
+
+    const sourceCurrency = currencyOf(srcSelect);
+    const sourceId = srcSelect.value;
+
+    for (let i = 0; i < dstSelect.options.length; i++) {
+      const option = dstSelect.options[i];
+      if (!option.value) continue;
+
+      const optionCurrency = option.getAttribute('data-currency');
+      const sameAccount = option.value === sourceId;
+      let wrongCurrency = false;
+      if (sourceCurrency) {
+        wrongCurrency = (type === 'FX_EXCHANGE')
+          ? optionCurrency === sourceCurrency
+          : optionCurrency !== sourceCurrency;
+      }
+
+      option.disabled = Boolean(sourceId) && (sameAccount || wrongCurrency);
+      if (option.selected && option.disabled) dstSelect.value = '';
     }
+  }
+
+  // A preview of the implied rate, while the user types.
+  //
+  // It is allowed to use ordinary JavaScript arithmetic precisely because it is
+  // never stored, never posted and never compared with what the ledger derives:
+  // the exact rate comes back from the server after saving.
+  function updateImpliedRate() {
+    if (!impliedRate) return;
+
+    const sourceCurrency = currencyOf(srcSelect);
+    const destinationCurrency = currencyOf(dstSelect);
+    const delivered = Number(opAmountInput && opAmountInput.value);
+    const received = Number(destinationAmount && destinationAmount.value);
+
+    if (!sourceCurrency || !destinationCurrency ||
+        !isFinite(delivered) || !isFinite(received) || delivered <= 0 || received <= 0) {
+      impliedRate.textContent = 'Introduce ambos montos para ver la tasa implícita.';
+      return;
+    }
+
+    // The same orientation rule the backend applies: USD is the base if one
+    // side is USD, otherwise whichever side makes the rate at least 1.
+    let base, quote, value;
+    const perDestination = delivered / received;
+    if (sourceCurrency === 'USD') {
+      base = sourceCurrency; quote = destinationCurrency; value = received / delivered;
+    } else if (destinationCurrency === 'USD' || perDestination >= 1) {
+      base = destinationCurrency; quote = sourceCurrency; value = perDestination;
+    } else {
+      base = sourceCurrency; quote = destinationCurrency; value = received / delivered;
+    }
+
+    impliedRate.textContent = 'Tasa implícita ≈ 1 ' + base + ' = ' +
+      Number(value.toFixed(6)).toString() + ' ' + quote;
+  }
+
+  // applyOperationType puts the form into the shape one operation needs.
+  //
+  // It runs on every tab click AND once on load. Running it on load is not
+  // decoration: before M5.5 it ran only on click, so a form rendered for
+  // ?type=TRANSFER kept the income endpoint and the income field names until the
+  // user happened to press a tab.
+  function applyOperationType(type) {
+    const shape = OPERATION_SHAPES[type] || OPERATION_SHAPES.EXPENSE;
+
+    opTypeTabs.forEach(t => {
+      const isActive = t.getAttribute('data-type') === type;
+      t.classList.remove('is-active', 'type-expense', 'type-income', 'type-transfer', 'type-exchange');
+      t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      if (isActive) t.classList.add('is-active', shape.tabClass);
+    });
+
+    if (opInputType) opInputType.value = type;
+    if (opForm) opForm.action = shape.action;
+    if (srcSelect) srcSelect.name = shape.sourceField;
+    if (opAmountInput) opAmountInput.name = shape.amountField;
+    if (opAmountLabel) opAmountLabel.textContent = shape.amountLabel;
+    if (labelOriginAccount) labelOriginAccount.textContent = shape.originLabel;
+
+    if (opSubmitBtn) {
+      opSubmitBtn.textContent = shape.submitLabel;
+      opSubmitBtn.className = 'op-submit-btn ' + shape.submitClass;
+    }
+
+    if (categoryGroup) categoryGroup.style.display = shape.category ? 'flex' : 'none';
+    if (methodGroup) methodGroup.style.display = shape.method ? 'flex' : 'none';
+    if (destinationGroup) destinationGroup.style.display = shape.destination ? 'flex' : 'none';
+    if (destinationAmountGroup) {
+      destinationAmountGroup.style.display = shape.destinationAmount ? 'flex' : 'none';
+    }
+    // A hidden required field blocks submission in every browser, so the second
+    // amount is required only while it is on screen.
+    if (destinationAmount) destinationAmount.required = shape.destinationAmount;
+    if (destinationHelp) destinationHelp.style.display = shape.destinationAmount ? 'block' : 'none';
+
+    if (shape.category) filterCategoriesForType(type);
+    restrictDestination(type);
+    if (shape.destinationAmount) updateImpliedRate();
+  }
+
+  function currentOperationType() {
+    return (opInputType && opInputType.value) || 'EXPENSE';
+  }
+
+  if (opTypeTabs.length > 0) {
+    applyOperationType(currentOperationType());
 
     opTypeTabs.forEach(tab => {
       tab.addEventListener('click', () => {
-        const type = tab.getAttribute('data-type');
-        opTypeTabs.forEach(t => {
-          t.classList.remove('is-active', 'type-expense', 'type-income', 'type-transfer');
-          t.setAttribute('aria-selected', 'false');
-        });
-        tab.classList.add('is-active');
-        tab.setAttribute('aria-selected', 'true');
-        if (opInputType) opInputType.value = type;
-
-        const mobileForm = document.getElementById('mobile-operation-form');
-        const srcSelect = document.getElementById('op-account-select');
-
-        if (type === 'EXPENSE') {
-          tab.classList.add('type-expense');
-          if (opSubmitBtn) {
-            opSubmitBtn.textContent = 'Registrar Gasto';
-            opSubmitBtn.className = 'op-submit-btn btn-expense';
-          }
-          if (categoryGroup) categoryGroup.style.display = 'flex';
-          if (destinationGroup) destinationGroup.style.display = 'none';
-          if (methodGroup) methodGroup.style.display = 'flex';
-          if (labelOriginAccount) labelOriginAccount.textContent = 'Cuenta';
-          if (mobileForm) mobileForm.action = '/transactions';
-          if (srcSelect) srcSelect.name = 'account_id';
-          filterCategoriesForType('EXPENSE');
-        } else if (type === 'INCOME') {
-          tab.classList.add('type-income');
-          if (opSubmitBtn) {
-            opSubmitBtn.textContent = 'Registrar Ingreso';
-            opSubmitBtn.className = 'op-submit-btn btn-income';
-          }
-          if (categoryGroup) categoryGroup.style.display = 'flex';
-          if (destinationGroup) destinationGroup.style.display = 'none';
-          if (methodGroup) methodGroup.style.display = 'flex';
-          if (labelOriginAccount) labelOriginAccount.textContent = 'Cuenta de abono';
-          if (mobileForm) mobileForm.action = '/transactions';
-          if (srcSelect) srcSelect.name = 'account_id';
-          filterCategoriesForType('INCOME');
-        } else if (type === 'TRANSFER') {
-          tab.classList.add('type-transfer');
-          if (opSubmitBtn) {
-            opSubmitBtn.textContent = 'Registrar Transferencia';
-            opSubmitBtn.className = 'op-submit-btn btn-transfer';
-          }
-          if (categoryGroup) categoryGroup.style.display = 'none';
-          if (destinationGroup) destinationGroup.style.display = 'flex';
-          if (methodGroup) methodGroup.style.display = 'none';
-          if (labelOriginAccount) labelOriginAccount.textContent = 'Cuenta de origen';
-          if (mobileForm) mobileForm.action = '/transfers';
-          if (srcSelect) srcSelect.name = 'source_account_id';
-        }
+        applyOperationType(tab.getAttribute('data-type'));
       });
     });
+
+    if (srcSelect) {
+      srcSelect.addEventListener('change', () => {
+        restrictDestination(currentOperationType());
+        updateImpliedRate();
+      });
+    }
+    if (dstSelect) dstSelect.addEventListener('change', updateImpliedRate);
+    if (opAmountInput) opAmountInput.addEventListener('input', updateImpliedRate);
+    if (destinationAmount) destinationAmount.addEventListener('input', updateImpliedRate);
 
     catChips.forEach(chip => {
       chip.addEventListener('click', () => {

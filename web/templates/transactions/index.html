@@ -8,6 +8,7 @@
     <a href="/transactions/new?type=INCOME" class="btn btn-secondary">+ Record Income</a>
     <a href="/transactions/new?type=EXPENSE" class="btn btn-primary">+ Record Expense</a>
     <a href="/transfers/new" class="btn btn-secondary">&harr; Transfer</a>
+    <a href="/exchanges/new" class="btn btn-secondary">&#8644; Exchange Currency</a>
   </div>
 </div>
 
@@ -20,6 +21,7 @@
     <a href="/transactions/new?type=INCOME" class="btn btn-secondary">Record Income</a>
     <a href="/transactions/new?type=EXPENSE" class="btn btn-primary">Record Expense</a>
     <a href="/transfers/new" class="btn btn-secondary">&harr; Transfer</a>
+    <a href="/exchanges/new" class="btn btn-secondary">&#8644; Exchange Currency</a>
   </div>
 </div>
 {{ else }}
@@ -46,7 +48,7 @@
               {{ derefString .Description }}
             {{ else }}
               <span style="color: var(--text-muted); font-style: italic;">
-                {{ if eq .Type "OPENING_BALANCE" }}Initial balance{{ else if eq .Type "TRANSFER" }}Internal transfer{{ else }}No description{{ end }}
+                {{ if eq .Type "OPENING_BALANCE" }}Initial balance{{ else if eq .Type "TRANSFER" }}Internal transfer{{ else if eq .Type "FX_EXCHANGE" }}{{ exchangeLabel .Exchange }}{{ else }}No description{{ end }}
               </span>
             {{ end }}
           </div>
@@ -57,13 +59,15 @@
             <span class="badge badge-income">Income</span>
             {{ else if eq .Type "TRANSFER" }}
             <span class="badge badge-transfer">Transfer</span>
+            {{ else if eq .Type "FX_EXCHANGE" }}
+            <span class="badge badge-exchange">{{ exchangeLabel .Exchange }}</span>
             {{ else }}
             <span class="badge badge-expense">Expense</span>
             {{ end }}
           </div>
         </td>
         <td>
-          {{ if eq .Type "TRANSFER" }}
+          {{ if or (eq .Type "TRANSFER") (eq .Type "FX_EXCHANGE") }}
             <span style="color: var(--text-subtle);">&mdash;</span>
           {{ else if .CategoryName }}
             {{ derefString .CategoryName }}
@@ -79,6 +83,14 @@
             <div style="font-size: 0.75rem; color: var(--text-muted);">
               Internal transfer
             </div>
+          {{ else if and (eq .Type "FX_EXCHANGE") .Exchange }}
+            <div style="font-weight: 500;">
+              {{ .Exchange.SourceAccountName }} &rarr; {{ .Exchange.DestinationAccountName }}
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted);">
+              {{ .Exchange.SourceCurrencyCode }} &rarr; {{ .Exchange.DestinationCurrencyCode }}
+              &middot; {{ executionRateLabel .Exchange.ExecutionRate }}
+            </div>
           {{ else }}
             <div style="font-weight: 500;">{{ .AccountName }}</div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">
@@ -87,20 +99,31 @@
           {{ end }}
         </td>
         <td>
-          {{ if eq .Type "TRANSFER" }}
+          {{ if or (eq .Type "TRANSFER") (eq .Type "FX_EXCHANGE") }}
             <span style="color: var(--text-subtle);">&mdash;</span>
           {{ else }}
             {{ paymentMethodLabel .PaymentMethodName }}
           {{ end }}
         </td>
         <td class="cell-right cell-mono" style="white-space: nowrap;">
+          {{ if and (eq .Type "FX_EXCHANGE") .Exchange }}
+            <div class="amount-expense">
+              -{{ formatAmount .Exchange.SourceAmountFormatted }} {{ .Exchange.SourceCurrencyCode }}
+            </div>
+            <div class="amount-income">
+              +{{ formatAmount .Exchange.DestinationAmountFormatted }} {{ .Exchange.DestinationCurrencyCode }}
+            </div>
+          {{ else }}
           <span class="{{ if eq .Type "INCOME" }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else if eq .Type "TRANSFER" }}amount-transfer{{ else }}amount-opening{{ end }}">
             {{ formatSignedAmount . }} {{ .CurrencyCode }}
           </span>
+          {{ end }}
         </td>
         <td class="cell-right">
           {{ if eq .Type "TRANSFER" }}
           <a href="/transfers/{{ .ID }}/edit" class="btn btn-sm btn-secondary">Edit</a>
+          {{ else if eq .Type "FX_EXCHANGE" }}
+          <a href="/exchanges/{{ .ID }}/edit" class="btn btn-sm btn-secondary">Edit</a>
           {{ else }}
           <a href="/transactions/{{ .ID }}/edit" class="btn btn-sm btn-secondary">Edit</a>
           {{ end }}

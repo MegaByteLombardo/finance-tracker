@@ -392,3 +392,94 @@ func (f EditTransferForm) Error(field string) string {
 	}
 	return f.Errors[field]
 }
+
+// ExchangeForm holds state and validation for the new currency exchange form.
+//
+// It carries TWO amounts and TWO currencies, which is the shape of the
+// operation. There is no shared-currency field and no rate field: the rate is
+// derived by the backend from the two amounts, and the form only ever previews
+// it.
+type ExchangeForm struct {
+	SourceAccountID      int64
+	SourceAmount         string
+	DestinationAccountID int64
+	DestinationAmount    string
+	Description          string
+	EffectiveDate        string
+
+	// The currency of each side, resolved from the chosen accounts so that the
+	// form can show the right code and the right number of decimals. Empty
+	// until an account is chosen.
+	SourceCurrencyCode           string
+	SourceCurrencySymbol         *string
+	SourceCurrencyMinorUnit      int
+	DestinationCurrencyCode      string
+	DestinationCurrencySymbol    *string
+	DestinationCurrencyMinorUnit int
+
+	Accounts []Account
+	Errors   map[string]string
+}
+
+func (f ExchangeForm) HasError(field string) bool {
+	if f.Errors == nil {
+		return false
+	}
+	_, ok := f.Errors[field]
+	return ok
+}
+
+func (f ExchangeForm) Error(field string) string {
+	if f.Errors == nil {
+		return ""
+	}
+	return f.Errors[field]
+}
+
+// EditExchangeForm holds state and validation for editing a currency exchange.
+//
+// There is no NeedsCurrencyConfirmation and no AllowCurrencyChange, unlike the
+// transfer and transaction edit forms. Those exist because those operations
+// carry ONE amount, so moving them to another currency re-reads the same digits
+// at another scale. An exchange names both currencies and both amounts, so
+// changing an account reinterprets nothing — it corrects which currency that
+// side was in, and the amount beside it says how much.
+type EditExchangeForm struct {
+	ID                   int64
+	SourceAccountID      int64
+	SourceAmount         string
+	DestinationAccountID int64
+	DestinationAmount    string
+	Description          string
+	EffectiveDate        string
+
+	SourceCurrencyCode           string
+	SourceCurrencySymbol         *string
+	SourceCurrencyMinorUnit      int
+	DestinationCurrencyCode      string
+	DestinationCurrencySymbol    *string
+	DestinationCurrencyMinorUnit int
+
+	// ExecutionRate is what the exchange currently reads as, derived by the
+	// backend. It is shown for orientation while editing and is never posted
+	// back: changing an amount changes it, with nothing stored to keep in step.
+	ExecutionRate ExecutionRate
+
+	Accounts []Account
+	Errors   map[string]string
+}
+
+func (f EditExchangeForm) HasError(field string) bool {
+	if f.Errors == nil {
+		return false
+	}
+	_, ok := f.Errors[field]
+	return ok
+}
+
+func (f EditExchangeForm) Error(field string) string {
+	if f.Errors == nil {
+		return ""
+	}
+	return f.Errors[field]
+}

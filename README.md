@@ -4,11 +4,12 @@ A local, single-user web application for managing personal finances. Go +
 SQLite, server-rendered, run on your own machine with Docker Compose. No cloud,
 no accounts, no telemetry.
 
-**This repository is at milestone M5.** It records income, expenses and transfers
-between your own accounts, across accounts in several currencies, derives every
-balance from the ledger, lets you correct what you entered, takes backups you can
-restore from, and — from M5 — values everything you hold in a single base currency
-using exchange rates it keeps. See [Scope](#scope) below.
+**This repository is at milestone M5.5.** It records income, expenses, transfers
+between your own accounts and **real currency exchanges** between them, across
+accounts in several currencies, derives every balance from the ledger, lets you
+correct what you entered, takes backups you can restore from, and — from M5 —
+values everything you hold in a single base currency using exchange rates it
+keeps. See [Scope](#scope) below.
 
 ## Requirements
 
@@ -99,22 +100,60 @@ that currency does not change** — because none did. Nothing was earned and
 nothing was spent.
 
 Both accounts must be active. A transfer between accounts in *different*
-currencies is still refused. M5 added exchange rates, but only *reference* rates
-— what a currency was worth on a day, used to value what you hold. A
-cross-currency transfer needs the rate that *that operation* actually happened at,
-along with a source amount and a destination amount, and none of that exists. You can edit a transfer afterwards; you cannot
-delete it.
+currencies is refused, and always will be — that operation is a **currency
+exchange**, which has its own form; see below. You can edit a transfer
+afterwards; you cannot delete it.
 
 A transfer may leave an account with a negative balance, and this is allowed on
 purpose. Overdrafts happen, and a cash account that goes negative usually means
 something has not been entered yet — hiding that would not make it untrue.
+
+### Exchanging currency between your own accounts
+
+A **currency exchange** records money you actually exchanged: bolívares left one
+account and dollars arrived in another.
+
+```
+Compra de USD                          Venta de USD
+
+Banesco VES                            Mercantil USD
+-85,000.00 VES                         -100.00 USD
+        ↓                                      ↓
+Mercantil USD                          Banesco VES
++100.00 USD                            +84,500.00 VES
+```
+
+1. Open **Exchange Currency** (mobile: **Cambiar divisas**)
+2. Choose the account the money leaves and enter **what you handed over**
+3. Choose the account it arrives in — it must be in a **different** currency —
+   and enter **what you received**
+4. Enter the date, and optionally a description
+
+You enter **both amounts**, because both are facts on your statement. The
+application does **not** ask for a rate and does not look one up: it *derives*
+the rate from the two amounts, exactly — 84,220.67 for 100.00 is 842.2067 VES per
+USD — and shows it. Nothing is stored for that rate; it is recomputed whenever
+the exchange is displayed, so correcting an amount corrects it automatically.
+
+Whether this was a purchase or a sale is simply which account was the
+destination. There is no "buy" and no "sell" to choose.
+
+**If the bank charged a commission**, record it as a separate expense under a
+category such as "Bank fees". If you only know the final amounts debited and
+credited, enter those — the derived rate then already shows what the exchange
+really cost you.
+
+Exchanges can be corrected, never deleted, and both amounts and both accounts can
+change.
 
 ### Important financial model notes
 
 * **Balances are derived from transactions:** Accounts have no stored balance column. Every balance is calculated dynamically from ledger movements (`SUM(movements)`).
 * **Balances are never summed across currencies.** Accounts in USD, EUR and VES are shown independently, each in its own currency, exactly as before.
 * **The net worth is a *valuation*, not a balance.** From M5 the dashboard also shows one consolidated figure in your base currency. It is computed at the moment you look at it, from the ledger plus the exchange rates you have, and it is **not stored anywhere**. Every component says which rate produced it, from which source, effective on which day — and if a rate is missing, the figure says so instead of guessing.
-* **Reference FX is not transaction FX.** M5's rates express what you hold in one currency. They are never attached to a transaction, and no transaction carries a rate.
+* **Reference FX is not execution FX.** The rates on the exchange rates screen say what a *source* — the BCV, or you — said a currency was worth on a day; they value what you hold. The rate of a **currency exchange** is what *you actually got*, derived from the two amounts you entered. Recording an exchange does not read or change any stored rate, and no transaction carries one.
+* **An exchange can move your net worth, and that is correct.** If you buy dollars above the official rate, the consolidated figure goes down, because at the official rate you now hold less. The application does **not** turn that difference into an expense, an income, a fee, a gain or a loss — there is no such entry, by design.
+* **A currency exchange is not a transfer.** A transfer moves one sum of money between two accounts in the *same* currency, and your total in that currency is unchanged. An exchange moves *two different* sums, in two currencies, and changes both totals.
 * **An Internal Transfer is not the "Bank transfer" payment method.** These are two different things and the application treats them as such:
   * a **Transfer** moves money between **two accounts you own**. It is neither income nor an expense, has no category and no payment method, and does not change your total wealth in that currency.
   * the payment method named **"Bank transfer"** describes the **channel** an operation with the **outside world** used — how your salary arrived, or how you paid a bill.
@@ -300,6 +339,12 @@ equal and opposite. The total held in that currency is identical before and
 after, because a transfer neither creates nor destroys money. Both accounts must
 be active and share a currency. Transfers can be corrected, never deleted.
 
+**M5.5 — currency exchanges.** Buying and selling currency between your own
+accounts, as one event with two movements in two different currencies. You enter
+both amounts; the rate is derived exactly from them and stored nowhere. It has no
+category and no payment method, it is not a transfer, and the reference rates are
+left completely alone.
+
 **M5 — multi-currency valuation.** Exchange rates as dated observations, entered
 by hand or fetched from the Banco Central de Venezuela over plain HTTP; a base
 currency of valuation; and one consolidated net worth derived from the ledger,
@@ -323,14 +368,26 @@ decision that has not been made yet.
 **No history of edits.** M3 supports editing current records; it does not keep
 previous versions of them. The undo is a backup.
 
-**No FX attached to a transaction.** M5's rates are *reference* rates: what a
-currency was worth on a day, used to value what you already hold. The rate a
-particular purchase, card payment or settlement actually happened at does not
-exist in this application, and nothing has been prepared for it.
+**No FX attached to an ordinary transaction.** M5.5 records the rate of an
+*exchange between your own accounts*, and it derives it from the two amounts you
+entered. The rate a particular purchase, card payment or settlement happened at
+still does not exist in this application, no transaction carries a rate column,
+and nothing has been prepared for one.
 
 **No transfers between accounts in different currencies.** A transfer requires
-both accounts to share a currency, for the reason above: converting needs a
-transaction rate, a source amount and a destination amount, none of which exist.
+both accounts to share a currency. Moving money between currencies is a
+*currency exchange* — a different operation, with its own form, its own two
+amounts and its own rules.
+
+**No FX gains or losses, and no cost basis.** An exchange at a rate other than
+the reference one moves your valued net worth, and the difference stays exactly
+that: a difference. It is not booked anywhere, and no lot or cost basis is
+tracked.
+
+**No fee field on an exchange, and no rate-driven entry.** A commission is a
+separate expense, and you always enter both amounts rather than a rate plus one
+amount — because a rate plus one amount would make the application compute a
+figure your bank already decided.
 
 **No historical net worth.** M5 answers "what is this worth *now*". It stores no
 rate history from before its first run, and draws no chart. Asking what your net

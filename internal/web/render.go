@@ -81,11 +81,54 @@ func NewRenderer(templateFS fs.FS) *Renderer {
 			if tx.Type == TransactionTypeTransfer && tx.Transfer != nil {
 				return formatAmountString(tx.Transfer.AmountFormatted)
 			}
+			// An exchange has TWO amounts in two currencies and no single
+			// figure that could stand for it. Asking for one here yields the
+			// side the money left, signed and with its own code, and a caller
+			// that wants both must read .Exchange.
+			if tx.Type == TransactionTypeFXExchange && tx.Exchange != nil {
+				return "-" + formatAmountString(tx.Exchange.SourceAmountFormatted)
+			}
 			amt := formatAmountString(tx.AmountFormatted)
 			if tx.Type == TransactionTypeIncome && !strings.HasPrefix(amt, "+") {
 				return "+" + amt
 			}
 			return amt
+		},
+		// exchangeLabel names an exchange the way a person would: by which
+		// currency was bought.
+		//
+		// It is PRESENTATION ONLY. The ledger stores one type, FX_EXCHANGE, and
+		// there is no BUY_USD or SELL_USD anywhere below this line; which
+		// currency was bought is simply which one was the destination.
+		"exchangeLabel": func(d *ExchangeDetail) string {
+			if d == nil {
+				return "Currency exchange"
+			}
+			switch {
+			case d.IsPurchaseOf("USD"):
+				return "Bought USD"
+			case d.IsSaleOf("USD"):
+				return "Sold USD"
+			default:
+				return d.SourceCurrencyCode + " → " + d.DestinationCurrencyCode
+			}
+		},
+		// executionRateLabel renders "1 USD = 842.2067 VES", with a "≈" when the
+		// rate has no finite decimal expansion.
+		//
+		// The orientation is the backend's. A template must never swap the two
+		// codes to show the other direction: the inverse is a different number,
+		// not the same string relabelled.
+		"executionRateLabel": func(rate ExecutionRate) string {
+			if rate.RateFormatted == "" {
+				return ""
+			}
+			approximately := ""
+			if !rate.Exact {
+				approximately = "≈ "
+			}
+			return "1 " + rate.BaseCurrencyCode + " = " + approximately +
+				formatAmountString(rate.RateFormatted) + " " + rate.QuoteCurrencyCode
 		},
 		"lower": strings.ToLower,
 		"upper": strings.ToUpper,

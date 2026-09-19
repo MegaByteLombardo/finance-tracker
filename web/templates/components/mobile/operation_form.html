@@ -13,10 +13,16 @@
     <div style="width: 48px;"></div>
   </div>
 
-  <form id="mobile-operation-form" action="/transactions" method="POST" class="operation-form-body">
+  <!--
+    The action and the field names are rendered by the SERVER for the type it was
+    asked for, not patched in by a script after the first click. Opening this
+    screen with ?type=TRANSFER or ?type=FX_EXCHANGE therefore posts to the right
+    endpoint even if no script runs at all.
+  -->
+  <form id="mobile-operation-form" action="{{ .Shape.Action }}" method="POST" class="operation-form-body">
     <input type="hidden" name="return_to" value="/mobile/movimientos">
 
-    <!-- Switcher de Tipo de Operación: Gasto / Ingreso / Transferencia -->
+    <!-- Switcher de Tipo: Gasto / Ingreso / Transferencia / Cambio -->
     <div class="op-type-segmented-control" role="tablist">
       <button type="button" class="op-type-tab {{ if eq .SelectedType "EXPENSE" }}is-active type-expense{{ end }}" data-type="EXPENSE" role="tab" aria-selected="{{ if eq .SelectedType "EXPENSE" }}true{{ else }}false{{ end }}">
         Gasto
@@ -27,12 +33,17 @@
       <button type="button" class="op-type-tab {{ if eq .SelectedType "TRANSFER" }}is-active type-transfer{{ end }}" data-type="TRANSFER" role="tab" aria-selected="{{ if eq .SelectedType "TRANSFER" }}true{{ else }}false{{ end }}">
         Transferencia
       </button>
+      <button type="button" class="op-type-tab {{ if eq .SelectedType "FX_EXCHANGE" }}is-active type-exchange{{ end }}" data-type="FX_EXCHANGE" role="tab" aria-selected="{{ if eq .SelectedType "FX_EXCHANGE" }}true{{ else }}false{{ end }}">
+        Cambio
+      </button>
     </div>
     <input type="hidden" id="op-input-type" name="type" value="{{ .SelectedType }}">
 
     <!-- Display de Monto Grande con selector de moneda -->
     <div class="amount-hero-display">
-      <span class="amount-hero-label">Monto de la operación</span>
+      <span class="amount-hero-label" id="op-amount-label">
+        {{ if .Shape.ShowDestinationAmount }}Monto entregado{{ else }}Monto de la operación{{ end }}
+      </span>
       <div class="amount-hero-input-wrap">
         <select id="op-currency-select" class="amount-currency-pill" aria-label="Moneda">
           {{ range .Currencies }}
@@ -43,14 +54,14 @@
           <option value="EUR">EUR (€)</option>
           {{ end }}
         </select>
-        <input 
-          type="text" 
-          id="op-amount-input" 
-          name="amount" 
-          class="amount-hero-number-input" 
-          placeholder="0.00" 
-          inputmode="decimal" 
-          required 
+        <input
+          type="text"
+          id="op-amount-input"
+          name="{{ .Shape.AmountFieldName }}"
+          class="amount-hero-number-input"
+          placeholder="0.00"
+          inputmode="decimal"
+          required
           autocomplete="off"
           aria-label="Monto"
         >
@@ -62,11 +73,11 @@
       <!-- Cuenta de origen -->
       <div class="op-field-group">
         <label class="op-field-label" for="op-account-select">
-          <span id="label-origin-account">Cuenta</span>
+          <span id="label-origin-account">{{ .Shape.OriginLabel }}</span>
           <span class="required-star">*</span>
         </label>
         <div class="op-select-wrap">
-          <select id="op-account-select" name="account_id" class="op-native-select" required>
+          <select id="op-account-select" name="{{ .Shape.SourceFieldName }}" class="op-native-select" required>
             <option value="">Selecciona una cuenta...</option>
             {{ range .Accounts }}
             <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}">
@@ -78,10 +89,10 @@
         </div>
       </div>
 
-      <!-- Cuenta de destino (Visible solo en Transferencia) -->
-      <div id="op-destination-group" class="op-field-group" style="display: none;">
+      <!-- Cuenta de destino (Transferencia y Cambio) -->
+      <div id="op-destination-group" class="op-field-group" {{ if not .Shape.ShowDestination }}style="display: none;"{{ end }}>
         <label class="op-field-label" for="op-dest-account-select">
-          <span>Cuenta de destino</span>
+          <span id="label-destination-account">Cuenta de destino</span>
           <span class="required-star">*</span>
         </label>
         <div class="op-select-wrap">
@@ -95,10 +106,37 @@
           </select>
           <svg class="select-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </div>
+        <span id="op-destination-help" class="op-field-help" {{ if not .Shape.ShowDestinationAmount }}style="display: none;"{{ end }}>
+          Debe estar en una moneda distinta a la de origen.
+        </span>
       </div>
 
-      <!-- Categoría (Solo en Gasto o Ingreso) -->
-      <div id="op-category-group" class="op-field-group">
+      <!--
+        Monto recibido. Sólo el cambio de divisas lo tiene, porque sólo él tiene
+        dos montos: lo entregado y lo recibido son cantidades de dos monedas
+        distintas y ninguna se deriva de la otra.
+      -->
+      <div id="op-destination-amount-group" class="op-field-group" {{ if not .Shape.ShowDestinationAmount }}style="display: none;"{{ end }}>
+        <label class="op-field-label" for="op-destination-amount">
+          <span>Monto recibido</span>
+          <span class="required-star">*</span>
+        </label>
+        <input
+          type="text"
+          id="op-destination-amount"
+          name="destination_amount"
+          class="op-native-input op-amount-input"
+          placeholder="0.00"
+          inputmode="decimal"
+          autocomplete="off"
+        >
+        <span id="op-implied-rate" class="op-field-help" aria-live="polite">
+          Introduce ambos montos para ver la tasa implícita.
+        </span>
+      </div>
+
+      <!-- Categoría (Sólo en Gasto o Ingreso) -->
+      <div id="op-category-group" class="op-field-group" {{ if not .Shape.ShowCategory }}style="display: none;"{{ end }}>
         <label class="op-field-label">
           <span>Categoría</span>
           <span class="required-star">*</span>
@@ -115,7 +153,7 @@
       </div>
 
       <!-- Método de pago -->
-      <div id="op-method-group" class="op-field-group">
+      <div id="op-method-group" class="op-field-group" {{ if not .Shape.ShowPaymentMethod }}style="display: none;"{{ end }}>
         <label class="op-field-label" for="op-method-select">
           <span>Método de pago / Canal</span>
         </label>
@@ -135,12 +173,12 @@
           <span>Fecha</span>
           <span class="required-star">*</span>
         </label>
-        <input 
-          type="date" 
-          id="op-date-input" 
-          name="effective_date" 
-          class="op-native-input" 
-          value="{{ .CurrentDate }}" 
+        <input
+          type="date"
+          id="op-date-input"
+          name="effective_date"
+          class="op-native-input"
+          value="{{ .CurrentDate }}"
           required
         >
       </div>
@@ -151,11 +189,11 @@
           <span>Descripción o Comercio</span>
           <span class="optional-tag">(Opcional)</span>
         </label>
-        <input 
-          type="text" 
-          id="op-description-input" 
-          name="description" 
-          class="op-native-input" 
+        <input
+          type="text"
+          id="op-description-input"
+          name="description"
+          class="op-native-input"
           placeholder="Ej: Automercado Plaza's, Almuerzo..."
         >
       </div>
@@ -163,8 +201,8 @@
 
     <!-- Botón de Confirmación -->
     <div class="op-submit-container">
-      <button type="submit" id="op-submit-button" class="op-submit-btn btn-expense">
-        Registrar Gasto
+      <button type="submit" id="op-submit-button" class="op-submit-btn {{ .Shape.SubmitClass }}">
+        {{ .Shape.SubmitLabel }}
       </button>
     </div>
   </form>

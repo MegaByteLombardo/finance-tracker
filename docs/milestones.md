@@ -501,6 +501,124 @@ and audit history of edits.
 
 ---
 
+## M5.5 — Currency Exchange Transactions · `CLOSED`
+
+A short milestone with one job: let the user record the operation this
+application exists to track. In Venezuela, buying and selling dollars is not an
+edge case — it is a weekly event, and until now the ledger had no way to say it
+happened.
+
+```
+Compra de USD                          Venta de USD
+
+Banesco VES                            Mercantil USD
+-85,000.00 VES                         -100.00 USD
+        ↓                                      ↓
+Mercantil USD                          Banesco VES
++100.00 USD                            +84,500.00 VES
+```
+
+### The rule the milestone hangs on
+
+```
+Reference / Valuation FX        ≠        Execution FX
+```
+
+M5 built the first and named the second "Transaction FX". **M5.5 builds something
+strictly narrower than that name suggested**: an operation between two accounts
+the user owns, where both amounts are facts on a statement. No transaction
+carries a rate, recording one reads no reference rate and writes none, and
+`exchange_rates` is not touched at all.
+
+### Scope
+
+- **`FX_EXCHANGE`**: one transaction, two movements, one negative in the source
+  and one positive in the destination, in two **different** currencies and of
+  **unrelated magnitude**. No category, no payment method, enforced by the table
+  `CHECK`.
+- **`TRANSFER` was not widened.** They are different financial events: a
+  transfer's two movements cancel out and an exchange's do not. `ErrSameCurrency`
+  is `ErrCurrencyMismatch`'s mirror image and each belongs to exactly one of them
+  (TD-055).
+- **No `BUY_USD` and no `SELL_USD`.** Which currency was bought is which one was
+  the destination; "Compra de USD" is a label a screen infers.
+- **The execution rate is derived, never stored.** `84,220.67 ÷ 100 = 842.2067`,
+  computed with `math/big` on every read, at the smallest scale that states it
+  exactly — and reported as approximate, with `≈`, when no finite decimal
+  expansion exists.
+- **Orientation**: `1 base = rate quote`, with USD as the base whenever one side
+  is USD, otherwise whichever side makes the rate at least 1. So a purchase and a
+  sale of the same pair can be compared at a glance.
+- **`RecordExchange` / `UpdateExchange`**, following `RecordTransfer` /
+  `UpdateTransfer` exactly. Both amounts, both accounts, the date and the
+  description are editable; the two movements keep their ids (TD-042).
+- **No `AllowCurrencyChange` on the edit**, and its absence is the point: that
+  flag exists where one amount is re-read at another scale, and an exchange names
+  both currencies and both amounts explicitly.
+- **Migration `00013`, schema version 13.** One `CHECK` widened. No table, no
+  column, no index added anywhere — the two-table ledger from M2 did the rest.
+  Forward-only (TD-038), because no honest mapping back exists.
+- **Valuation untouched.** Balances move, and `internal/valuation` values them
+  with reference rates as before. An exchange away from the reference rate moves
+  the valued net worth, and that difference becomes **no** expense, income, fee,
+  gain or loss (TD-056).
+
+### Decisions worth naming
+
+- **The rate is derived because a stored copy could disagree with the two amounts
+  that produced it.** An edit that corrected an amount and not the rate would
+  leave a row that looks fine and means nothing (TD-055).
+- **A rate-driven input mode was considered and left out.** Typing a rate and one
+  amount sounds convenient and is a trap: the computed amount would disagree with
+  the bank by a céntimo whenever the bank rounded differently, and the ledger
+  would then be wrong about what actually moved.
+- **No fee field.** A commission charged separately is an `EXPENSE` under "Bank
+  fees". One deducted from the exchange is already inside the two real amounts,
+  and the derived rate already reflects what it cost.
+- **`TransferSide` and `TransferAccountError` became `MovementSide` and
+  `AccountSideError`** — as **aliases**, not parallel types, so every M4 call site
+  and `errors.As` with either spelling keeps working. An exchange form has two
+  account fields too; the M4 names had stopped describing the idea.
+
+### One thing M5.5 found and fixed
+
+The mobile "Nueva operación" form posts to several endpoints with different field
+names, and the template hard-coded the income-and-expense shape while a script
+rewrote it on the first tab click. **Opening
+`/mobile/operacion/nueva?type=TRANSFER` directly therefore produced a form
+labelled "Transferencia" that would have posted to `/transactions`** — filing a
+transfer as an expense against one account. It had been there since M4 and no
+test looked at it.
+
+The server now renders the shape it was asked for, the script applies it on load
+as well as on click, and a test reads `mobile.js` and checks its table against
+the Go one so the two cannot drift.
+
+Two presentation-layer guards were also rewritten. `GET /transactions/{id}/edit`
+and `POST /transactions/{id}` tested `if type == TRANSFER`, which is exactly the
+shape TD-045 records as rotting when the enumeration grows — `FX_EXCHANGE` would
+have fallen through to the income form. Both now `switch` over every type and
+refuse the default.
+
+### Delivered
+
+Migration `00013` (schema version 13); `ledger.FXExchange`, `RecordExchange`,
+`UpdateExchange`, `ExchangeDetail`, `ExecutionRate`;
+`money.NewDecimalFromRat`; the contract in [m5.5-contract.md](m5.5-contract.md);
+the desktop `/exchanges` screens, the mobile "Cambiar divisas" operation, and
+both amounts plus the derived rate in every listing.
+
+### Not in M5.5
+
+An FX fee model, an exchange-rate column on `transactions` in any spelling,
+cross-currency `TRANSFER`, FX gains and losses, cost basis, tax accounting, a
+rate-driven input mode, automatic or scheduled exchanges, historical FX
+performance, new providers, browser automation, **any delete**, and audit history
+of edits.
+
+
+---
+
 ## Roadmap
 
 Everything below is **provisional**. These are the currently expected shape of
@@ -514,6 +632,7 @@ below has acceptance criteria yet, by design.
 | Milestone | Theme | Status |
 | --- | --- | --- |
 | M5 | Multi-Currency, Exchange Rates & Current Net Worth | `IN PROGRESS` |
+| M5.5 | Currency Exchange Transactions | `CLOSED` |
 | M6 | Historical Net Worth | `PLANNED` |
 | M7 | Dashboard & Analytics | `PLANNED` |
 | M8 | Credit & Debt | `PLANNED` |

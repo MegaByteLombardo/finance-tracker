@@ -1,6 +1,6 @@
 # Data model
 
-Current schema version: **12** (M5). Migrations live in
+Current schema version: **13** (M5.5). Migrations live in
 [`internal/migrations/`](../internal/migrations) and are applied automatically at startup.
 
 ```
@@ -30,6 +30,14 @@ exchange_rates                 app_settings          (exactly one row)
 Nothing in the two tables above them changed when they arrived: no column was
 added anywhere, and `transactions` in particular did **not** gain an
 `exchange_rate_id`. They are read by a valuation, never by a write.
+
+**M5.5 did not change that either.** It added one transaction type,
+`FX_EXCHANGE`, which records money the user actually exchanged between two of
+their own accounts in two different currencies. It is one transaction with two
+movements, exactly like a `TRANSFER`, so no table and no column was added; only
+a `CHECK` constraint changed. It reads no exchange rate and writes none — the
+rate it happened at is derived from its two amounts. See
+[m5.5-contract.md](m5.5-contract.md).
 
 Every foreign key is `ON DELETE RESTRICT ON UPDATE RESTRICT`. Nothing in this
 schema is ever deleted in normal operation.
@@ -316,7 +324,7 @@ it keep displaying it.
 
 ---
 
-## `transactions` *(M2, extended in M4)*
+## `transactions` *(M2, extended in M4 and M5.5)*
 
 The financial **event**. It holds no amount and names no account — that is
 `account_movements`.
@@ -326,7 +334,7 @@ The financial **event**. It holds no amount and names no account — that is
 | Column | Type | Null | Default | Constraints |
 | --- | --- | --- | --- | --- |
 | `id` | `INTEGER` | NOT NULL | rowid | **PRIMARY KEY** (rowid alias) |
-| `transaction_type` | `TEXT` | NOT NULL | — | `CHECK (… IN ('INCOME','EXPENSE','OPENING_BALANCE','TRANSFER'))` |
+| `transaction_type` | `TEXT` | NOT NULL | — | `CHECK (… IN ('INCOME','EXPENSE','OPENING_BALANCE','TRANSFER','FX_EXCHANGE'))` |
 | `category_id` | `INTEGER` | **NULL** | — | **FK** → `categories(id)`, `RESTRICT` both ways |
 | `payment_method_id` | `INTEGER` | **NULL** | — | **FK** → `payment_methods(id)`, `RESTRICT` both ways |
 | `description` | `TEXT` | **NULL** | — | `CHECK (… length(trim(description)) BETWEEN 1 AND 255)` |
@@ -352,6 +360,9 @@ CHECK (
     OR
     (transaction_type = 'TRANSFER'
         AND category_id IS NULL AND payment_method_id IS NULL)
+    OR
+    (transaction_type = 'FX_EXCHANGE'
+        AND category_id IS NULL AND payment_method_id IS NULL)
 )
 ```
 
@@ -361,7 +372,12 @@ operation that took place. A transfer has neither either, and its clause is
 written separately rather than folded into the opening balance's because it says
 something different: moving money between two of the user's own accounts is not
 income and not an expense, so a category would contaminate every later question
-about them, and no channel with the outside world was used at all.
+about them, and no channel with the outside world was used at all. An exchange
+*(M5.5)* has neither for a third reason, which is why it gets a fourth clause:
+money **was** exchanged with the outside world, but nothing was earned and
+nothing was consumed — the same wealth is denominated differently afterwards. A
+commission charged on top is a separate `EXPENSE` under a category such as "Bank
+fees"; it is not a field of this row.
 
 Every clause is `IS NULL` / `IS NOT NULL`, so the expression is always `TRUE` or
 `FALSE` and cannot silently pass (TD-025). Every combination is covered by tests.
@@ -394,7 +410,17 @@ recorded. See [Dates](#dates) below and [TD-028](technical-decisions.md).
 something was recorded does not change because its contents were fixed.
 
 **There is no `currency_code` column**, deliberately. A transaction's currency is
-its account's; a column here could only ever disagree with it.
+its account's; a column here could only ever disagree with it. As of M5.5 a
+single transaction can span **two** currencies — an `FX_EXCHANGE` — and it still
+needs no column here: its two accounts already state them.
+
+**There is no `exchange_rate_id` and no rate column of any kind** *(M5.5)*, and
+there must never be one. The rates in `exchange_rates` are REFERENCE rates: what
+a source said a currency was worth on a day, used to value balances. The rate an
+`FX_EXCHANGE` actually happened at is stated exactly by its two movements —
+source ÷ destination — and is derived on every read. A stored third copy could
+only ever disagree with the two amounts that caused it. See
+[m5.5-contract.md](m5.5-contract.md) and [TD-055](technical-decisions.md).
 
 ### Indexes
 
@@ -474,10 +500,20 @@ the thing this project avoids.
 | `EXPENSE` | negative |
 | `OPENING_BALANCE` | whichever the account started at |
 | `TRANSFER` | **two rows**: negative in the source account, positive in the destination, equal in magnitude |
+| `FX_EXCHANGE` *(M5.5)* | **two rows**: negative in the source account, positive in the destination, in **two different currencies** and of **unrelated magnitude** |
 
 The sign is derived from the use case in the service, never taken from input,
 which is what makes "an expense that increases a balance" unrepresentable rather
 than merely invalid.
+
+**An `FX_EXCHANGE`'s two magnitudes are never compared with each other.** A
+transfer's sum to zero, and that invariant is the point of the type; an exchange's
+are quantities of two different currencies, so `abs(source) == destination` would
+be comparing céntimos with cents. 8,500,000 and 10,000 are the same exchange.
+
+**There is still no `currency_code` column here**, and an exchange did not need
+one. A movement is denominated in its account's currency by construction, and an
+exchange's two accounts already state that they differ.
 
 **Zero is refused.** A zero-amount movement asserts nothing — the sum over no
 rows is already zero — while adding a row to every listing. A zero opening
@@ -723,6 +759,13 @@ constraint, each inside the same transaction as the write they guard:
 - **An account and a category must be active to be used for a new transaction.**
   Same reasoning: archived is a fact about the row, not a property that
   invalidates the history pointing at it.
+- **The shape of a `TRANSFER` and of an `FX_EXCHANGE`** *(M4, M5.5)* — two
+  movements, opposite in sign, in two different accounts; the same currency for a
+  transfer and **different** currencies for an exchange. Every one of those rules
+  spans two rows, and a `CHECK` sees one. They are enforced in Go inside the
+  writing transaction and **re-checked on every read**, so a row that was
+  modified by something else is reported rather than rendered half-way. See
+  [TD-044](technical-decisions.md).
 
 **A payment method row must not be repurposed.** Renaming one to correct its
 wording is intended and changes how history reads; renaming it to mean something
@@ -985,3 +1028,13 @@ means summing every movement from the beginning for every point on a chart. That
 is the next real decision this document will carry, and it is the reason
 `account_movements` has an index on `account_id` and not on `(account_id,
 created_at)`.
+
+M5.5 then confirmed the shape of the ledger a second time. Recording a real
+currency exchange — the operation this application exists to track, in a country
+where it happens weekly — needed **no new table, no new column and no new
+index**: one `CHECK` constraint, and the two-table split from M2 did the rest.
+It also drew the line the next milestone must not cross: the rate an operation
+happened at is derived from what moved, and reference rates are a separate
+statement by a separate source. Anything that proposes to store the first, or to
+reconcile it against the second, is proposing to add a fourth thing that can
+disagree with three that already exist.

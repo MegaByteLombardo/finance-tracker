@@ -235,6 +235,7 @@ func toWebTransactionView(v *ledger.TransactionView) *web.TransactionView {
 		CategoryName:      v.CategoryName,
 		CategoryType:      toWebCategoryTypePtr(v.CategoryType),
 		Transfer:          toWebTransferDetail(v.Transfer),
+		Exchange:          toWebExchangeDetail(v.Exchange),
 		MovementID:        v.MovementID,
 		AccountID:         v.AccountID,
 		AccountName:       v.AccountName,
@@ -420,6 +421,71 @@ func toDomainUpdateTransferInput(in web.UpdateTransferInput) ledger.UpdateTransf
 		Description:          in.Description,
 		EffectiveDate:        in.EffectiveDate,
 		AllowCurrencyChange:  in.AllowCurrencyChange,
+	}
+}
+
+// Exchange conversions
+//
+// The detail is nil for everything that is not an FX_EXCHANGE, and that nil is
+// meaningful: it is how a template knows this row is not one.
+//
+// The rate crosses as a STRING. money.Decimal stops here: the presentation layer
+// displays a rate and never computes with one, so handing it an arithmetic type
+// would be handing it an invitation.
+
+func toWebExchangeDetail(d *ledger.ExchangeDetail) *web.ExchangeDetail {
+	if d == nil {
+		return nil
+	}
+	return &web.ExchangeDetail{
+		SourceMovementID:     d.SourceMovementID,
+		SourceAccountID:      d.SourceAccountID,
+		SourceAccountName:    d.SourceAccountName,
+		SourceCurrencyCode:   d.SourceCurrencyCode,
+		SourceCurrencySymbol: d.SourceCurrencySymbol,
+		SourceMinorUnit:      d.SourceMinorUnit,
+
+		SourceAmountMinor:     d.SourceAmountMinor,
+		SourceAmountFormatted: d.SourceAmountFormatted,
+
+		DestinationMovementID:     d.DestinationMovementID,
+		DestinationAccountID:      d.DestinationAccountID,
+		DestinationAccountName:    d.DestinationAccountName,
+		DestinationCurrencyCode:   d.DestinationCurrencyCode,
+		DestinationCurrencySymbol: d.DestinationCurrencySymbol,
+		DestinationMinorUnit:      d.DestinationMinorUnit,
+
+		DestinationAmountMinor:     d.DestinationAmountMinor,
+		DestinationAmountFormatted: d.DestinationAmountFormatted,
+
+		ExecutionRate: web.ExecutionRate{
+			BaseCurrencyCode:  d.ExecutionRate.BaseCurrencyCode,
+			QuoteCurrencyCode: d.ExecutionRate.QuoteCurrencyCode,
+			RateFormatted:     d.ExecutionRate.RateFormatted,
+			Exact:             d.ExecutionRate.Exact,
+		},
+	}
+}
+
+func toDomainRecordExchangeInput(in web.RecordExchangeInput) ledger.RecordExchangeInput {
+	return ledger.RecordExchangeInput{
+		SourceAccountID:      in.SourceAccountID,
+		SourceAmount:         in.SourceAmount,
+		DestinationAccountID: in.DestinationAccountID,
+		DestinationAmount:    in.DestinationAmount,
+		Description:          in.Description,
+		EffectiveDate:        in.EffectiveDate,
+	}
+}
+
+func toDomainUpdateExchangeInput(in web.UpdateExchangeInput) ledger.UpdateExchangeInput {
+	return ledger.UpdateExchangeInput{
+		SourceAccountID:      in.SourceAccountID,
+		SourceAmount:         in.SourceAmount,
+		DestinationAccountID: in.DestinationAccountID,
+		DestinationAmount:    in.DestinationAmount,
+		Description:          in.Description,
+		EffectiveDate:        in.EffectiveDate,
 	}
 }
 

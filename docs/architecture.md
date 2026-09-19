@@ -245,12 +245,12 @@ handler for accounts never needs to import `currency`. `ledger` does the same fo
 **`internal/ledger` is where the two-table ledger lives**: `transactions` for the
 financial event, `account_movements` for its effect on an account. Its service
 exposes one method per use case — `RecordIncome`, `RecordExpense`,
-`RecordOpeningBalance`, `RecordTransfer` — rather than a general
-`CreateTransaction(type, …)`, so that invalid combinations have no signature to
-arrive through. Editing follows the same rule, one use case per type:
-`UpdateTransaction` for income and expenses, `UpdateOpeningBalance`,
-`UpdateTransfer`. Each refuses every type it does not handle (TD-045). It is also
-the only package that reads or writes an amount.
+`RecordOpeningBalance`, `RecordTransfer`, `RecordExchange` — rather than a
+general `CreateTransaction(type, …)`, so that invalid combinations have no
+signature to arrive through. Editing follows the same rule, one use case per
+type: `UpdateTransaction` for income and expenses, `UpdateOpeningBalance`,
+`UpdateTransfer`, `UpdateExchange`. Each refuses every type it does not handle
+(TD-045). It is also the only package that reads or writes an amount.
 
 **Transfers live here too, not in a package of their own.** A transfer
 (`transfer.go`) writes the same two tables through the same repository, validates
@@ -265,6 +265,21 @@ A transfer is the first transaction with **two** movements — one negative, one
 positive, equal in magnitude — which is what the two-table split existed for
 since M2 (TD-041). Its rules span several rows, so they are held by one function
 inside one `sql.Tx` and re-checked on read rather than by triggers (TD-044).
+
+**Currency exchanges live here too** *(M5.5)*, in `exchange.go`, beside transfers
+and for the same reasons. An `FX_EXCHANGE` is money the user actually exchanged
+between two of their own accounts in two **different** currencies: one
+transaction, two movements, and — unlike a transfer — two amounts whose
+magnitudes have no relation to each other. `TRANSFER` was not widened to accept
+it; they are different financial events, and one of them leaves the total held in
+its currency unchanged while the other does not (TD-055).
+
+The rate an exchange happened at is **derived from its two amounts on every
+read**, exactly, with `math/big`, and stored nowhere. That derivation is in this
+package rather than in a template because it is arithmetic on money, and because
+choosing which of the two currencies the rate is quoted in requires comparing two
+exact fractions. It has nothing to do with `internal/fx`: this package does not
+import it, does not read `exchange_rates`, and does not write to it (TD-056).
 
 **Transaction-scoped entry points.** Where a use case must be composable into a
 larger transaction, the package exposes a second form taking a `database.DBTX`:
@@ -287,6 +302,14 @@ operation happened at; `transactions` carries no rate and gained no
 `exchange_rate_id`. The two are different facts and the package documentation says
 so at the top, because conflating them would make a stored number ambiguous
 forever.
+
+M5.5 made that boundary load-bearing rather than theoretical. `internal/ledger`
+now records real currency exchanges and derives the rate each one happened at —
+and the two packages still do not touch. `ledger` does not import `fx`, `fx` does
+not know `FX_EXCHANGE` exists, and `valuation` values balances with reference
+rates regardless of what the user traded at. The visible consequence is intended:
+an exchange away from the reference rate moves the valued net worth, and nothing
+converts that difference into a gain, a loss or a fee (TD-056).
 
 It is the **only package in this application that makes a network request**, and
 the only one whose failure is routine. That shapes it:
