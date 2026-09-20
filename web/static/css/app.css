@@ -1,7 +1,13 @@
 /* Finance Tracker - Presentation CSS
-   Theme: Dim / Slate Dark + Emerald Fintech (inspired by DaisyUI Dim & modern dark dashboards)
+   Themes: Dim / Slate Dark (default) & Cupcake / Cream Warm Light (soft warm no harsh whites)
 */
-:root {
+
+/* ==========================================================================
+   Theme 1: Dim / Slate Dark (Default)
+   ========================================================================== */
+:root,
+:root[data-theme="dark"],
+:root[data-theme="dim"] {
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
@@ -85,6 +91,72 @@
   --max-width: 1160px;
 }
 
+/* ==========================================================================
+   Theme 2: Cupcake / Cream Warm Light (Warm Oatmeal, no harsh pure whites)
+   ========================================================================== */
+:root[data-theme="light"],
+:root[data-theme="cupcake"],
+:root[data-theme="cream"] {
+  /* Color Palette - Cupcake / Cream Warmth */
+  --bg-app: #faf7f5;           /* Soft warm oatmeal / cream linen */
+  --bg-surface: #ffffff;       /* Crisp warm white surface */
+  --bg-surface-subtle: #f3eee8;/* Soft beige neutral */
+  --bg-surface-hover: #ede6de; /* Gentle hover beige */
+
+  --border-subtle: #e8e0d5;    /* Warm beige border */
+  --border-strong: #d3c7b7;    /* Defined sand border */
+  --border-focus: #059669;
+
+  --text-main: #291e1d;        /* Deep espresso / warm charcoal */
+  --text-body: #4a3e37;        /* Balanced warm brown-gray */
+  --text-muted: #786c63;       /* Subdued warm tone */
+  --text-subtle: #a3978d;
+  --text-inverse: #ffffff;
+
+  /* Primary Accent - Warm Emerald */
+  --primary: #059669;
+  --primary-hover: #047857;
+  --primary-active: #065f46;
+  --primary-subtle: #e8f7ee;
+  --primary-border: #b7e6c9;
+  --primary-glow: rgba(5, 150, 105, 0.25);
+
+  /* Secondary / Warm Sky */
+  --accent: #0284c7;
+  --accent-hover: #0369a1;
+  --accent-subtle: #eaf5fc;
+  --accent-border: #bde1f8;
+
+  /* Semantic Financial Accents */
+  --success: #059669;
+  --success-bg: #e8f7ee;
+  --success-border: #b7e6c9;
+  --success-text: #045e41;
+
+  --danger: #e11d48;
+  --danger-hover: #be123c;
+  --danger-bg: #fdeef1;
+  --danger-border: #fbcad2;
+  --danger-text: #9f1239;
+
+  --warning: #d97706;
+  --warning-bg: #fef7e6;
+  --warning-border: #fbe0a6;
+  --warning-text: #8d4d03;
+
+  --info: #0284c7;
+  --info-bg: #eaf5fc;
+  --info-border: #bde1f8;
+  --info-text: #036195;
+
+  /* Elevation & Soft Shadows */
+  --shadow-xs: 0 1px 2px 0 rgba(74, 62, 55, 0.05);
+  --shadow-sm: 0 2px 4px 0 rgba(74, 62, 55, 0.06), 0 1px 2px -1px rgba(74, 62, 55, 0.04);
+  --shadow-md: 0 4px 8px -1px rgba(74, 62, 55, 0.08), 0 2px 4px -2px rgba(74, 62, 55, 0.05);
+  --shadow-lg: 0 10px 16px -3px rgba(74, 62, 55, 0.09), 0 4px 6px -4px rgba(74, 62, 55, 0.04);
+  --shadow-card-hover: 0 12px 24px -4px rgba(74, 62, 55, 0.12), 0 4px 8px -2px rgba(5, 150, 105, 0.1);
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -102,6 +174,7 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* Layout: Header & Brand */
@@ -113,7 +186,15 @@ body {
   position: sticky;
   top: 0;
   z-index: 40;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+:root[data-theme="light"] .app-header,
+:root[data-theme="cupcake"] .app-header,
+:root[data-theme="cream"] .app-header {
+  background-color: rgba(250, 247, 245, 0.92);
+  box-shadow: 0 2px 8px rgba(74, 62, 55, 0.05);
 }
 
 .header-container {
@@ -181,15 +262,20 @@ body {
 }
 
 .nav-link.active {
-  color: #34d399;
+  color: var(--primary);
   background-color: var(--primary-subtle);
   font-weight: 600;
   box-shadow: inset 0 0 0 1px var(--primary-border);
 }
 
+:root[data-theme="dark"] .nav-link.active,
+:root[data-theme="dim"] .nav-link.active {
+  color: #34d399;
+}
+
 .nav-mobile-btn {
   background-color: var(--primary-subtle);
-  color: #34d399 !important;
+  color: var(--primary) !important;
   border: 1px solid var(--primary-border);
   border-radius: var(--radius-md);
   font-weight: 600;
@@ -202,6 +288,41 @@ body {
   border-color: var(--primary-hover);
   transform: translateY(-1px);
   box-shadow: 0 2px 10px rgba(16, 185, 129, 0.45);
+}
+
+/* Theme Toggle Button */
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background-color: var(--bg-surface-subtle);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-left: var(--space-2);
+  padding: 0;
+}
+
+.theme-toggle-btn:hover {
+  background-color: var(--primary-subtle);
+  color: var(--primary);
+  border-color: var(--primary-border);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.theme-toggle-btn:active {
+  transform: translateY(0);
+}
+
+.theme-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .main-content {
@@ -316,7 +437,7 @@ body {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
 }
 
 .card-header {
@@ -367,6 +488,28 @@ body {
   text-shadow: 0 0 24px rgba(52, 211, 153, 0.25);
 }
 
+/* Light Theme Net Worth Overrides */
+:root[data-theme="light"] .net-worth-panel .card,
+:root[data-theme="cupcake"] .net-worth-panel .card,
+:root[data-theme="cream"] .net-worth-panel .card {
+  background: linear-gradient(145deg, #ffffff 0%, #edf9f2 100%);
+  border: 1px solid #b7e6c9;
+  box-shadow: 0 4px 20px -2px rgba(5, 150, 105, 0.1), 0 1px 3px 0 rgba(74, 62, 55, 0.05);
+}
+
+:root[data-theme="light"] .net-worth-panel .card-header,
+:root[data-theme="cupcake"] .net-worth-panel .card-header,
+:root[data-theme="cream"] .net-worth-panel .card-header {
+  border-bottom: 1px solid rgba(5, 150, 105, 0.15);
+}
+
+:root[data-theme="light"] .net-worth-total,
+:root[data-theme="cupcake"] .net-worth-total,
+:root[data-theme="cream"] .net-worth-total {
+  color: #065f46 !important;
+  text-shadow: none;
+}
+
 /* Stat Cards / Balance Cards */
 .balance-card {
   background-color: var(--bg-surface);
@@ -378,7 +521,7 @@ body {
   flex-direction: column;
   justify-content: space-between;
   gap: var(--space-4);
-  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s ease;
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.18s ease, background-color 0.2s ease;
   position: relative;
   overflow: hidden;
 }
@@ -386,7 +529,7 @@ body {
 .balance-card:hover {
   transform: translateY(-3px);
   box-shadow: var(--shadow-card-hover);
-  border-color: rgba(16, 185, 129, 0.4);
+  border-color: var(--primary-border);
 }
 
 .balance-card-header {
@@ -425,7 +568,7 @@ body {
   font-family: var(--font-sans);
   font-size: 0.75rem;
   font-weight: 700;
-  color: #34d399;
+  color: var(--primary);
   background: var(--primary-subtle);
   padding: 2px 7px;
   border-radius: var(--radius-sm);
@@ -443,7 +586,7 @@ body {
   font-size: 0.8125rem;
 }
 
-/* Tables (DaisyUI style) */
+/* Tables */
 .table-container {
   overflow-x: auto;
   border: 1px solid var(--border-subtle);
@@ -497,7 +640,7 @@ body {
   text-align: right;
 }
 
-/* Badges & Pills (DaisyUI Soft Badges in Dark Mode) */
+/* Badges & Pills */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -512,6 +655,7 @@ body {
   border: 1px solid transparent;
 }
 
+/* Badges - Dark Mode Defaults */
 .badge-neutral {
   background-color: rgba(255, 255, 255, 0.07);
   color: #cbd5e1;
@@ -596,14 +740,87 @@ body {
   border-color: rgba(56, 189, 248, 0.35);
 }
 
+/* Badges - Cupcake / Cream Light Overrides */
+:root[data-theme="light"] .badge-bank,
+:root[data-theme="cupcake"] .badge-bank,
+:root[data-theme="cream"] .badge-bank {
+  background-color: #eaf5fc;
+  color: #036195;
+  border-color: #bde1f8;
+}
+
+:root[data-theme="light"] .badge-cash,
+:root[data-theme="cupcake"] .badge-cash,
+:root[data-theme="cream"] .badge-cash {
+  background-color: #e8f7ee;
+  color: #045e41;
+  border-color: #b7e6c9;
+}
+
+:root[data-theme="light"] .badge-wallet,
+:root[data-theme="cupcake"] .badge-wallet,
+:root[data-theme="cream"] .badge-wallet {
+  background-color: #f5effe;
+  color: #6b21a8;
+  border-color: #dfcafb;
+}
+
+:root[data-theme="light"] .badge-income,
+:root[data-theme="cupcake"] .badge-income,
+:root[data-theme="cream"] .badge-income {
+  background-color: #e8f7ee;
+  color: #045e41;
+  border-color: #b7e6c9;
+}
+
+:root[data-theme="light"] .badge-expense,
+:root[data-theme="cupcake"] .badge-expense,
+:root[data-theme="cream"] .badge-expense {
+  background-color: #fdeef1;
+  color: #9f1239;
+  border-color: #fbcad2;
+}
+
+:root[data-theme="light"] .badge-transfer,
+:root[data-theme="cupcake"] .badge-transfer,
+:root[data-theme="cream"] .badge-transfer {
+  background-color: #eaf5fc;
+  color: #0284c7;
+  border-color: #bde1f8;
+}
+
+:root[data-theme="light"] .badge-exchange,
+:root[data-theme="cupcake"] .badge-exchange,
+:root[data-theme="cream"] .badge-exchange {
+  background-color: #f5effe;
+  color: #6b21a8;
+  border-color: #dfcafb;
+}
+
+:root[data-theme="light"] .badge-neutral,
+:root[data-theme="cupcake"] .badge-neutral,
+:root[data-theme="cream"] .badge-neutral {
+  background-color: #f3eee8;
+  color: #5a4e46;
+  border-color: #e8e0d5;
+}
+
+:root[data-theme="light"] .badge-warning,
+:root[data-theme="cupcake"] .badge-warning,
+:root[data-theme="cream"] .badge-warning {
+  background-color: #fef7e6;
+  color: #8d4d03;
+  border-color: #fbe0a6;
+}
+
 /* Monetary Amounts Presentation */
 .amount-income {
-  color: #34d399;
+  color: var(--success);
   font-weight: 700;
 }
 
 .amount-expense {
-  color: #fb7185;
+  color: var(--danger);
   font-weight: 700;
 }
 
@@ -617,7 +834,7 @@ body {
   font-weight: 600;
 }
 
-/* Buttons (DaisyUI button feel with micro-interactions) */
+/* Buttons */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -644,12 +861,12 @@ body {
   background: linear-gradient(180deg, #10b981 0%, #059669 100%);
   border-color: #047857;
   color: #ffffff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3), 0 0 12px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15), 0 0 10px rgba(16, 185, 129, 0.25);
 }
 
 .btn-primary:hover {
   background: linear-gradient(180deg, #059669 0%, #047857 100%);
-  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.45);
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.35);
   transform: translateY(-1px);
 }
 
@@ -662,7 +879,7 @@ body {
 .btn-secondary:hover {
   background-color: var(--bg-surface-hover);
   border-color: var(--text-muted);
-  color: #ffffff;
+  color: var(--text-main);
   transform: translateY(-1px);
   box-shadow: var(--shadow-sm);
 }
@@ -725,7 +942,20 @@ body {
   color: var(--text-main);
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
   font-family: inherit;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+:root[data-theme="light"] .form-control,
+:root[data-theme="light"] .form-input,
+:root[data-theme="light"] .form-select,
+:root[data-theme="cupcake"] .form-control,
+:root[data-theme="cupcake"] .form-input,
+:root[data-theme="cupcake"] .form-select,
+:root[data-theme="cream"] .form-control,
+:root[data-theme="cream"] .form-input,
+:root[data-theme="cream"] .form-select {
+  background-color: #ffffff;
+  box-shadow: inset 0 1px 2px rgba(74, 62, 55, 0.05);
 }
 
 .form-control:focus,
@@ -790,7 +1020,7 @@ body {
 /* Tabs / Segmented Controls */
 .segmented-control {
   display: flex;
-  background-color: var(--bg-app);
+  background-color: var(--bg-surface-subtle);
   padding: 4px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
@@ -896,7 +1126,7 @@ body {
   font-family: var(--font-mono);
   font-size: 1.15rem;
   font-weight: 700;
-  color: #34d399;
+  color: var(--primary);
 }
 
 /* Footer */
@@ -1015,7 +1245,7 @@ input[data-type="currency"] {
 }
 
 .tx-filter-header-title svg {
-  color: #34d399;
+  color: var(--primary);
 }
 
 .tx-filter-counter-wrap {

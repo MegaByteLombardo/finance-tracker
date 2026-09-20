@@ -46,6 +46,40 @@
   --fab-size: 54px;
 }
 
+:root[data-theme="light"],
+:root[data-theme="cupcake"],
+:root[data-theme="cream"] {
+  --m-bg-page: #faf7f5;
+  --m-bg-card: #ffffff;
+  --m-bg-subtle: #f3eee8;
+  --m-bg-muted: #ede6de;
+
+  --m-border-subtle: #f0eae1;
+  --m-border-light: #e8e0d5;
+  --m-border-line: #ede5da;
+
+  --m-text-primary: #291e1d;
+  --m-text-secondary: #4a3e37;
+  --m-text-muted: #786c63;
+  --m-text-subtle: #a3978d;
+
+  --m-positive: #059669;
+  --m-positive-bg: #e8f7ee;
+  --m-positive-border: #b7e6c9;
+
+  --m-negative: #e11d48;
+  --m-negative-bg: #fdeef1;
+  --m-negative-border: #fbcad2;
+
+  --m-warning: #d97706;
+  --m-warning-bg: #fef7e6;
+
+  --m-primary-btn: #059669;
+  --m-primary-btn-hover: #047857;
+  --m-accent: #059669;
+  --m-accent-bg: #e8f7ee;
+}
+
 /* ==========================================================================
    Reset & Base Layout
    ========================================================================== */
@@ -70,6 +104,12 @@ html, body {
   background-color: #060b17;
 }
 
+:root[data-theme="light"] .mobile-body,
+:root[data-theme="cupcake"] .mobile-body,
+:root[data-theme="cream"] .mobile-body {
+  background-color: #ede6de;
+}
+
 /* Desktop simulation floating pill */
 .desktop-preview-bar {
   display: none;
@@ -92,6 +132,15 @@ html, body {
     box-shadow: 0 4px 14px rgba(6, 78, 59, 0.35);
     z-index: 100;
   }
+
+  :root[data-theme="light"] .desktop-preview-bar,
+  :root[data-theme="cupcake"] .desktop-preview-bar,
+  :root[data-theme="cream"] .desktop-preview-bar {
+    background-color: #291e1d;
+    color: #faf7f5;
+    border-color: #059669;
+  }
+
   .preview-badge {
     font-weight: 700;
     color: #a7f3d0;
@@ -181,6 +230,37 @@ html, body {
   margin: 0;
   letter-spacing: -0.01em;
   text-transform: capitalize;
+}
+
+.mobile-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobile-theme-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--m-border-light);
+  background-color: var(--m-bg-muted);
+  color: var(--m-text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.mobile-theme-btn:hover {
+  background-color: var(--m-border-light);
+  color: var(--m-positive);
+}
+
+.mobile-theme-btn:active {
+  transform: scale(0.95);
 }
 
 .mobile-avatar-btn {
@@ -694,6 +774,13 @@ html, body {
   backdrop-filter: blur(16px);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+:root[data-theme="light"] .bottom-nav-bar,
+:root[data-theme="cupcake"] .bottom-nav-bar,
+:root[data-theme="cream"] .bottom-nav-bar {
+  background-color: rgba(250, 247, 245, 0.94);
+  border-top: 1px solid var(--m-border-light);
 }
 
 /* Constrain bottom nav inside desktop wrapper */
