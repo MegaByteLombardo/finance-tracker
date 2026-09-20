@@ -1421,3 +1421,70 @@ func TestBackupsManagement(t *testing.T) {
 		t.Errorf("expected offline restore instructions in settings page")
 	}
 }
+
+func TestTransactionsListFilterControlsAndAttributes(t *testing.T) {
+	t.Parallel()
+
+	fs := NewFakeServices()
+	ctx := t.Context()
+	if err := fs.SeedSampleData(ctx); err != nil {
+		t.Fatalf("seeding sample data: %v", err)
+	}
+
+	router := testRouter(t, fs)
+	req := httptest.NewRequest(http.MethodGet, "/transactions", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+
+	bodyBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	body := string(bodyBytes)
+
+	// Verify filter toolbar controls exist
+	expectedElements := []string{
+		`id="tx-filter-card"`,
+		`id="filter-date-from"`,
+		`id="filter-date-to"`,
+		`id="filter-institution"`,
+		`id="filter-account-name"`,
+		`id="filter-account-type"`,
+		`id="filter-category"`,
+		`id="filter-payment-method"`,
+		`id="filter-search-text"`,
+		`id="tx-filter-reset-btn"`,
+		`id="tx-filter-count"`,
+		`id="tx-filter-empty-row"`,
+	}
+	for _, el := range expectedElements {
+		if !strings.Contains(body, el) {
+			t.Errorf("expected element %q in /transactions HTML", el)
+		}
+	}
+
+	// Verify rows have filter data attributes
+	expectedAttributes := []string{
+		`class="tx-row"`,
+		`data-date=`,
+		`data-institution=`,
+		`data-account-name=`,
+		`data-dest-account-name=`,
+		`data-account-type=`,
+		`data-category=`,
+		`data-payment-method=`,
+		`data-search=`,
+	}
+	for _, attr := range expectedAttributes {
+		if !strings.Contains(body, attr) {
+			t.Errorf("expected attribute %q in /transactions row HTML", attr)
+		}
+	}
+}
