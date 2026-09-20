@@ -8,38 +8,38 @@
   --mobile-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   /* Surfaces & Backgrounds */
-  --m-bg-page: #f8fafc;
-  --m-bg-card: #ffffff;
-  --m-bg-subtle: #f8fafc;
-  --m-bg-muted: #f1f5f9;
+  --m-bg-page: #0b1329;
+  --m-bg-card: #1e293b;
+  --m-bg-subtle: #141d2e;
+  --m-bg-muted: #26354a;
 
   /* Dividers & Borders */
-  --m-border-subtle: #f1f5f9;
-  --m-border-light: #e2e8f0;
-  --m-border-line: #edf2f7;
+  --m-border-subtle: rgba(255, 255, 255, 0.08);
+  --m-border-light: rgba(255, 255, 255, 0.12);
+  --m-border-line: rgba(255, 255, 255, 0.06);
 
   /* Text Typography */
-  --m-text-primary: #0f172a;
-  --m-text-secondary: #475569;
-  --m-text-muted: #64748b;
-  --m-text-subtle: #94a3b8;
+  --m-text-primary: #f8fafc;
+  --m-text-secondary: #cbd5e1;
+  --m-text-muted: #94a3b8;
+  --m-text-subtle: #64748b;
 
   /* Semantic Financial Accents & Primary */
-  --m-positive: #059669;
-  --m-positive-bg: #ecfdf5;
-  --m-positive-border: #a7f3d0;
+  --m-positive: #34d399;
+  --m-positive-bg: rgba(16, 185, 129, 0.16);
+  --m-positive-border: rgba(52, 211, 153, 0.35);
 
-  --m-negative: #e11d48;
-  --m-negative-bg: #fff1f2;
-  --m-negative-border: #fecdd3;
+  --m-negative: #fb7185;
+  --m-negative-bg: rgba(244, 63, 94, 0.16);
+  --m-negative-border: rgba(251, 113, 133, 0.35);
 
-  --m-warning: #d97706;
-  --m-warning-bg: #fffbeb;
+  --m-warning: #fbbf24;
+  --m-warning-bg: rgba(245, 158, 11, 0.16);
 
-  --m-primary-btn: #059669;
-  --m-primary-btn-hover: #047857;
-  --m-accent: #059669;
-  --m-accent-bg: #ecfdf5;
+  --m-primary-btn: #10b981;
+  --m-primary-btn-hover: #059669;
+  --m-accent: #10b981;
+  --m-accent-bg: rgba(16, 185, 129, 0.14);
 
   /* Dimensions */
   --bottom-nav-height: 62px;
@@ -67,7 +67,7 @@ html, body {
   align-items: center;
   min-height: 100vh;
   min-height: 100dvh;
-  background-color: #f1f5f9;
+  background-color: #060b17;
 }
 
 /* Desktop simulation floating pill */
@@ -689,10 +689,10 @@ html, body {
   left: 0;
   right: 0;
   z-index: 30;
-  background-color: rgba(255, 255, 255, 0.94);
+  background-color: rgba(15, 23, 42, 0.92);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
-  border-top: 1px solid rgba(226, 232, 240, 0.8);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
