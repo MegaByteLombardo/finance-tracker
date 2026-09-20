@@ -360,13 +360,12 @@
     }
 
     function resetFilters() {
-      if (dateFromInput) dateFromInput.value = '';
-      if (dateToInput) dateToInput.value = '';
-      if (institutionSelect) institutionSelect.value = '';
-      if (accountNameSelect) accountNameSelect.value = '';
-      if (accountTypeSelect) accountTypeSelect.value = '';
-      if (categorySelect) categorySelect.value = '';
-      if (paymentMethodSelect) paymentMethodSelect.value = '';
+      [dateFromInput, dateToInput, institutionSelect, accountNameSelect, accountTypeSelect, categorySelect, paymentMethodSelect].forEach(el => {
+        if (el) {
+          el.value = '';
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      });
       if (searchInput) searchInput.value = '';
       applyFilters();
     }
@@ -393,30 +392,37 @@
       let filterChanged = false;
       if (params.has('from') && dateFromInput) {
         dateFromInput.value = params.get('from');
+        dateFromInput.dispatchEvent(new Event('change', { bubbles: true }));
         filterChanged = true;
       }
       if (params.has('to') && dateToInput) {
         dateToInput.value = params.get('to');
+        dateToInput.dispatchEvent(new Event('change', { bubbles: true }));
         filterChanged = true;
       }
       if (params.has('institution') && institutionSelect) {
         institutionSelect.value = params.get('institution');
+        institutionSelect.dispatchEvent(new Event('change', { bubbles: true }));
         filterChanged = true;
       }
       if ((params.has('account') || params.has('account_name')) && accountNameSelect) {
         accountNameSelect.value = params.get('account') || params.get('account_name');
+        accountNameSelect.dispatchEvent(new Event('change', { bubbles: true }));
         filterChanged = true;
       }
       if (params.has('account_type') && accountTypeSelect) {
         accountTypeSelect.value = params.get('account_type');
+        accountTypeSelect.dispatchEvent(new Event('change', { bubbles: true }));
         filterChanged = true;
       }
       if (params.has('category') && categorySelect) {
         categorySelect.value = params.get('category');
+        categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
         filterChanged = true;
       }
       if (params.has('payment_method') && paymentMethodSelect) {
         paymentMethodSelect.value = params.get('payment_method');
+        paymentMethodSelect.dispatchEvent(new Event('change', { bubbles: true }));
         filterChanged = true;
       }
       if (params.has('q') && searchInput) {
