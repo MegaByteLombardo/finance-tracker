@@ -1,7 +1,12 @@
 # Operations
 
-How to run, configure, observe and back up Finance Tracker locally. Deployment
-is local only; there is no cloud target and no CI/CD.
+How to run, configure, observe and back up Finance Tracker.
+
+Most of this document is about running it locally, which is still how it is
+developed. The [Production](#production) section near the end covers the
+deployment target added in M6 — one Oracle Cloud instance, reachable only inside
+a Tailscale network, with the database on a block volume and Litestream
+replicating it off-site. There is still no CI/CD, deliberately.
 
 ## Running with Go
 
@@ -66,6 +71,13 @@ An invalid value is reported **by name** at startup and the process exits
 non-zero. All problems are reported together, so a `.env` with three mistakes
 takes one startup attempt to diagnose rather than three.
 
+**The application gained no configuration in M6.** The production-only variables
+— `APP_IMAGE`, `LITESTREAM_IMAGE`, `HTTP_BIND`, `DATA_HOST_DIR`,
+`LITESTREAM_HOST_DIR`, `LITESTREAM_ENV_FILE`, `COMPOSE_FILE` — are read by
+`compose.prod.yaml` alone and never reach the process. The Cloudflare R2
+credentials are read by Litestream, from a file the application container does
+not load. See [Production](#production) and `.env.example`.
+
 ## Health check
 
 ```sh
@@ -79,6 +91,65 @@ curl -i http://localhost:8080/healthz
 
 The database probe has its own timeout, so the endpoint does not hang when it
 queues behind another query on the single pooled connection.
+
+The same check is available as a subcommand, which is what the container's
+`HEALTHCHECK` runs:
+
+```sh
+finance-tracker healthcheck            # exit 0 healthy, exit 1 not
+finance-tracker healthcheck --timeout 10s
+```
+
+It reads `HTTP_ADDR` — the same variable the server reads — so moving the port
+cannot leave the check probing the wrong one, and it requires **both** a `200`
+and a body saying `ok`: the status code alone would accept anything answering on
+that port. A wildcard address (`:8080`, `0.0.0.0:8080`, `[::]:8080`) is probed on
+the loopback, which is where the server is listening in all three cases.
+
+Under Docker, the result shows up without running anything:
+
+```sh
+docker compose ps                                           # STATUS says (healthy)
+docker inspect --format '{{json .State.Health}}' <container>
+```
+
+## Verifying a database file
+
+```sh
+finance-tracker verify --file ./backups/finance-20260920T225746Z-shutdown.db
+```
+
+```text
+database:       ./backups/finance-20260920T225746Z-shutdown.db
+size:           131072 bytes
+integrity:      ok
+schema version: 13
+rows:
+  account_movements  86
+  accounts           4
+  …
+```
+
+It exits non-zero if the file is not SQLite, fails `PRAGMA integrity_check` — the
+full one, not `quick_check` — carries no migration history, or is missing a table
+that belonged to the schema version it records.
+
+Three things to know about it:
+
+- **It opens read-only.** Looking at a backup cannot change it, which matters
+  because a backup that changed because someone inspected it is no longer the
+  thing that was taken.
+- **`--file` is a path**, unlike `restore --file`, which takes a bare name inside
+  the backup directory. Verify is pointed at files produced elsewhere — a
+  Litestream restore under `/tmp`, say.
+- **The row counts are the point.** "Something was restored" and "my data was
+  restored" are different claims, and an integrity check only supports the first.
+
+Under Docker, with the snapshot directory already mounted:
+
+```sh
+docker compose run --rm app verify --file /backups/finance-<stamp>-shutdown.db
+```
 
 ## Where the database lives
 
@@ -516,13 +587,110 @@ The valuation date, the date a form defaults to, and the day the refresher
 considers "today" are all the calendar date in **UTC−04:00**, not UTC. At 21:00 in
 Caracas, UTC is already tomorrow. See [TD-051](technical-decisions.md).
 
+## Production
+
+**Status: M6.1.** What exists today is in the repository — `compose.prod.yaml`,
+`deploy/litestream.yml`, the hardened image, the two new subcommands. **Nothing
+has been provisioned yet**: no instance, no block volume, no tailnet node, no R2
+bucket. The bootstrap, upgrade and recovery procedures are written in M6.5 as
+`deployment.md` and `disaster-recovery.md`. This section covers the parts that
+are decided now and would otherwise be easy to get wrong later.
+
+### The production stack is a separate file
+
+```sh
+# on the server, where .env carries COMPOSE_FILE=compose.prod.yaml
+docker compose up -d
+docker compose ps
+docker compose logs -f app
+```
+
+`compose.prod.yaml` is standalone rather than an override of `compose.yaml`.
+Compose merges a `ports:` list by appending rather than replacing, so running the
+two together would publish `0.0.0.0:8080` *alongside* `127.0.0.1:8080` — on a
+host with a public IP address. Do not combine them with `-f`.
+
+The check that this is right takes one command, and is worth running after every
+change to either file:
+
+```sh
+docker compose config | grep -c '0\.0\.0\.0'   # must print 0
+ss -lntp | grep 8080                           # must say 127.0.0.1:8080
+```
+
+### Cost, and the one component that can produce a bill
+
+The operational target is **USD 0/month**, and every component is sized to stay
+inside a free allowance. That is a target, not a guarantee: **Cloudflare R2 is
+usage-based and will charge for anything beyond its free tier.** There is no hard
+spending cap on R2 — an alert is an alert, not a ceiling.
+
+The free allowance is 10 GB-month of storage, 1,000,000 Class A operations and
+10,000,000 Class B. Storage and Class B are not close to being a concern: the
+database is a few megabytes and reads only happen during a restore. Class A is
+the one to watch, and it is why `sync-interval` is 60s rather than Litestream's
+default of 1s — 43,200 cycles a month at worst against 2.59M (TD-060).
+
+**Check these every week for the first month**, then monthly:
+
+| Where | What |
+| --- | --- |
+| Cloudflare dashboard → R2 → Billable usage | That there is a free-tier bar and it is nowhere near full |
+| Cloudflare dashboard → R2 → Metrics | Class A operations for the month |
+| Cloudflare dashboard → R2 → Metrics | Class B operations for the month |
+| Cloudflare dashboard → R2 → the bucket | Stored bytes and object count — should plateau once retention starts expiring |
+| OCI console → Billing → Cost Analysis | That the total is 0.00 and no service has appeared on it |
+| OCI console → Limits, Quotas and Usage | Ampere A1 OCPU-hours and GB-hours against 1,500 / 9,000 |
+
+If Cloudflare offers a billing alert on the account, set one at the lowest
+threshold it allows and record that it has been set. It will not stop a charge;
+it will tell you one is happening, which is the difference between noticing in a
+day and noticing in a quarter.
+
+Two charges that are easy to cause by accident, neither of which this deployment
+does:
+
+- **Enabling an OCI volume backup policy.** Always Free includes five volume
+  backups in total; a daily policy passes that in under a week. Litestream and
+  the local snapshots are the backup strategy, and the block volume's own backups
+  are deliberately not used.
+- **Reserving a public IP and leaving it unattached.** The ephemeral address
+  attached to the instance is free; a reserved one sitting unused is not.
+
+### Observability
+
+No Datadog, no Grafana, no uptime service. For one user on one machine:
+
+```sh
+docker compose ps                        # both services up, app (healthy)
+docker compose logs -f --tail=100 app    # structured JSON in production
+docker compose logs -f --tail=100 litestream
+curl -fsS http://127.0.0.1:8080/healthz  # from the host, over the loopback
+df -h /srv/finance-tracker               # the block volume, not the boot volume
+tailscale status                         # the node is online
+tailscale serve status                   # the proxy is configured and persistent
+```
+
+Health is already on `docker compose ps`, because the image carries a
+`HEALTHCHECK` (TD-062). A container that fails it three times in a row shows as
+`unhealthy` there without anything polling from outside.
+
 ## Not in scope
 
-CI/CD, cloud deployment, monitoring and alerting, and hot reload remain outside
-the project's scope. Scheduled backups are not implemented either — snapshots are
-taken before migrations, on shutdown and on request, which covers the failure
-this project actually suffered; a cron-style scheduler arrives if a need for one
-does.
+CI/CD and hot reload remain outside the project's scope. **Cloud deployment is
+no longer outside it** — that is M6, above — but automating the deployment is:
+proving the infrastructure and building a pipeline for it are two problems, and
+doing them together means debugging both at once.
+
+Monitoring and alerting stay out of scope in the platform sense. `docker compose
+ps`, the container health check, `/healthz`, `df` and the logs are what one user
+on one machine needs; a metrics stack would be more to operate than the thing it
+watches.
+
+Scheduled backups are not implemented either — snapshots are taken before
+migrations, on shutdown and on request, which covers the failure this project
+actually suffered, and Litestream now covers the off-site case continuously; a
+cron-style scheduler arrives if a need for one does.
 
 The exchange-rate refresher is **not** a general scheduler and should not become
 one: it is one goroutine with one ticker running one job once a day. A second

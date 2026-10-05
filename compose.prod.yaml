@@ -1,0 +1,185 @@
+# Finance Tracker — production.
+#
+# This is a STANDALONE file, not an override of compose.yaml. Running it as
+# `-f compose.yaml -f compose.prod.yaml` would be shorter, but Compose merges a
+# `ports:` list by appending rather than replacing, so an override would publish
+# 0.0.0.0:8080 ALONGSIDE 127.0.0.1:8080 -- silently, and on a host with a public
+# address. The one thing this deployment must never do is the thing that merge
+# semantics would do by accident. Forty duplicated lines are cheaper than that.
+#
+# On the server, .env carries COMPOSE_FILE=compose.prod.yaml, so the ordinary
+# `docker compose up -d` resolves here and the long form never has to be
+# remembered.
+#
+# Two differences from compose.yaml are the whole point of this file:
+#
+#   1. The database is a BIND MOUNT from an OCI Block Volume, not a named
+#      volume. The volume outlives the instance, and `ls /srv/finance-tracker/
+#      data` shows the file.
+#   2. The application port is published to the LOOPBACK only. Nothing in the
+#      OCI VCN can reach it. Tailscale Serve, running on the host, is the only
+#      thing that does.
+#
+# There is deliberately no `build:` here. Production runs an image that was
+# built and tagged with a commit, so a rollback is a tag change rather than a
+# rebuild of whatever the working tree happens to contain.
+#
+#   docker build -t "finance-tracker:$(git rev-parse --short HEAD)" .
+#
+# See docs/deployment.md.
+
+name: finance-tracker
+
+services:
+  # Litestream is declared FIRST and the application depends on it, which is
+  # what orders the lifecycle: dependencies start first and stop last. The
+  # application therefore stops while Litestream is still running, leaving it a
+  # window to flush the final frames before it is signalled itself.
+  litestream:
+    image: ${LITESTREAM_IMAGE:?set LITESTREAM_IMAGE in .env, pinned by digest}
+    restart: unless-stopped
+
+    # Not root. The image ships no USER, so without this it would run as root
+    # and leave root-owned bookkeeping files in a directory the application --
+    # uid 65532 -- has to keep writing to.
+    user: "65532:65532"
+
+    # Litestream's own shutdown has to fit inside this, the same way the
+    # application's drain-then-snapshot does.
+    stop_grace_period: 30s
+
+    command: ["replicate", "-config", "/etc/litestream.yml"]
+
+    # The ONLY place R2 credentials appear. The application container does not
+    # load this file: it has no reason to reach R2, and a credential that is not
+    # present cannot leak from a process that never needed it.
+    #
+    # `required: false` is not laxity, it is what makes the bootstrap possible.
+    # Compose resolves every env_file when it LOADS the file, before it decides
+    # which services to start, so a missing one is a hard error even for
+    # `up --no-deps app`. During M6.2 there is no R2 account yet and this file
+    # does not exist, and the alternative to this attribute would be inventing
+    # placeholder credentials — a fake secret on disk, which is a worse thing to
+    # have than a missing one.
+    #
+    # The consequence to know about, from M6.4 onward: if this file is deleted,
+    # the stack still comes up and Litestream restart-loops with a configuration
+    # error instead of refusing to start. That failure is visible in
+    # `docker compose ps` and in its logs, which is why it is acceptable — but
+    # `deploy/backup-status.sh` (M6.5) checks replication is actually current
+    # rather than merely that the container exists.
+    env_file:
+      - path: ${LITESTREAM_ENV_FILE:-/etc/finance-tracker/litestream.env}
+        required: false
+
+    volumes:
+      # The same directory the application writes, on the same kernel, so SQLite
+      # file locking and WAL shared memory work between the two. This must be
+      # local block storage; a network filesystem would break both.
+      - type: bind
+        source: ${DATA_HOST_DIR:?set DATA_HOST_DIR in .env}
+        target: /data
+        bind:
+          create_host_path: false
+
+      # Litestream's bookkeeping, kept out of the data directory so that
+      # directory holds only the database and its two SQLite sidecars.
+      - type: bind
+        source: ${LITESTREAM_HOST_DIR:?set LITESTREAM_HOST_DIR in .env}
+        target: /litestream
+        bind:
+          create_host_path: false
+
+      # Read-only: this file is configuration, and nothing in the container has
+      # a reason to rewrite it.
+      - type: bind
+        source: ./deploy/litestream.yml
+        target: /etc/litestream.yml
+        read_only: true
+        bind:
+          create_host_path: false
+
+      # /backups is deliberately NOT mounted here. Litestream replicates the
+      # operational database; the VACUUM INTO snapshots are the local layer and
+      # exist for a different failure. Shipping them to R2 as well would
+      # multiply both stored bytes and billable operations to protect against
+      # something Litestream's own snapshots already cover.
+
+  app:
+    # Pinned to a commit, never to `latest`. Rollback is `APP_IMAGE=...` with
+    # the previous tag, which only works if the previous tag still means what it
+    # meant: keep the last two images on the host.
+    image: ${APP_IMAGE:?set APP_IMAGE in .env, e.g. finance-tracker:1a2b3c4}
+    restart: unless-stopped
+
+    depends_on:
+      - litestream
+
+    # 10s to drain plus 10s for the shutdown snapshot, with room to spare. Past
+    # this Docker sends SIGKILL and the snapshot is abandoned. See
+    # cmd/web/main.go.
+    stop_grace_period: 30s
+
+    ports:
+      # The loopback binding is the real access control, and it is the reason no
+      # application port is reachable from the internet.
+      #
+      # It is NOT the Linux firewall doing this. Docker inserts its DNAT rules
+      # ahead of the usual INPUT chains, so a 0.0.0.0 publish would be reachable
+      # whatever ufw or iptables claimed. Publishing to 127.0.0.1 means the
+      # translation only ever matches loopback traffic, which nothing outside
+      # the machine can originate.
+      #
+      # HTTP_BIND is a variable only so a rehearsal can move it. In production
+      # it is 127.0.0.1 and nothing else.
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:8080"
+
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      # Inside the container this listens on every interface, and that is
+      # correct. 127.0.0.1 here would mean the CONTAINER's loopback, which
+      # nothing -- including Docker's own port publishing -- could reach. What
+      # restricts exposure is the left-hand side of the port mapping above.
+      HTTP_ADDR: ":8080"
+
+      DB_PATH: /data/finance.db
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION: ${BACKUP_RETENTION:-10}
+
+      # Exchange rates. The external source is a convenience, never a
+      # dependency: with FX_BCV_ENABLED=false, or with no network, the
+      # application starts and works exactly the same minus automatic rates.
+      FX_BCV_ENABLED: ${FX_BCV_ENABLED:-true}
+      FX_BCV_URL: ${FX_BCV_URL:-https://www.bcv.org.ve/}
+      FX_BCV_TIMEOUT: ${FX_BCV_TIMEOUT:-15s}
+      FX_REFRESH_EVERY: ${FX_REFRESH_EVERY:-4h}
+
+    volumes:
+      # The database, on the Block Volume. Not a named volume: `docker volume
+      # rm` and `docker compose down -v` both exist, the volume would be opaque
+      # at the filesystem level, and moving it to a new instance would mean
+      # copying rather than re-attaching.
+      - type: bind
+        source: ${DATA_HOST_DIR:?set DATA_HOST_DIR in .env}
+        target: /data
+        bind:
+          create_host_path: false
+
+      # Snapshots, on the same Block Volume.
+      #
+      # create_host_path is off here for the same reason it is off everywhere in
+      # this file: a missing directory must stop the deployment, not be invented
+      # by Docker as root underneath a process running as uid 65532. Failing to
+      # start is the better outcome -- running without anywhere to put snapshots
+      # is exactly the state that cost this project its data once already.
+      - type: bind
+        source: ${BACKUP_HOST_DIR:?set BACKUP_HOST_DIR in .env}
+        target: /backups
+        bind:
+          create_host_path: false
+
+# No `volumes:` block. Everything persistent is a bind mount on the Block
+# Volume, by design: the point is to know where the data is without asking
+# Docker.

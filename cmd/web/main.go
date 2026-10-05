@@ -1,14 +1,21 @@
 // Command web runs Finance Tracker.
 //
 // With no arguments it serves HTTP, which is what the container does. It also
-// carries one offline subcommand:
+// carries three subcommands:
 //
 //	finance-tracker restore --file finance-20260905T183045Z-manual.db
+//	finance-tracker verify --file /tmp/finance-restore-test.db
+//	finance-tracker healthcheck
 //
-// Restore lives in this binary rather than a second one because it needs
+// They live in this binary rather than in separate ones because each needs
 // exactly what this binary already has -- the configuration, the database
-// conventions and the backup package -- and a second binary would have to be
-// built, shipped and kept in step for no gain.
+// conventions, the backup package and the migration history -- and a second
+// binary would have to be built, shipped and kept in step for no gain.
+//
+// There is a second reason, which production made concrete: the runtime image
+// is gcr.io/distroless/static. It has no shell, no curl and no sqlite3. Whatever
+// an operator or an orchestrator needs to run against a deployment is reachable
+// through this executable or it is not reachable at all.
 //
 // This file is the composition root: it is the only place that wires the
 // packages together. There is no dependency injection framework, and there does
@@ -18,6 +25,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -28,6 +36,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -53,6 +62,19 @@ const (
 	// for exactly this reason: past it, Docker sends SIGKILL and the snapshot is
 	// abandoned.
 	backupTimeout = 10 * time.Second
+
+	// defaultHealthcheckTimeout bounds the healthcheck subcommand end to end.
+	//
+	// It is longer than the 2s database probe behind /healthz so that a slow
+	// answer is reported as slow rather than as dead: the pool holds a single
+	// connection, so a health check can legitimately queue behind a write.
+	defaultHealthcheckTimeout = 5 * time.Second
+
+	// maxHealthBodyBytes caps what the health check reads. /healthz answers with
+	// a few dozen bytes. A response larger than this is something other than
+	// Finance Tracker answering on that port, and reading it without a bound
+	// would be trusting it.
+	maxHealthBodyBytes = 4 << 10
 )
 
 func main() {
@@ -89,8 +111,14 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		return serve(ctx, cfg, logger)
 	case "restore":
 		return restoreCommand(ctx, cfg, logger, args[1:])
+	case "verify":
+		return verifyCommand(ctx, args[1:], stdout)
+	case "healthcheck":
+		return healthcheckCommand(ctx, cfg, args[1:], stdout)
 	default:
-		return fmt.Errorf("unknown command %q: expected \"serve\" or \"restore\"", command)
+		return fmt.Errorf(
+			"unknown command %q: expected \"serve\", \"restore\", \"verify\" or \"healthcheck\"",
+			command)
 	}
 }
 
@@ -371,4 +399,262 @@ func restoreCommand(ctx context.Context, cfg config.Config, logger *slog.Logger,
 
 	logger.Info("restore complete; start the application normally to bring the schema up to date")
 	return nil
+}
+
+// healthcheckCommand probes the running server's /healthz and turns the answer
+// into an exit code.
+//
+// It exists so the image can carry a HEALTHCHECK. The runtime base is
+// gcr.io/distroless/static -- no shell, no curl -- so the usual
+// `HEALTHCHECK CMD curl -f http://localhost:8080/healthz` form is simply not
+// available. What the image does have is this binary, and this binary already
+// knows the address the server was told to listen on. That last part is the
+// point: a health check that probes a hard-coded port is one that passes against
+// the wrong process the first time somebody moves the port.
+//
+// This closes the carry-over recorded in docs/milestones.md, which named the
+// clean approach -- a self-check flag on the binary -- and parked it until
+// something was orchestrating restarts. Production is that something.
+func healthcheckCommand(ctx context.Context, cfg config.Config, args []string, stdout io.Writer) error {
+	flags := flag.NewFlagSet("healthcheck", flag.ContinueOnError)
+	flags.SetOutput(io.Discard) // errors are returned, not printed by the flag package
+
+	timeout := flags.Duration("timeout", defaultHealthcheckTimeout,
+		"how long to wait for the server to answer")
+
+	if err := flags.Parse(args); err != nil {
+		return fmt.Errorf("healthcheck: %w", err)
+	}
+	if flags.NArg() > 0 {
+		return fmt.Errorf("healthcheck: unexpected argument %q", flags.Arg(0))
+	}
+	if *timeout <= 0 {
+		return fmt.Errorf("healthcheck: --timeout must be positive, got %s", *timeout)
+	}
+
+	endpoint, err := healthEndpoint(cfg.HTTPAddr)
+	if err != nil {
+		return fmt.Errorf("healthcheck: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, *timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("healthcheck: building a request for %s: %w", endpoint, err)
+	}
+
+	// A client of its own, with keep-alives disabled: this process makes exactly
+	// one request and then exits, so a pooled connection is only something left
+	// behind. http.DefaultClient would also do, but it has no timeout of its
+	// own and sharing it hides that the deadline here comes from the context.
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("healthcheck: requesting %s: %w", endpoint, err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			slog.WarnContext(ctx, "closing the health check response", slog.Any("error", cerr))
+		}
+	}()
+
+	var report healthReport
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxHealthBodyBytes)).Decode(&report); err != nil {
+		return fmt.Errorf("healthcheck: %s answered %s, but the body is not a health report: %w",
+			endpoint, resp.Status, err)
+	}
+
+	// Both halves are checked. The status code alone would accept a 200 from
+	// whatever else happened to be listening; the body alone would accept a 503
+	// that still said "ok".
+	if resp.StatusCode != http.StatusOK || report.Status != healthStatusOK {
+		return fmt.Errorf("healthcheck: %s answered %s and reported %q",
+			endpoint, resp.Status, report.Status)
+	}
+
+	if _, err := fmt.Fprintln(stdout, healthStatusOK); err != nil {
+		return fmt.Errorf("healthcheck: writing the result: %w", err)
+	}
+	return nil
+}
+
+// healthStatusOK is the value /healthz reports when the process is serving and
+// SQLite still answers. It is duplicated from internal/httpserver rather than
+// exported from it, because one string is not worth widening that package's API
+// and a test asserts the two agree.
+const healthStatusOK = "ok"
+
+// healthReport is the body of GET /healthz, as this command needs to read it.
+type healthReport struct {
+	Status string `json:"status"`
+}
+
+// healthEndpoint turns the address the server listens on into one a client can
+// dial.
+//
+// An empty host in HTTP_ADDR means "every interface"; 0.0.0.0 and :: say the
+// same thing explicitly. None of the three is an address anything can connect
+// to, so the probe goes to the loopback -- which is where the server is
+// listening in all three cases, and the only place this check is ever meant to
+// reach. A health check that left the machine would be measuring the network.
+func healthEndpoint(addr string) (string, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", fmt.Errorf("HTTP_ADDR=%q is not a host:port address: %w", addr, err)
+	}
+	switch host {
+	case "", "0.0.0.0", "::":
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port) + "/healthz", nil
+}
+
+// verifyCommand checks that a file is a Finance Tracker database and reports
+// what is in it.
+//
+// It is what turns "we have a backup" into a claim something can check. The work
+// was already written: backup.Validate runs PRAGMA integrity_check -- the full
+// one, not quick_check -- confirms the file carries a migration history, and
+// confirms it has the tables belonging to the schema version it records. This
+// puts that behind an exit code, so rehearsing a restore can be a script rather
+// than a memory.
+//
+// It then prints the schema version and a row count per table, because
+// "something was restored" and "my data was restored" are different claims and
+// an integrity check only makes the first one.
+//
+// Unlike restore, --file takes a PATH. The two differ because they are doing
+// different things: restore resolves a name inside the backup directory and must
+// never be talked into reaching outside it, whereas verify is pointed at an
+// arbitrary file an operator has just produced -- a Litestream restore under
+// /tmp, typically -- and opens it READ-ONLY, so looking at it cannot change it.
+func verifyCommand(ctx context.Context, args []string, stdout io.Writer) error {
+	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
+	flags.SetOutput(io.Discard) // errors are returned, not printed by the flag package
+
+	file := flags.String("file", "",
+		"path to the database file to verify (a path, not a backup name)")
+
+	if err := flags.Parse(args); err != nil {
+		return fmt.Errorf("verify: %w", err)
+	}
+	if *file == "" {
+		return errors.New("verify: --file is required; give the path of a database file")
+	}
+	if flags.NArg() > 0 {
+		return fmt.Errorf("verify: unexpected argument %q", flags.Arg(0))
+	}
+
+	// The gate. Everything printed afterwards is only worth printing because
+	// this passed.
+	if err := backup.Validate(ctx, *file); err != nil {
+		return fmt.Errorf("verify %s: %w", *file, err)
+	}
+
+	report, err := describeDatabase(ctx, *file)
+	if err != nil {
+		return fmt.Errorf("verify %s: %w", *file, err)
+	}
+	if err := report.write(stdout); err != nil {
+		return fmt.Errorf("verify: writing the report: %w", err)
+	}
+	return nil
+}
+
+// databaseReport is what verify prints after the integrity gate passes.
+type databaseReport struct {
+	Path          string
+	SizeBytes     int64
+	SchemaVersion int64
+
+	// Counts is a slice rather than a map so the order is the one
+	// migrations.ExpectedTables returns, which is sorted and stable. A map would
+	// print in a different order on every run, which makes two reports
+	// impossible to diff.
+	Counts []tableCount
+}
+
+// tableCount is one business table and how many rows it holds.
+type tableCount struct {
+	Table string
+	Rows  int64
+}
+
+// write renders the report.
+//
+// The lines are assembled first and written once, so there is exactly one error
+// to handle rather than one per line.
+func (r databaseReport) write(w io.Writer) error {
+	lines := []string{
+		fmt.Sprintf("database:       %s", r.Path),
+		fmt.Sprintf("size:           %d bytes", r.SizeBytes),
+		fmt.Sprintf("integrity:      %s", healthStatusOK),
+		fmt.Sprintf("schema version: %d", r.SchemaVersion),
+		"rows:",
+	}
+	for _, count := range r.Counts {
+		lines = append(lines, fmt.Sprintf("  %-18s %d", count.Table, count.Rows))
+	}
+
+	if _, err := io.WriteString(w, strings.Join(lines, "\n")+"\n"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// describeDatabase reads the facts verify reports.
+//
+// It opens the file a second time rather than threading a connection out of
+// backup.Validate, which closes its own. Two read-only opens of a file this size
+// cost nothing, and the alternative would be widening that package's API for a
+// command-line convenience.
+func describeDatabase(ctx context.Context, path string) (databaseReport, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return databaseReport{}, fmt.Errorf("reading %q: %w", path, err)
+	}
+
+	db, err := database.OpenReadOnly(ctx, path)
+	if err != nil {
+		return databaseReport{}, err
+	}
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			slog.WarnContext(ctx, "closing the database being verified", slog.Any("error", cerr))
+		}
+	}()
+
+	report := databaseReport{Path: path, SizeBytes: info.Size()}
+
+	if err := db.QueryRowContext(ctx,
+		"SELECT COALESCE(max(version_id), 0) FROM goose_db_version WHERE is_applied = 1",
+	).Scan(&report.SchemaVersion); err != nil {
+		return databaseReport{}, fmt.Errorf("reading the schema version: %w", err)
+	}
+
+	// The tables belonging to the version this file records, not to today's
+	// binary. A snapshot taken before the current schema is a perfectly good
+	// snapshot -- bringing one forward through the ordinary startup path is what
+	// restore is for -- and asking it for a table it predates would report a
+	// problem that is not one.
+	tables, err := migrations.ExpectedTables(report.SchemaVersion)
+	if err != nil {
+		return databaseReport{}, err
+	}
+
+	for _, table := range tables {
+		var rows int64
+		// The name comes from migrations.ExpectedTables, a fixed list compiled
+		// into this binary, never from input. Interpolation is the only way to
+		// name a table in SQL, and this is the case where it is safe.
+		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&rows); err != nil {
+			return databaseReport{}, fmt.Errorf("counting %s: %w", table, err)
+		}
+		report.Counts = append(report.Counts, tableCount{Table: table, Rows: rows})
+	}
+
+	return report, nil
 }

@@ -1987,3 +1987,254 @@ with an invented offsetting entry.
 exchange, "for comparison". Rejected: it is `exchange_rate_id` wearing a hat, it
 would go stale the moment a `MANUAL` rate for that day was added, and the
 comparison it enables is one nothing in this application has asked for.
+
+---
+
+## TD-057 — The production database is a bind mount on a block volume, not a named volume
+
+**Status:** Accepted · **Milestone:** M6
+
+**Decision.** In production the database, the snapshot directory and Litestream's
+bookkeeping are **bind mounts** from `/srv/finance-tracker/{data,backups,
+litestream}`, a dedicated OCI Block Volume mounted by UUID through `/etc/fstab`.
+`compose.prod.yaml` declares no `volumes:` block at all. Local development keeps
+the named volume; the two files differ here deliberately.
+
+**Rationale.** The named volume was right for a laptop and is wrong for this
+host, for three separate reasons.
+
+The first is that the data has to outlive the instance. Oracle reclaims Always
+Free instances it judges idle, and this one will be judged idle. A block volume
+detaches from a dead instance and attaches to a new one with its filesystem UUID
+unchanged, so recovery is `mount` plus `git clone`. A named volume lives in
+`/var/lib/docker` on the boot volume and dies with it.
+
+The second is that `docker compose down -v` exists, and this project has already
+lost a database to it once. A bind mount is not something `-v` can destroy.
+
+The third is legibility. `ls /srv/finance-tracker/data` answers "where is my
+database" without asking Docker. Six months from now that matters more than it
+sounds like it should.
+
+`create_host_path` stays `false` on every one of them. A missing directory must
+stop the deployment rather than be invented by Docker as root underneath a
+process running as uid 65532 — which would fail on the first write, after the
+container had already reported itself up.
+
+**Alternatives considered.** A named volume with `driver_opts` doing an `o=bind`,
+which is a bind mount wearing a volume's clothes: it keeps `docker volume rm` as
+a way to lose the data and buys nothing. Putting the data on the boot volume,
+which makes the instance and the data the same thing to lose.
+
+---
+
+## TD-058 — Nothing is published to the internet; the only route in is Tailscale Serve
+
+**Status:** Accepted · **Milestone:** M6
+
+**Decision.** The application port is published to the host **loopback only**
+(`127.0.0.1:8080`). The OCI security list opens no application port, ever.
+Access is `tailscale serve` on the host, terminating TLS and proxying to that
+loopback address, reachable only from inside the tailnet.
+
+Inside the container the server still listens on `:8080` — every interface — and
+that is correct rather than an oversight. `127.0.0.1` there would mean the
+*container's* loopback, which nothing outside its network namespace can reach,
+including Docker's own port publishing. What constrains exposure is the
+left-hand side of the port mapping.
+
+`tailscale funnel` is not used and must not be: Funnel is the command that makes
+a service public, which is the one thing this deployment exists to avoid.
+
+**Rationale.** This is personal financial data on a machine with a public IP. The
+exposure that can be removed entirely is worth more than any amount of
+authentication layered on top of exposure that remains.
+
+The loopback binding — not a firewall — is what enforces it, and the distinction
+is load-bearing. Docker inserts its DNAT rules ahead of the chains `ufw` and the
+distribution's own `iptables` rules act on, so a `0.0.0.0` publish is reachable
+from the network whatever the firewall claims. Publishing to `127.0.0.1` means
+the address translation only ever matches traffic that originated on the machine,
+which nothing outside it can produce. That is also why `ufw` is deliberately not
+installed: a third filtering layer that does not actually govern this path would
+imply a protection that is not where it appears to be.
+
+One consequence is worth recording because it surprises people: the node's name
+is published in the **public Certificate Transparency log** when Tailscale issues
+its certificate. The hostname is therefore chosen to say nothing — not the
+owner's name, not "finance".
+
+**Alternatives considered.** Caddy or nginx in front with its own certificate:
+Serve already terminates TLS and reverse-proxies inside the tailnet, so this
+would be a second moving part doing the same job. A public port behind HTTP basic
+auth, which puts the data one credential away from the internet rather than off
+it. Funnel, which is public by definition.
+
+---
+
+## TD-059 — Litestream runs as a sidecar in the same Compose project
+
+**Status:** Accepted · **Milestone:** M6
+
+**Decision.** Litestream runs as a second service in `compose.prod.yaml`, pinned
+by digest, as uid 65532, sharing the data directory with the application through
+the same bind mount. The application `depends_on` it, so Litestream starts first
+and stops last. It is not a host systemd unit, and it does not wrap the
+application with `litestream replicate -exec`.
+
+**Rationale.** The argument that usually favours a host service is that
+replication should keep running when the application does not. It does not apply
+here: the only process that writes this database is the application, and the
+application only runs under Compose. The two lifecycles are one lifecycle, so a
+host service would add package management, a second place for configuration to
+live, and a version that drifts from the repository — in exchange for covering a
+window in which nothing can be lost because nothing is being written.
+
+The `depends_on` direction is the part that is easy to get backwards.
+Dependencies start first and stop **last**, so declaring it this way round leaves
+Litestream running while the application drains and takes its shutdown snapshot.
+
+`-exec` was rejected on a fact rather than a preference: it makes Litestream PID
+1 and the application its child. The ordered shutdown in `cmd/web/main.go` —
+drain, snapshot, close — depends on the Go process receiving `SIGTERM` directly,
+and interposing a supervisor that was not written for that sequence puts the one
+guarantee that makes `docker compose down` safe at risk.
+
+The Debian-based image is used rather than the `-scratch` variant, for two
+reasons that both matter during a recovery: it carries the CA certificates the
+HTTPS connection to R2 needs, and it carries a `sqlite3` binary, which is
+occasionally the only tool available on a host that no longer has the
+application.
+
+**Alternatives considered.** Host systemd with the `.deb` package, above. A cron
+job copying the file to R2, which is not replication and has an RPO of however
+long since the last run.
+
+---
+
+## TD-060 — The sync interval is a cost decision, and deletion has exactly one owner
+
+**Status:** Accepted · **Milestone:** M6
+
+**Decision.** `sync-interval: 60s`, not Litestream's default of `1s`. Snapshots
+daily, retained 720h — thirty days. **No Cloudflare R2 Object Lifecycle Rule is
+configured**: Litestream's own retention is the single mechanism that deletes
+anything from that bucket.
+
+**Rationale.** Two different risks, each with one answer.
+
+The interval is about money. Cloudflare's free tier allows 1,000,000 Class A
+operations a month. One sync per second is up to 2.59M cycles a month, which
+makes the default the single component of this deployment capable of producing a
+bill. At 60s the ceiling is roughly 43,200 — a margin of more than twenty times.
+That arithmetic is deliberately pessimistic: Litestream uploads nothing when
+there are no new WAL frames, and this database sees a few dozen writes a day. The
+design does not depend on that being true, which is the point of choosing the
+interval from the worst case rather than the expected one.
+
+What it costs is an off-site RPO of about a minute, and that is cheap here
+because R2 is the **second** layer. The database is on a block volume that
+survives the instance, and the application takes a `VACUUM INTO` snapshot on
+every clean shutdown and before every migration. Losing up to a minute applies
+only to the case where the machine and the volume are gone at once.
+
+Retention has one owner because two independent deleters over one bucket is how
+an object that still participates in a valid restore chain disappears — removed
+by the mechanism that did not know it was needed. A lifecycle rule is a
+reasonable backstop against orphans and is worth revisiting once this has run for
+several weeks and a restore has actually been rehearsed. If it is ever added, its
+horizon must be **longer** than the retention above, never shorter.
+
+**Alternatives considered.** Leaving the default interval and watching the bill,
+which inverts the requirement. Lifecycle rules as the primary retention with
+Litestream's own deletion disabled, which hands the decision about what is still
+needed for a restore to something that cannot know.
+
+---
+
+## TD-061 — Migrations keep running at startup in production
+
+**Status:** Accepted · **Milestone:** M6
+
+**Decision.** No change. Migrations run inside the application process at
+startup, before the listener is created, exactly as they have since M0. There is
+no pre-deployment migration step, no one-shot migration container and no CLI
+flag. Production adds **procedure**, not code: record the schema version and the
+Litestream restore point before an upgrade.
+
+**Rationale.** The sequence already in `cmd/web/main.go` has every property a
+production migration step is supposed to have, and the alternatives would weaken
+it.
+
+A snapshot is taken first, and only when it is actually needed — an existing
+schema with migrations pending — and failing to take it ends startup, because
+that is precisely the moment not to proceed. `migrations.Up` runs before
+`net.Listen`, so there is no interval in which requests meet a half-migrated
+schema. Each migration runs in its own transaction and SQLite has transactional
+DDL, so a failure rolls back cleanly and leaves the database at the last
+consistent version; `goose.PartialError` is unwrapped and the failing file is
+named. Any failure returns an error, which closes the database and exits
+non-zero, so the container does not sit there looking healthy.
+
+A separate migration step would duplicate that logic and open a gap this
+deployment cannot afford: migrating with one image and then starting a different
+one. A one-shot container would do the same thing with more parts.
+
+**Rollback** is unchanged and remains what M3 decided: the migrations are
+forward-only (TD-038) and the pre-migration snapshot is the way back — now joined
+by Litestream's point-in-time restore as a second route that does not depend on
+the machine still existing.
+
+**Alternatives considered.** `docker compose run --rm app migrate` before
+switching the image, rejected above. Automatic rollback on failure, which for
+forward-only migrations means restoring a snapshot — an irreversible act that
+should never happen without someone deciding it should.
+
+---
+
+## TD-062 — The container health check is a subcommand of the same binary
+
+**Status:** Accepted · **Milestone:** M6
+
+**Decision.** `finance-tracker healthcheck` performs a `GET` against the running
+server's `/healthz`, reading `HTTP_ADDR` — the same variable the server reads —
+and exits 0 or 1. The image's `HEALTHCHECK` invokes it in exec form. A second
+subcommand, `finance-tracker verify --file <path>`, opens a database file
+read-only and puts `backup.Validate` behind an exit code.
+
+**Rationale.** The carry-over recorded in `milestones.md` named this already: the
+runtime image is `gcr.io/distroless/static`, so there is no shell and no `curl`,
+and the usual `HEALTHCHECK CMD curl -f …` form does not exist. It was parked
+until something was orchestrating restarts. Production, with `restart:
+unless-stopped` on a host nobody is watching, is that something.
+
+Reading `HTTP_ADDR` rather than hard-coding a port is the part worth stating. A
+health check pointed at a fixed port keeps passing after somebody moves the port
+— against whatever answers there instead. For the same reason it checks both the
+status code and the body: the code alone would accept any 200, and the body alone
+would accept a 503 that still said `ok`.
+
+`verify` exists because "the restored copy's `PRAGMA integrity_check` returns ok"
+should be a command with an exit code rather than something typed by hand during
+an emergency. The work was already written — `backup.Validate` runs the full
+integrity check, not `quick_check`, confirms a migration history, and confirms
+the tables belonging to the version the file records — and the only thing missing
+was a way to call it from a script on a host with no `sqlite3`. It prints the
+schema version and a row count per table, because "something was restored" and
+"my data was restored" are different claims and an integrity check only supports
+the first.
+
+Both live in this binary for the reason `restore` already did: they need the
+configuration, the database conventions, the backup package and the migration
+history that this binary has and nothing else on that host does.
+
+Unlike `restore`, `verify --file` takes a **path** rather than a bare filename.
+The two are doing different things: restore resolves a name inside the backup
+directory and must never be talked into leaving it, whereas verify is pointed at
+an arbitrary file an operator has just produced — a Litestream restore under
+`/tmp`, typically — and opens it read-only, so looking at it cannot change it.
+
+**Alternatives considered.** Putting a shell in the runtime image, which trades
+the whole reason the base is distroless for one `curl`. A sidecar that polls
+`/healthz`, which is a container to make a request. A raw TCP check, which proves
+a socket is open and nothing about whether SQLite answers.

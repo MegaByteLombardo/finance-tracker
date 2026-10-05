@@ -48,7 +48,7 @@ dependency-injection container, and no headless browser.
 ## Dependency direction
 
 ```text
-cmd/web                         serve (default) | restore
+cmd/web              serve (default) | restore | verify | healthcheck
    ↓
 HTTP                    (internal/httpserver, internal/web)
    ↓
@@ -114,10 +114,20 @@ takes a pre-migration snapshot if one is warranted, runs migrations, creates the
 listener, starts the server, waits for a signal, and shuts everything down in
 order, snapshotting once more on the way out.
 
-The one other subcommand is `restore`, which replaces the database from a
-snapshot and exits. It lives in this binary rather than a second one because it
-needs exactly what this binary already has, and the container's ENTRYPOINT is the
-binary, so `docker compose run --rm app restore …` works unchanged. See TD-035.
+There are three other subcommands. Each lives in this binary rather than in one
+of its own because each needs exactly what this binary already has — the
+configuration, the database conventions, the backup package, the migration
+history — and because the container's ENTRYPOINT is the binary, so
+`docker compose run --rm app <command> …` reaches all of them unchanged. The
+runtime image is `distroless/static`: it has no shell, no `curl` and no
+`sqlite3`, so anything an operator or an orchestrator needs to run against a
+deployment is reachable through this executable or not at all.
+
+| Subcommand | What it does |
+| --- | --- |
+| `restore --file <name>` | Replaces the operational database with a snapshot and exits. Offline. Resolves the name inside `BACKUP_DIR` and refuses anything carrying a path. See TD-035. |
+| `verify --file <path>` | Opens a database file **read-only**, runs `backup.Validate` — full `integrity_check`, a migration history, the tables belonging to the version it records — and prints the schema version and a row count per table. Takes a path, because it is pointed at files produced elsewhere. See TD-062. |
+| `healthcheck` | `GET`s `/healthz` at the address in `HTTP_ADDR` and exits 0 or 1. Backs the image's `HEALTHCHECK`. Checks the status code *and* the body. See TD-062. |
 
 Every failure is a returned error — there is no `panic` on an ordinary error path
 and no `os.Exit` buried in a helper.
@@ -561,3 +571,76 @@ The foreign key guarantees the currency exists; only the transaction can
 guarantee it was still active at the moment of the insert. Rollback is handled in
 a `defer` so it covers every error path, and distinguishes the benign
 `sql.ErrTxDone` that follows a successful commit from a real failure.
+
+## Deployment
+
+Two shapes, one binary. Nothing in the application branches on which one it is
+running in; the difference is entirely in how it is wired up.
+
+**Local development** is `compose.yaml`: the image built from the working tree,
+the database on a named volume, the port published on every interface of the
+machine, backups bind-mounted to `./backups`.
+
+**Production** is `compose.prod.yaml`, a standalone file rather than an override.
+Compose merges a `ports:` list by appending rather than replacing, so an override
+would publish `0.0.0.0:8080` *alongside* `127.0.0.1:8080` — silently, on a host
+with a public address. Forty duplicated lines cost less than that class of
+mistake.
+
+```text
+  iPhone / PC  ──WireGuard──┐
+  (Tailscale client)        │
+                            ▼
+┌───────────────────────────────────────────────────────────┐
+│ OCI VM.Standard.A1.Flex · ARM64 · 1 OCPU / 6 GB           │
+│                                                           │
+│  tailscaled (host package, not a container)               │
+│    └─ tailscale serve --bg --https=443 → 127.0.0.1:8080   │
+│         TLS terminated here; tailnet-only                 │
+│  ───────┼───────────────────────────────────────────────  │
+│   127.0.0.1:8080  ← the only published port, loopback     │
+│         │                                                 │
+│  ┌──────┴──────────────────┐  ┌────────────────────────┐  │
+│  │ finance-tracker:<sha>   │  │ litestream:0.5.x       │  │
+│  │ distroless · uid 65532  │  │ uid 65532 · replicate  │  │
+│  │ PID 1 = the binary      │  │ sync-interval 60s      │  │
+│  └──────┬──────────────────┘  └───────────┬────────────┘  │
+│         │   bind mounts, same inode       │               │
+│         ▼                                 ▼               │
+│  /srv/finance-tracker/   ← OCI Block Volume, ext4, UUID   │
+│      data/       finance.db + -wal + -shm                 │
+│      backups/    VACUUM INTO snapshots                    │
+│      litestream/ replication bookkeeping                  │
+└──────────────────────────┬────────────────────────────────┘
+                           ▼
+              Cloudflare R2 — private bucket
+```
+
+Four properties of that picture are load-bearing, and each has a decision behind
+it:
+
+- **The data is on a block volume, bind-mounted.** It outlives the instance,
+  `docker compose down -v` cannot reach it, and `ls` answers where the database
+  is without asking Docker (TD-057).
+- **The only published port is on the loopback.** Not a firewall rule — Docker's
+  NAT sits ahead of the chains `ufw` acts on. Publishing to `127.0.0.1` means the
+  translation only ever matches traffic that originated on the machine (TD-058).
+  Inside the container the server still binds `:8080`, which is correct:
+  `127.0.0.1` there would be the container's own loopback.
+- **Litestream is a sidecar and the application depends on it**, so it starts
+  first and stops last, leaving a window for the final frames after the
+  application has drained (TD-059).
+- **Migrations still run at startup, inside the application process**, before the
+  listener exists, with a snapshot taken first (TD-061).
+
+Both services run as uid 65532, which is why the host directories are owned by
+it. Base images are pinned by digest, and the build cross-compiles through
+`--platform=$BUILDPLATFORM`: the binary is pure Go with cgo disabled, so
+producing a `linux/arm64` image from an amd64 machine costs nothing and needs no
+emulation.
+
+Procedures — bootstrap, upgrade, rollback, recovery — are written down in
+M6.5, as `deployment.md` and `disaster-recovery.md`. Until then the only thing
+that exists is what is in the repository: the two Compose files, the Litestream
+configuration under `deploy/`, and the subcommands above. Nothing has been
+provisioned.

@@ -1,27 +1,53 @@
 # Keep the build context small, and keep local state out of images.
+#
+# A note on patterns: Docker matches these against the FULL path and `*` does
+# not cross a `/`. So `*.db` matches only top-level files, which is why every
+# data pattern below is also spelled with `**/`. Without that, backups/*.db --
+# real financial records -- would be sent to the daemon and land in the build
+# stage via `COPY . .`. The multi-stage build keeps them out of the published
+# image, but they have no business in the context or the builder cache either.
 
 .git/
+.gitattributes
 .gitignore
 .dockerignore
 Dockerfile
 compose.yaml
+compose.prod.yaml
 
-# Local secrets and local data must never reach an image layer.
+# Local secrets must never reach an image layer or the build context.
 .env
 .env.local
+*.env
+!*.env.example
+
+# Local data. The database and every snapshot of it.
 data/
-*.db
-*.db-wal
-*.db-shm
+backups/
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.partial
 
 # Build output
 bin/
 dist/
 *.exe
 
-# Docs are not needed to compile
+# Local scratch that Git ignores and Docker otherwise would not: prompt
+# transcripts, screenshots, working notes. They are untracked, so what is in the
+# context differs from one machine to the next -- which is exactly what stops a
+# build being reproducible. Top-level only, deliberately: `*` does not cross a
+# `/`, and there is nothing under web/ this could reach.
+*.txt
+*.png
+
+# Not needed to compile: documentation and the server-side deployment files,
+# which are read on the host rather than inside the image.
 README.md
 CLAUDE.md
+docs/
+deploy/
 
 # Editors / OS
 .idea/

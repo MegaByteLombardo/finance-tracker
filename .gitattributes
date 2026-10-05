@@ -1,0 +1,35 @@
+# Line endings.
+#
+# The development machine is Windows and `core.autocrlf` is true, so without
+# this file every text file is checked out with CRLF. For most of the repository
+# that is harmless. For the files below it is not:
+#
+#   *.sh          a shell script with CRLF fails on Linux with the famously
+#                 unhelpful "bad interpreter: /bin/sh^M". These scripts only
+#                 ever run on the server, so they are never read by Windows.
+#   Dockerfile    read inside a Linux build; CRLF has bitten heredocs and
+#                 line continuations before.
+#   *.yaml/*.yml  compose and Litestream configuration, parsed on the server.
+#   *.env*        read by Docker Compose and by Litestream, on Linux.
+#
+# These are declared explicitly rather than with a repository-wide
+# `* text=auto eol=lf`, which would rewrite every tracked file at once and bury
+# the next real change in a renormalisation diff.
+
+*.sh        text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+Dockerfile  text eol=lf
+.dockerignore text eol=lf
+.env.example  text eol=lf
+*.env.example text eol=lf
+
+# Go sources are already LF in the index; say so, so they stay that way.
+*.go        text eol=lf
+
+# SQL migrations are embedded in the binary and applied by goose on Linux.
+*.sql       text eol=lf
+
+# Binary, so Git never tries to translate anything inside them.
+*.png       binary
+*.db        binary

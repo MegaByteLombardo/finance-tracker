@@ -10,9 +10,17 @@
 *.out
 coverage.*
 
-# Local environment (never commit real values)
+# Local environment, and every production secret file.
+#
+# The rule is "any .env is ignored, any .env.example is tracked", stated that
+# way round on purpose. Listing specific filenames is how a new one -- a
+# deploy/litestream.env holding Cloudflare R2 credentials, say -- gets committed
+# by somebody who did not think to add it here first.
 .env
-.env.local
+.env.*
+*.env
+!.env.example
+!*.env.example
 
 # Local SQLite database -- NEVER commit personal financial data.
 # The database file plus its WAL/SHM sidecars all live under data/.

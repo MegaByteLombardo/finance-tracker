@@ -619,6 +619,140 @@ of edits.
 
 ---
 
+## M6 — Production Deployment, Private Access & Continuous Backup · `IN PROGRESS`
+
+The first milestone that changes nothing about what the application does and
+everything about where it does it. No domain code is in scope: not the ledger,
+not money, not FX, not valuation, not a migration.
+
+**What is being deployed.** M5 remains `IN PROGRESS` — its backend, contract and
+presentation plumbing are complete and its interface polish is not. What goes to
+production is that state: the current stable head, multi-currency and net worth
+included, with the M5 interface work still outstanding and continuing afterwards.
+Nothing was closed early to make a deployment look tidier.
+
+### The rule the milestone hangs on
+
+```
+public internet        ✗        Finance Tracker
+iPhone / PC  →  Tailscale  →  HTTPS inside the tailnet  →  Finance Tracker
+```
+
+This is personal financial data on a machine with a public IP address. The
+exposure that can be removed entirely is worth more than any amount of
+authentication layered on top of exposure that remains. **No application port is
+published to the internet, and `tailscale funnel` — the command that would make
+one public — is not used.**
+
+### Target
+
+One `VM.Standard.A1.Flex` instance on Oracle Cloud Always Free, ARM64, running
+Docker Compose; the database on a dedicated OCI Block Volume; Tailscale and
+`tailscale serve` on the host; Litestream replicating to a private Cloudflare R2
+bucket. Operational target **USD 0/month**.
+
+### Scope
+
+- **Two layers of protection, for different failures.** The `VACUUM INTO`
+  snapshots M3 built cover human error and a bad migration, and stay on the block
+  volume. Litestream covers losing the machine, and goes off-site. Neither
+  replaces the other.
+- **The instance is disposable by design.** Oracle reclaims Always Free instances
+  it judges idle, and this one will be judged idle. Nothing is done to disguise
+  that — no synthetic traffic, no busy loop. The answer is that losing the
+  instance costs a documented, rehearsed rebuild and no data.
+- **Manual deployment, reproducible and written down.** No CI/CD in this
+  milestone, deliberately: proving the infrastructure and automating it are two
+  problems, and mixing them means debugging both at once.
+
+### Decisions worth naming
+
+- **Bind mounts on a block volume, not a named volume** (TD-057). The volume
+  outlives the instance, `docker compose down -v` cannot reach it, and `ls`
+  answers where the database is without asking Docker.
+- **The loopback binding is the access control, not the firewall** (TD-058).
+  Docker's NAT rules sit ahead of the chains `ufw` acts on, so a `0.0.0.0`
+  publish is reachable whatever a firewall claims. `ufw` is therefore not
+  installed: a layer that does not govern this path would imply a protection
+  that is not where it appears to be.
+- **Litestream as a sidecar, with the application depending on it** (TD-059).
+  Dependencies start first and stop *last*, which leaves Litestream running while
+  the application drains and takes its shutdown snapshot. `-exec` was rejected
+  because it would make Litestream PID 1 and put the ordered shutdown at risk.
+- **`sync-interval: 60s`, chosen from a cost ceiling rather than a benchmark**
+  (TD-060). Litestream's default of `1s` is up to 2.59M R2 Class A operations a
+  month against a free tier of 1M — the only component of this deployment capable
+  of producing a bill.
+- **One mechanism deletes from the bucket** (TD-060). No R2 lifecycle rule
+  alongside Litestream's retention: two independent deleters is how an object
+  that still belongs to a valid restore chain disappears.
+- **Migrations stay at startup** (TD-061). The existing sequence already takes a
+  snapshot first, runs before the listener exists, rolls back cleanly and exits
+  non-zero; a separate step would duplicate it and add the gap where one image
+  migrates and another starts.
+- **Oracle halved the Always Free Ampere allowance in 2026** — 1,500 OCPU-hours
+  and 9,000 GB-hours a month, enforced from 18 August, which is 2 OCPU and 12 GB
+  running continuously rather than the widely repeated 4 and 24. The instance is
+  provisioned at 1 OCPU and 6 GB, half the allowance, so the margin survives
+  another change.
+- **The node's name is published in the public Certificate Transparency log**
+  when Tailscale issues its certificate. It is chosen to say nothing.
+
+### Phases
+
+| Phase | Contents | Status |
+| --- | --- | --- |
+| M6.0 | Audit of the repository as it actually is | `CLOSED` |
+| M6.1 | Production readiness: subcommands, image, Compose, configuration | `CLOSED` |
+| M6.2 | OCI instance, block volume, filesystem, mount, data cutover, first boot | `IN PROGRESS` |
+| M6.3 | Tailscale, `tailscale serve`, closing public SSH | `PLANNED` |
+| M6.4 | Cloudflare R2, Litestream, first verified replica | `PLANNED` |
+| M6.5 | Restore scripts, a rehearsed recovery, the deployment documents | `PLANNED` |
+| M6.6 | Smoke tests from iPhone and PC, reboot, cost review | `PLANNED` |
+
+No phase begins before the previous one is verified. M6.1 in particular is
+finished on the development machine, not on the server.
+
+### Delivered so far
+
+**M6.1 — closed.** `finance-tracker healthcheck` and `finance-tracker verify`
+(TD-062); a `HEALTHCHECK` in the image; base images pinned by digest and the
+build cross-compiling through `$BUILDPLATFORM`; `compose.prod.yaml`;
+`deploy/litestream.yml` and `deploy/litestream.env.example`; `.gitattributes`;
+hardened `.gitignore` and `.dockerignore`.
+
+**M6.2 — in progress.** The runbook is [deployment.md](deployment.md), written
+as the phase is executed rather than ahead of it. The parts that do not need the
+instance are done and verified on the development machine:
+
+- **The cutover snapshot exists and is proven.** Produced through the manual
+  backup the application already has — `VACUUM INTO`, no new backup layer —
+  verified with the production binary, and cross-checked against the live
+  database: every row count matched. Schema 13, 103 transactions, 121 movements.
+- **The production stack was rehearsed locally** under a throwaway project name,
+  against `compose.prod.yaml` with the snapshot staged as if it were the block
+  volume: healthy, loopback-only, WAL and the three other PRAGMAs correct, and
+  the counts unchanged across a `down`/`up` cycle.
+- **One real defect was found and fixed by that rehearsal** — Compose resolves
+  every `env_file` when it loads the file, before deciding what to start, so a
+  missing Cloudflare credentials file made even `up --no-deps app` fail. The
+  bootstrap this milestone describes would not have run. Fixed with Compose's own
+  `required: false`, not with a placeholder secret.
+
+Everything from the instance onward — creating it, the block volume, the
+filesystem, the transfer, the first boot — needs OCI credentials this environment
+does not have and is executed from the console and an SSH session.
+
+### Not in M6
+
+CI/CD and GitHub Actions, an image registry, Kubernetes, PostgreSQL, Redis, a
+managed database, Caddy or nginx, `tailscale funnel`, a public port in any
+spelling, HTTP authentication, multi-user access, horizontal scaling, metrics
+platforms, uptime services, Terraform or any other infrastructure-as-code, and
+any change to the ledger, money, FX, valuation or the schema.
+
+---
+
 ## Roadmap
 
 Everything below is **provisional**. These are the currently expected shape of
@@ -633,13 +767,14 @@ below has acceptance criteria yet, by design.
 | --- | --- | --- |
 | M5 | Multi-Currency, Exchange Rates & Current Net Worth | `IN PROGRESS` |
 | M5.5 | Currency Exchange Transactions | `CLOSED` |
-| M6 | Historical Net Worth | `PLANNED` |
-| M7 | Dashboard & Analytics | `PLANNED` |
-| M8 | Credit & Debt | `PLANNED` |
-| M9 | Instalments & Calendar | `PLANNED` |
-| M10 | Hardening | `PLANNED` |
+| M6 | Production Deployment, Private Access & Continuous Backup | `IN PROGRESS` |
+| M7 | Historical Net Worth | `PLANNED` |
+| M8 | Dashboard & Analytics | `PLANNED` |
+| M9 | Credit & Debt | `PLANNED` |
+| M10 | Instalments & Calendar | `PLANNED` |
+| M11 | Hardening | `PLANNED` |
 
-The roadmap has now been renumbered three times, which is what "provisional"
+The roadmap has now been renumbered four times, which is what "provisional"
 above means in practice. Everything after M3 shifted by one when M3 became Data
 Safety rather than Dashboard; transfers then moved from M6 to M4, ahead of both
 Dashboard and FX, because the ledger already supported them and a dashboard
@@ -649,13 +784,25 @@ reason: a dashboard whose headline figure could not be computed would have been 
 dashboard with a hole in it — which is exactly what M4 shipped, with a hard-coded
 "+2.4%" standing in for a number nothing could produce yet.
 
+The fourth renumbering inserted M6 and pushed Historical Net Worth to M7. The
+reasoning is the same shape as the others: the application became worth using
+daily once it could record an exchange and state a net worth, and an application
+worth using daily that only runs on one laptop is not actually being used.
+Everything after M6 is a feature; M6 is the thing that makes features reach the
+person they are for. It also stops the next milestone's data from accumulating
+somewhere with a single copy, which is a mistake this project has already made
+once.
+
 ### Known carry-over
 
 Parked items, none blocking:
 
-- **Container `HEALTHCHECK`.** The distroless image has no shell and no `curl`,
-  so the usual form does not apply. The clean approach is a self-check flag on
-  the binary, worth adding when something is orchestrating restarts.
+- ~~**Container `HEALTHCHECK`.**~~ **Resolved in M6.1.** The approach this entry
+  named — a self-check on the binary rather than a shell in the image — is what
+  shipped: `finance-tracker healthcheck`, reading the same `HTTP_ADDR` the server
+  reads, invoked by a `HEALTHCHECK` in exec form (TD-062). The condition for
+  adding it was "when something is orchestrating restarts", and production with
+  `restart: unless-stopped` is that something.
 - **Request-logging middleware.** Deferred until there are endpoints worth
   tracing.
 - **Migration `status` / `down` interface.** No CLI or flags were added: the

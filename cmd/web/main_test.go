@@ -3,9 +3,12 @@ package main
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,18 +211,31 @@ func envWithPaths(t *testing.T, overrides map[string]string) (getenv func(string
 }
 
 // serveUntilListening starts the server and returns once it reports that it is
-// listening, plus a channel carrying run's eventual result.
-func serveUntilListening(t *testing.T, ctx context.Context, getenv func(string) string) <-chan error {
+// listening: a channel carrying run's eventual result, and the address the
+// server actually bound.
+//
+// The address is READ OUT OF THE LOG rather than guessed. Tests ask for port 0
+// so they cannot collide, which means the real port is only known after the
+// listener exists; reserving a port and closing it again would reintroduce
+// exactly the race port 0 avoids.
+func serveUntilListening(
+	t *testing.T, ctx context.Context, getenv func(string) string,
+) (<-chan error, string) {
 	t.Helper()
 
 	logs, logWriter := io.Pipe()
 	listening := make(chan struct{})
+
+	// Written before close(listening) and read only after <-listening, so the
+	// channel provides the happens-before the race detector needs.
+	var addr string
 
 	go func() {
 		scanner := bufio.NewScanner(logs)
 		signalled := false
 		for scanner.Scan() {
 			if !signalled && strings.Contains(scanner.Text(), "http server listening") {
+				addr = addrFromLogLine(scanner.Text())
 				close(listening)
 				signalled = true
 			}
@@ -241,7 +257,21 @@ func serveUntilListening(t *testing.T, ctx context.Context, getenv func(string) 
 	case <-time.After(30 * time.Second):
 		t.Fatal("the server never reported that it was listening")
 	}
-	return done
+	return done, addr
+}
+
+// addrFromLogLine pulls the listening address out of the startup log line.
+//
+// The line is slog's text format, where a value containing no spaces is written
+// unquoted: `msg="http server listening" addr=127.0.0.1:54321`. Nothing else on
+// that line carries an addr key.
+func addrFromLogLine(line string) string {
+	_, rest, ok := strings.Cut(line, "addr=")
+	if !ok {
+		return ""
+	}
+	addr, _, _ := strings.Cut(rest, " ")
+	return strings.Trim(addr, `"`)
 }
 
 // backupsIn lists the snapshot filenames in a directory.
@@ -271,7 +301,7 @@ func TestShutdownTakesABackup(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	getenv, _, backupDir := envWithPaths(t, map[string]string{"LOG_LEVEL": "info"})
 
-	done := serveUntilListening(t, ctx, getenv)
+	done, _ := serveUntilListening(t, ctx, getenv)
 	cancel()
 
 	select {
@@ -300,7 +330,7 @@ func TestStartupDoesNotBackUpAnEmptyDatabase(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	getenv, _, backupDir := envWithPaths(t, map[string]string{"LOG_LEVEL": "info"})
 
-	done := serveUntilListening(t, ctx, getenv)
+	done, _ := serveUntilListening(t, ctx, getenv)
 
 	// Before shutdown, so only a pre-migration backup could exist.
 	if names := backupsIn(t, backupDir); len(names) != 0 {
@@ -390,6 +420,269 @@ func TestRestoreSubcommandRejectsBadInvocations(t *testing.T) {
 		"unknown flag":     {"restore", "--everything"},
 		"unknown command":  {"vacuum"},
 		"misspelled serve": {"serv"},
+	}
+
+	for label, args := range tests {
+		t.Run(label, func(t *testing.T) {
+			t.Parallel()
+
+			if err := run(t.Context(), args, getenv, io.Discard); err == nil {
+				t.Errorf("run(%v) succeeded, want an error", args)
+			}
+		})
+	}
+}
+
+// --- healthcheck -------------------------------------------------------------
+
+// The health check must agree with the server it probes, and it must find that
+// server through configuration rather than through a hard-coded port.
+//
+// Both halves are real here: a real server on a real socket, and the subcommand
+// pointed at it by HTTP_ADDR. That is also what keeps the "ok" this command
+// insists on in step with the "ok" internal/httpserver writes -- the string is
+// spelled in two packages, and this is what would catch them diverging.
+func TestHealthcheckSubcommandAgainstARunningServer(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	getenv, _, _ := envWithPaths(t, map[string]string{"LOG_LEVEL": "info"})
+
+	done, addr := serveUntilListening(t, ctx, getenv)
+	if addr == "" {
+		t.Fatal("the startup log did not report a listening address")
+	}
+
+	// A separate environment, carrying only the address: the health check must
+	// need nothing else.
+	probe, _, _ := envWithPaths(t, map[string]string{"HTTP_ADDR": addr})
+
+	var out strings.Builder
+	if err := run(ctx, []string{"healthcheck"}, probe, &out); err != nil {
+		t.Fatalf("healthcheck against a healthy server: %v", err)
+	}
+	if got := strings.TrimSpace(out.String()); got != "ok" {
+		t.Errorf("healthcheck printed %q, want %q", got, "ok")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("run returned an error on clean shutdown: %v", err)
+		}
+	case <-time.After(shutdownTimeout + backupTimeout + 5*time.Second):
+		t.Fatal("run did not return after the context was cancelled")
+	}
+
+	// And the same check must fail once that server is gone. A health check that
+	// cannot report "dead" is not a health check. The context is a fresh one:
+	// the cancelled one would fail the request for the wrong reason.
+	if err := run(t.Context(), []string{"healthcheck"}, probe, io.Discard); err == nil {
+		t.Error("healthcheck succeeded against a server that is not running")
+	}
+}
+
+// A check that read only the status code would pass against anything answering
+// 200 on that port; one that read only the body would pass a 503 that still
+// said "ok". Both halves are checked, so both are tested.
+func TestHealthcheckSubcommandRejectsAnUnhealthyAnswer(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		status int
+		body   string
+	}{
+		"the database is unreachable": {http.StatusServiceUnavailable, `{"status":"unavailable"}`},
+		"a failing status with an ok body": {
+			http.StatusInternalServerError, `{"status":"ok"}`,
+		},
+		"another service on the port": {http.StatusOK, "<html>not finance tracker</html>"},
+		"an empty body":               {http.StatusOK, ""},
+		"an unknown status":           {http.StatusOK, `{"status":"degraded"}`},
+	}
+
+	for label, answer := range tests {
+		t.Run(label, func(t *testing.T) {
+			t.Parallel()
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(answer.status)
+				if _, err := io.WriteString(w, answer.body); err != nil {
+					t.Errorf("writing the test response body: %v", err)
+				}
+			}))
+			t.Cleanup(srv.Close)
+
+			getenv, _, _ := envWithPaths(t, map[string]string{
+				"HTTP_ADDR": srv.Listener.Addr().String(),
+			})
+
+			if err := run(t.Context(), []string{"healthcheck"}, getenv, io.Discard); err == nil {
+				t.Error("healthcheck reported a healthy server")
+			}
+		})
+	}
+}
+
+// A wildcard listen address is not an address anything can dial, so the probe
+// has to resolve it to the loopback -- which is where the server is listening in
+// every one of those cases.
+func TestHealthEndpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		":8080":          "http://127.0.0.1:8080/healthz",
+		"0.0.0.0:8080":   "http://127.0.0.1:8080/healthz",
+		"[::]:8080":      "http://127.0.0.1:8080/healthz",
+		"127.0.0.1:9999": "http://127.0.0.1:9999/healthz",
+		"localhost:8080": "http://localhost:8080/healthz",
+		"[::1]:8080":     "http://[::1]:8080/healthz",
+	}
+
+	for addr, want := range tests {
+		t.Run(addr, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := healthEndpoint(addr)
+			if err != nil {
+				t.Fatalf("healthEndpoint(%q): %v", addr, err)
+			}
+			if got != want {
+				t.Errorf("healthEndpoint(%q) = %q, want %q", addr, got, want)
+			}
+		})
+	}
+}
+
+func TestHealthEndpointRejectsAnAddressWithNoPort(t *testing.T) {
+	t.Parallel()
+
+	for _, addr := range []string{"", "8080", "::", "127.0.0.1"} {
+		if _, err := healthEndpoint(addr); err == nil {
+			t.Errorf("healthEndpoint(%q) succeeded, want an error", addr)
+		}
+	}
+}
+
+func TestHealthcheckSubcommandRejectsBadInvocations(t *testing.T) {
+	t.Parallel()
+
+	getenv, _, _ := envWithPaths(t, nil)
+
+	tests := map[string][]string{
+		"stray argument":    {"healthcheck", "extra"},
+		"unknown flag":      {"healthcheck", "--everything"},
+		"zero timeout":      {"healthcheck", "--timeout", "0s"},
+		"negative timeout":  {"healthcheck", "--timeout", "-1s"},
+		"malformed timeout": {"healthcheck", "--timeout", "soon"},
+	}
+
+	for label, args := range tests {
+		t.Run(label, func(t *testing.T) {
+			t.Parallel()
+
+			if err := run(t.Context(), args, getenv, io.Discard); err == nil {
+				t.Errorf("run(%v) succeeded, want an error", args)
+			}
+		})
+	}
+}
+
+// --- verify ------------------------------------------------------------------
+
+// Verify is what makes "we have a backup" checkable, so what it reports has to
+// be true of the file in front of it -- not merely plausible.
+func TestVerifySubcommandAcceptsARealDatabase(t *testing.T) {
+	t.Parallel()
+
+	getenv, dbPath, _ := envWithPaths(t, nil)
+	ctx := t.Context()
+
+	db, err := database.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("opening: %v", err)
+	}
+	if err := migrations.Up(ctx, db, slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatalf("migrating: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		"INSERT INTO currencies (code, name, symbol, minor_unit) VALUES ('AAA', 'Reported', NULL, 2)"); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+
+	// The counts the report must agree with, read independently.
+	var currencies int64
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM currencies").Scan(&currencies); err != nil {
+		t.Fatalf("counting currencies: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("closing: %v", err)
+	}
+
+	latest, err := migrations.LatestVersion()
+	if err != nil {
+		t.Fatalf("LatestVersion: %v", err)
+	}
+
+	var out strings.Builder
+	if err := run(ctx, []string{"verify", "--file", dbPath}, getenv, &out); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+
+	report := out.String()
+	for _, want := range []string{
+		"integrity:      ok",
+		fmt.Sprintf("schema version: %d", latest),
+		fmt.Sprintf("  %-18s %d", "currencies", currencies),
+		fmt.Sprintf("  %-18s %d", "transactions", 0),
+	} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the report does not contain %q:\n%s", want, report)
+		}
+	}
+}
+
+// Verify must refuse anything it cannot vouch for. A command that says "ok" to a
+// file that is not a recoverable database is worse than no command at all.
+func TestVerifySubcommandRejectsWhatItCannotVouchFor(t *testing.T) {
+	t.Parallel()
+
+	getenv, _, _ := envWithPaths(t, nil)
+	ctx := t.Context()
+	dir := t.TempDir()
+
+	notSQLite := filepath.Join(dir, "garbage.db")
+	if err := os.WriteFile(notSQLite, []byte("this is not a database"), 0o600); err != nil {
+		t.Fatalf("writing the garbage file: %v", err)
+	}
+
+	// A real SQLite database that is not a Finance Tracker one: no migration
+	// history, so nothing says what schema it is supposed to have.
+	foreign := filepath.Join(dir, "foreign.db")
+	other, err := database.Open(ctx, foreign)
+	if err != nil {
+		t.Fatalf("creating the foreign database: %v", err)
+	}
+	if _, err := other.ExecContext(ctx, "CREATE TABLE unrelated (id INTEGER PRIMARY KEY) STRICT"); err != nil {
+		t.Fatalf("seeding the foreign database: %v", err)
+	}
+	if err := other.Close(); err != nil {
+		t.Fatalf("closing the foreign database: %v", err)
+	}
+
+	tests := map[string][]string{
+		"no file given":                  {"verify"},
+		"a blank file":                   {"verify", "--file", ""},
+		"a file that does not exist":     {"verify", "--file", filepath.Join(dir, "absent.db")},
+		"a directory":                    {"verify", "--file", dir},
+		"a file that is not SQLite":      {"verify", "--file", notSQLite},
+		"a database that is not ours":    {"verify", "--file", foreign},
+		"a stray argument":               {"verify", "--file", notSQLite, "extra"},
+		"an unknown flag":                {"verify", "--everything"},
+		"a backup name instead of path":  {"verify", "--file", "finance-20260101T000000Z-manual.db"},
+		"a relative path that is absent": {"verify", "--file", "./nowhere/finance.db"},
 	}
 
 	for label, args := range tests {

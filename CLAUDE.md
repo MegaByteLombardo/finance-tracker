@@ -224,6 +224,49 @@ and payment methods; internal same-currency transfers.
 - **`MovementSide` / `AccountSideError`** are M4's `TransferSide` /
   `TransferAccountError` renamed as **aliases**, not parallel types.
 
+**M6 (in progress): production deployment, private access and continuous backup.**
+
+- **No domain code is in scope.** Not the ledger, not money, not FX, not
+  valuation, not a migration. If a change to one of those looks necessary for a
+  deployment, it is not — stop and say so.
+- **Nothing is published to the internet.** The application port is published to
+  `127.0.0.1` only; access is Tailscale Serve on the host, inside the tailnet.
+  **`tailscale funnel` is the command that would make it public and must never
+  appear.** No Caddy, no nginx, no HTTP auth in front of a public port (TD-058).
+- **The loopback binding is the access control, not the firewall.** Docker's NAT
+  rules sit ahead of the chains `ufw` acts on, so a `0.0.0.0` publish is
+  reachable whatever a firewall claims. `ufw` is deliberately not installed.
+  Inside the container the server still binds `:8080`, and that is correct —
+  `127.0.0.1` there would be the *container's* loopback.
+- **`compose.prod.yaml` is standalone, never an override.** Compose appends
+  `ports:` across files instead of replacing, which would publish `0.0.0.0`
+  alongside the loopback, silently. Never combine the two files with `-f`.
+- **The production database is a bind mount on an OCI Block Volume**, not a named
+  volume (TD-057). `create_host_path: false` everywhere: a missing directory must
+  stop the deployment, not be created by Docker as root under a uid-65532
+  process.
+- **Litestream is a sidecar and the app `depends_on` it**, so it starts first and
+  stops last (TD-059). Never `-exec`: that makes Litestream PID 1 and puts the
+  ordered shutdown at risk.
+- **`sync-interval: 60s`, not the default `1s`** — a cost ceiling, not a
+  benchmark. R2's free tier allows 1M Class A operations a month; `1s` is up to
+  2.59M (TD-060).
+- **One mechanism deletes from the bucket.** Litestream's retention, and no R2
+  lifecycle rule beside it. If one is ever added its horizon must be *longer*
+  (TD-060).
+- **Migrations still run at startup** (TD-061). No migration container, no flag.
+  Rollback is the pre-migration snapshot plus point-in-time restore.
+- **Never replace `finance.db` while Litestream is running.** Any destructive
+  restore stops the sidecar first.
+- **Two backup layers, different failures.** `VACUUM INTO` snapshots cover human
+  error and a bad migration; Litestream covers losing the machine. Neither
+  replaces the other.
+- **No CI/CD in M6.** Deployment is manual, reproducible and documented. The
+  pipeline is a later milestone and mixing them means debugging both at once.
+- Oracle **halved** the Always Free Ampere allowance in 2026: 1,500 OCPU-hours
+  and 9,000 GB-hours a month, enforced from 18 August. The widely repeated "4
+  OCPU / 24 GB" is stale.
+
 **Not built, and not to be added opportunistically:**
 
 - **No delete of anything.** Archive or correct.
@@ -277,6 +320,19 @@ Short list, because each cost real time and each is easy to repeat.
   has not reached. Nothing caught it because nothing called it (TD-051).
 - **Go does not chase AIA, and Windows does.** A TLS chain that verifies on the
   development machine can fail in the container. Test the container (TD-050).
+- **A `.dockerignore` pattern does not cross a `/`.** `*.db` matches top-level
+  files only, so `backups/*.db` — real financial records — was being sent to the
+  daemon and copied into the build stage by `COPY . .`. Multi-stage kept it out
+  of the published image, which is exactly why nobody noticed. Spell data
+  patterns with `**/` as well.
+- **`core.autocrlf` is true on the development machine.** Any `.sh` committed
+  from here would be checked out with CRLF and die on the server with `bad
+  interpreter: /bin/sh^M`. `.gitattributes` pins `eol=lf` on everything that is
+  only ever read by Linux — before the first script exists, not after.
+- **A `.gitignore` that lists filenames leaks the next one.** It named `.env` and
+  `.env.local`, so a `deploy/litestream.env` holding Cloudflare credentials would
+  have been committed by anyone who did not think to add it first. The rule is
+  now "every `*.env` is ignored, every `*.env.example` is kept".
 - **A read model that anchors on a semantic property can hide broken data.**
   Picking a transfer's row by "the negative movement" drops a malformed transfer
   with no negative movement out of the listing entirely. Anchor structurally,

@@ -1,3 +1,14 @@
+# Finance Tracker — local development.
+#
+# Production is compose.prod.yaml, a standalone file rather than an override of
+# this one. The two differ in the things that matter on a public host: the
+# database is a bind mount on a block volume rather than a named volume, the
+# port is published to the loopback only, and a Litestream sidecar replicates to
+# Cloudflare R2. See docs/deployment.md.
+#
+# Nothing here should be changed to suit the server. That is what the other file
+# is for.
+
 name: finance-tracker
 
 services:

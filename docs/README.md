@@ -26,7 +26,8 @@ decided and what is actually built, and it is expected to be kept current.
 | [m3-contract.md](m3-contract.md) | The M3 agreement between the backend and the presentation layer: payment methods as an entity, the editing APIs, backups, the canonical money format, and what M3 breaks from M2. Frozen for the duration of M3. |
 | [m2-contract.md](m2-contract.md) | The M2 agreement between the backend and the presentation layer: the services, models, enumerations, money and date semantics, and errors the UI may rely on. Frozen for the duration of M2. |
 | [data-model.md](data-model.md) | The current schema — `currencies` and `accounts` — column by column, with its constraints, relationships and lifecycle, plus the persistence conventions every future table follows. |
-| [operations.md](operations.md) | Running, configuring, observing and backing up the application locally and under Docker. |
+| [operations.md](operations.md) | Running, configuring, observing and backing up the application locally and under Docker, plus the production deployment added in M6: the private-access model, the cost envelope and what to watch. |
+| [deployment.md](deployment.md) | The production runbook, written one phase at a time as each is executed. Currently covers M6.2: the OCI instance, the block volume and its identification gate, the filesystem and `fstab`, the data cutover from the local database, and the first application-only boot. |
 | [technical-decisions.md](technical-decisions.md) | Numbered record of the architectural decisions taken so far, each with its rationale and the alternatives rejected. |
 
 ## Keeping these current

@@ -1,0 +1,88 @@
+# Litestream — continuous replication of the operational database to Cloudflare
+# R2.
+#
+# This file is mounted read-only into the litestream container by
+# compose.prod.yaml. It holds NO credentials: every ${...} below is expanded
+# from the environment, which comes from /etc/finance-tracker/litestream.env on
+# the server (chmod 600). See deploy/litestream.env.example.
+#
+# Written for Litestream 0.5.x. The 0.3/0.4 syntax is NOT compatible -- the old
+# `replicas:` array became a singular `replica:` map, and the on-disk backup
+# format changed such that 0.5 cannot restore a 0.3 replica. Pin the version in
+# compose.prod.yaml; do not follow `latest`.
+#
+# WHAT THIS IS AND IS NOT
+#
+# This is the SECOND layer of protection, not the first. The first is already in
+# the application: a VACUUM INTO snapshot on every clean shutdown, before every
+# migration, and on demand -- written to the same Block Volume. That covers
+# human error and a bad migration. Litestream covers losing the machine.
+#
+# Losing the VM is the expected failure here, not an exotic one: Oracle reclaims
+# Always Free instances it considers idle.
+
+logging:
+  level: info
+  # Text, matching APP_ENV=development, would be easier to read by eye, but the
+  # application logs JSON in production and `docker compose logs` interleaves
+  # both streams. One format across the project is worth more than one readable
+  # service.
+  type: json
+
+dbs:
+  - path: /data/finance.db
+
+    # Where Litestream keeps its own bookkeeping.
+    #
+    # The default is a hidden `.finance.db-litestream` directory beside the
+    # database. It is moved out of /data so that directory holds exactly what it
+    # is named for -- the database and its two SQLite sidecars -- and `ls` on the
+    # server shows the data, not the tooling.
+    #
+    # This is `meta-path`, NOT `meta-dir`. `meta-dir` is only valid with a `dir:`
+    # block replicating many databases; specifying it alongside a single `path:`
+    # is rejected, and the two cannot both be given.
+    meta-path: /litestream/finance.db-litestream
+
+    snapshot:
+      # A full snapshot once a day, kept for thirty.
+      #
+      # Deletion is Litestream's job and ONLY Litestream's. No R2 Object
+      # Lifecycle Rule is configured, deliberately: two independent deleters
+      # over one bucket is how an object that still participates in a valid
+      # restore chain disappears because the one that removed it did not know
+      # that. A lifecycle rule as a backstop is worth revisiting after this has
+      # run for several weeks and a restore has actually been rehearsed -- and
+      # if it is added, its horizon must be LONGER than the retention here.
+      interval: 24h
+      retention: 720h
+
+    replica:
+      type: s3
+      bucket: ${R2_BUCKET}
+      path: finance-tracker
+      # R2's S3 endpoint. The path component must be omitted; only the host.
+      endpoint: https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com
+      # R2 ignores regions but the S3 client requires one, and "auto" is what
+      # Cloudflare documents.
+      region: auto
+      access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+      secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+
+      # NOT the default of 1s, and this is a cost decision rather than a
+      # performance one.
+      #
+      # R2's free tier allows 1,000,000 Class A operations per month. At one
+      # sync per second that is up to 2.59M cycles a month, which would be the
+      # single thing in this deployment capable of producing a bill. At 60s it
+      # is at most ~43,200 -- a margin of more than twenty times.
+      #
+      # That arithmetic is a deliberately pessimistic ceiling: Litestream
+      # uploads nothing when there are no new WAL frames, and this database sees
+      # a few dozen writes a day. The design does not rely on that being true.
+      #
+      # What it costs: an off-site RPO of about a minute. The database itself is
+      # on a Block Volume that survives the instance, and local snapshots are
+      # taken on every shutdown, so losing up to a minute applies only to the
+      # case where the machine and the volume are both gone at once.
+      sync-interval: 60s
