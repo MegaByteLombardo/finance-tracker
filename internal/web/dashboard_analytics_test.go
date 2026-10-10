@@ -53,7 +53,11 @@ func sampleAnalytics() DashboardAnalytics {
 		},
 		Points:         points,
 		IncompleteDays: 3,
-		Opening:        NetWorthPoint{Date: from.AddDate(0, 0, -1), TotalMinor: 1_161_012, TotalFormatted: "11610.12", Complete: true},
+		Gaps: []RateGap{{
+			CurrencyCode: "VES", BaseCurrencyCode: "USD",
+			From: from.AddDate(0, 0, 5), To: from.AddDate(0, 0, 7), Days: 3,
+		}},
+		Opening: NetWorthPoint{Date: from.AddDate(0, 0, -1), TotalMinor: 1_161_012, TotalFormatted: "11610.12", Complete: true},
 		Change: Change{
 			Defined: true, AmountMinor: 84020, AmountFormatted: "840.20",
 			Percent: Ratio{BasisPoints: 724, Defined: true, Formatted: "7.24"},
@@ -117,14 +121,17 @@ func TestTheDashboardShowsTheAnalyticsAsComputed(t *testing.T) {
 		"28.01%",                 // savings rate
 		"71.99",                  // daily average
 		"Supermercado", "41.67%", // top category and its share
-		"+12.50%",                  // its change against the previous period
-		"Evolución del patrimonio", // the chart
-		"<svg",                     //
-		"3 días",                   // the gap note
-		"2 movimientos futuros",    // TD-063
-		"archivada con saldo",      // TD-064
-		"6 sep 2026",               // the period's dates
-		"7 ago 2026",               // and the previous period's
+		"+12.50%",                        // its change against the previous period
+		"Evolución del patrimonio",       // the chart
+		"<svg",                           //
+		"3 días",                         // the gap note
+		"USD/VES",                        // which rate is missing,
+		"del 11 sep 2026 al 13 sep 2026", // over which days,
+		"/settings/exchange-rates?base=USD&date=2026-09-11&quote=VES#manual-rate", // and the form that fills it
+		"2 movimientos futuros", // TD-063
+		"archivada con saldo",   // TD-064
+		"6 sep 2026",            // the period's dates
+		"7 ago 2026",            // and the previous period's
 	} {
 		if !strings.Contains(page, phrase) {
 			t.Errorf("the dashboard does not show %q", phrase)
@@ -273,6 +280,7 @@ func TestTheMobileDashboardShowsTheSameAnalytics(t *testing.T) {
 		"3,000.00", "2,159.80", "28.01%", "Supermercado", "41.67%",
 		`hx-select="#mobile-analytics"`, `id="mobile-analytics"`,
 		"movimientos futuros",
+		"USD/VES: 11 sep 2026 – 13 sep 2026", "date=2026-09-11", // the missing rate, and its form
 	} {
 		if !strings.Contains(page, phrase) {
 			t.Errorf("the mobile dashboard does not show %q", phrase)

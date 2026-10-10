@@ -1995,6 +1995,8 @@ html, body {
   color: var(--m-text-muted);
 }
 .net-worth-note a { color: inherit; font-weight: 600; }
+.net-worth-gaps { margin: 6px 0 0 0; padding-left: 18px; font-size: 0.75rem; line-height: 1.6; color: var(--m-text-muted); }
+.net-worth-gaps a { color: inherit; font-weight: 600; }
 
 .history-currency,
 .cashflow-period {
@@ -2111,3 +2113,30 @@ html, body {
 .spending-name.is-other { color: var(--m-text-muted); }
 .spending-amount { font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .spending-row-bottom { margin-top: 2px; font-size: 0.6875rem; color: var(--m-text-muted); }
+
+/* Archive / restore on an account card. Archiving is visibility only (TD-064). */
+.account-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--m-border-subtle);
+}
+.account-card-actions form { margin: 0; }
+.account-action-note { font-size: 0.75rem; color: var(--m-text-muted); margin-right: auto; }
+.account-action-btn {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--m-border-light);
+  background-color: transparent;
+  color: var(--m-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.account-action-btn.is-primary {
+  color: var(--m-accent);
+  border-color: var(--m-accent);
+}

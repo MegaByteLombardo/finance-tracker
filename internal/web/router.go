@@ -69,6 +69,8 @@ func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
 	mux.HandleFunc("POST /accounts", handleCreateAccount(logger, renderer, svcs))
 	mux.HandleFunc("GET /accounts/{id}/edit", handleEditAccountForm(logger, renderer, svcs))
 	mux.HandleFunc("POST /accounts/{id}", handleUpdateAccount(logger, renderer, svcs))
+	mux.HandleFunc("POST /accounts/{id}/archive", handleSetAccountActive(logger, svcs, false))
+	mux.HandleFunc("POST /accounts/{id}/restore", handleSetAccountActive(logger, svcs, true))
 	mux.HandleFunc("GET /accounts/subtype-options", handleSubtypeOptions(logger, renderer))
 
 	// Transactions

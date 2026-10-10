@@ -214,6 +214,13 @@ type EditAccountForm struct {
 	Institution  string
 	CurrencyCode string
 	Errors       map[string]string
+
+	// IsActive and the current balance drive the archive / restore section.
+	// The balance is shown because archiving does not take it out of the net
+	// worth (TD-064), and the page says so before the user decides.
+	IsActive         bool
+	BalanceMinor     int64
+	BalanceFormatted string
 }
 
 func (f EditAccountForm) HasError(field string) bool {

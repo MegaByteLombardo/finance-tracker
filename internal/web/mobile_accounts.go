@@ -9,7 +9,14 @@ import (
 type MobileAccountsPageView struct {
 	Header         MobileAccountsHeaderView
 	CurrencyGroups []MobileCurrencyGroupView
-	Navigation     MobileNavView
+
+	// Archived lists the archived accounts apart from the active ones, each
+	// with a restore action. They are shown rather than hidden because an
+	// archived account can still hold money that counts in the net worth
+	// (TD-064), and archiving is only undoable from where it can be seen.
+	Archived []MobileAccountItemView
+
+	Navigation MobileNavView
 }
 
 // MobileAccountsHeaderView holds metadata for the accounts top bar.
@@ -40,6 +47,10 @@ type MobileAccountItemView struct {
 	// FutureMovementCount is how many of the account's movements are dated
 	// after today and are therefore not in BalanceFormatted yet (TD-063).
 	FutureMovementCount int
+
+	// HasBalance is true when the balance is not zero, so an archived card can
+	// say that its money still counts.
+	HasBalance bool
 }
 
 // handleMobileAccounts serves the mobile accounts view populated with real data.
@@ -47,14 +58,15 @@ func handleMobileAccounts(logger *slog.Logger, renderer *Renderer, svcs *Service
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		accounts, err := svcs.Accounts.List(ctx, false)
+		// Archived accounts included: they are listed in their own section.
+		accounts, err := svcs.Accounts.List(ctx, true)
 		if err != nil {
 			logger.Error("listing accounts for mobile view", slog.Any("error", err))
 			http.Error(w, "Failed to load accounts", http.StatusInternalServerError)
 			return
 		}
 
-		balances, err := svcs.Ledger.ListAccountBalances(ctx, false)
+		balances, err := svcs.Ledger.ListAccountBalances(ctx, true)
 		if err != nil {
 			logger.Error("listing balances for mobile accounts view", slog.Any("error", err))
 			http.Error(w, "Failed to load balances", http.StatusInternalServerError)
@@ -82,10 +94,10 @@ func handleMobileAccounts(logger *slog.Logger, renderer *Renderer, svcs *Service
 		var currencyOrder []string
 		acctsByCurr := make(map[string][]MobileAccountItemView)
 
+		var archived []MobileAccountItemView
+		activeCount := 0
+
 		for _, acct := range accounts {
-			if _, exists := acctsByCurr[acct.CurrencyCode]; !exists {
-				currencyOrder = append(currencyOrder, acct.CurrencyCode)
-			}
 
 			b, hasBal := balMap[acct.ID]
 			balFormatted := "0.00"
@@ -102,7 +114,7 @@ func handleMobileAccounts(logger *slog.Logger, renderer *Renderer, svcs *Service
 				inst = *acct.Institution
 			}
 
-			acctsByCurr[acct.CurrencyCode] = append(acctsByCurr[acct.CurrencyCode], MobileAccountItemView{
+			item := MobileAccountItemView{
 				AccountID:        acct.ID,
 				AccountName:      acct.Name,
 				AccountType:      string(acct.Type),
@@ -114,7 +126,18 @@ func handleMobileAccounts(logger *slog.Logger, renderer *Renderer, svcs *Service
 				IsActive:         acct.IsActive,
 
 				FutureMovementCount: future,
-			})
+				HasBalance:          hasBal && b.BalanceMinor != 0,
+			}
+
+			if !acct.IsActive {
+				archived = append(archived, item)
+				continue
+			}
+			activeCount++
+			if _, exists := acctsByCurr[acct.CurrencyCode]; !exists {
+				currencyOrder = append(currencyOrder, acct.CurrencyCode)
+			}
+			acctsByCurr[acct.CurrencyCode] = append(acctsByCurr[acct.CurrencyCode], item)
 		}
 
 		var groups []MobileCurrencyGroupView
@@ -137,9 +160,10 @@ func handleMobileAccounts(logger *slog.Logger, renderer *Renderer, svcs *Service
 
 		data := MobileAccountsPageView{
 			Header: MobileAccountsHeaderView{
-				TotalAccounts: len(accounts),
+				TotalAccounts: activeCount,
 			},
 			CurrencyGroups: groups,
+			Archived:       archived,
 			Navigation: MobileNavView{
 				ActiveTab: "cuentas",
 			},

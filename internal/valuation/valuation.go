@@ -25,6 +25,7 @@
 package valuation
 
 import (
+	"sort"
 	"time"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/fx"
@@ -166,6 +167,66 @@ type Series struct {
 	// IncompleteDays counts the points whose Complete is false, so a screen
 	// can say "faltan tasas para 40 días" without counting them itself.
 	IncompleteDays int
+}
+
+// Gap is a run of consecutive days on which one currency could not be valued
+// into the base. It answers "which rates are missing", where IncompleteDays
+// only says how many days are affected.
+type Gap struct {
+	// FromCurrencyCode is the currency held and ToCurrencyCode the valuation
+	// base, as in MissingRate.
+	FromCurrencyCode string
+	ToCurrencyCode   string
+
+	// From and To are the first and last day of the run, inclusive.
+	From time.Time
+	To   time.Time
+	Days int
+}
+
+// Gaps groups the series' missing rates into runs of consecutive days, one
+// per currency, ordered by first day and then by currency. Two currencies
+// missing on the same days are two gaps: each needs its own rate.
+//
+// Under the lookup rule (latest effective_date <= day), an observation dated
+// a gap's From covers that whole run.
+func (s Series) Gaps() []Gap {
+	var gaps []Gap
+	open := make(map[string]int) // currency -> index into gaps of its open run
+
+	for _, point := range s.Points {
+		seen := make(map[string]bool, len(point.Missing))
+		for _, missing := range point.Missing {
+			code := missing.FromCurrencyCode
+			seen[code] = true
+			if i, ok := open[code]; ok {
+				gaps[i].To = point.Date
+				gaps[i].Days++
+				continue
+			}
+			open[code] = len(gaps)
+			gaps = append(gaps, Gap{
+				FromCurrencyCode: code,
+				ToCurrencyCode:   missing.ToCurrencyCode,
+				From:             point.Date,
+				To:               point.Date,
+				Days:             1,
+			})
+		}
+		for code := range open {
+			if !seen[code] {
+				delete(open, code)
+			}
+		}
+	}
+
+	sort.SliceStable(gaps, func(i, j int) bool {
+		if !gaps[i].From.Equal(gaps[j].From) {
+			return gaps[i].From.Before(gaps[j].From)
+		}
+		return gaps[i].FromCurrencyCode < gaps[j].FromCurrencyCode
+	})
+	return gaps
 }
 
 // Component is one currency's contribution to the total.

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -109,12 +110,43 @@ func buildExchangeRatesView(
 		view.BaseCurrencyCode = appSettings.BaseCurrencyCode
 	}
 
-	if form.EffectiveDate == "" {
+	if r.Method == http.MethodGet {
+		prefillManualRateForm(&view.Form, r.URL.Query(), currencies)
+	}
+
+	if view.Form.EffectiveDate == "" {
 		// Today in Venezuela, which is the business day the source publishes
 		// against -- not a UTC date, which after 20:00 names tomorrow.
 		view.Form.EffectiveDate = todayForForms()
 	}
 	return view, alert, nil
+}
+
+// prefillManualRateForm fills the form from ?base=&quote=&date=, which is how
+// the dashboard's list of missing rates opens it on the right pair and day.
+// It only suggests: anything that is not a known currency or a real date is
+// ignored, and the POST validates whatever is finally submitted.
+func prefillManualRateForm(form *ManualRateForm, query url.Values, currencies []Currency) {
+	known := func(raw string) string {
+		code := strings.ToUpper(strings.TrimSpace(raw))
+		for _, c := range currencies {
+			if c.Code == code {
+				return code
+			}
+		}
+		return ""
+	}
+	if code := known(query.Get("base")); code != "" {
+		form.BaseCurrencyCode = code
+	}
+	if code := known(query.Get("quote")); code != "" {
+		form.QuoteCurrencyCode = code
+	}
+	if raw := strings.TrimSpace(query.Get("date")); raw != "" {
+		if _, err := time.Parse(time.DateOnly, raw); err == nil {
+			form.EffectiveDate = raw
+		}
+	}
 }
 
 func handleCreateManualRate(logger *slog.Logger, renderer *Renderer, svcs *Services) http.HandlerFunc {

@@ -120,8 +120,23 @@
         <span class="badge badge-warning">huecos</span>
         Faltan tasas históricas para {{ $a.IncompleteDays }} {{ if eq $a.IncompleteDays 1 }}día{{ else }}días{{ end }} del período;
         esos días no se dibujan en lugar de mostrar un total parcial.
-        <a href="/settings/exchange-rates">Cargar tasas pasadas &rarr;</a>
+        {{ if not $a.Gaps }}<a href="/settings/exchange-rates">Cargar tasas pasadas &rarr;</a>{{ end }}
       </p>
+      {{ if $a.Gaps }}
+      <ul class="dash-gaps">
+        {{ range $a.Gaps }}
+        <li>
+          <strong>{{ .PairLabel }}</strong>:
+          {{ if .SingleDay }}{{ spanishDate .From }}{{ else }}del {{ spanishDate .From }} al {{ spanishDate .To }} ({{ .Days }} días){{ end }}
+          &middot; <a href="{{ .FormURL }}">Cargar tasa del {{ spanishDate .From }} &rarr;</a>
+        </li>
+        {{ end }}
+      </ul>
+      <p class="dash-note text-muted">
+        Una tasa con fecha valor en el primer día de cada rango basta para cubrirlo entero:
+        se aplica la más reciente en o antes de cada día. Cargar la de cada día lo hace más preciso.
+      </p>
+      {{ end }}
       {{ end }}
     </div>
   </section>

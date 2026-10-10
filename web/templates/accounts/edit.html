@@ -113,4 +113,32 @@
     </div>
   </form>
 </div>
+
+<!-- Archive / restore. A separate form, because forms cannot nest. Archiving is
+     visibility only: the account's money keeps counting in the net worth (TD-064). -->
+<div class="form-card" style="margin-top: var(--space-5);">
+  <h2 style="font-size: 1rem; margin: 0 0 var(--space-2) 0;">
+    Estado: {{ if .IsActive }}<span class="badge badge-active">Activa</span>{{ else }}<span class="badge badge-inactive">Archivada</span>{{ end }}
+  </h2>
+  {{ if .IsActive }}
+  <p class="text-muted" style="font-size: 0.875rem;">
+    Archivar retira la cuenta de los formularios: deja de ofrecerse para movimientos nuevos y pasa a la sección de archivadas. No borra nada y se puede deshacer.
+    {{ if ne .BalanceMinor 0 }}
+    <br><strong>Saldo actual: {{ formatAmount .BalanceFormatted }} {{ .CurrencyCode }}.</strong>
+    Ese dinero seguirá contando en el patrimonio neto, hoy y en el histórico.
+    {{ end }}
+  </p>
+  <form action="/accounts/{{ .ID }}/archive" method="POST">
+    <button type="submit" class="btn btn-secondary">Archivar cuenta</button>
+  </form>
+  {{ else }}
+  <p class="text-muted" style="font-size: 0.875rem;">
+    La cuenta está archivada: no se ofrece para movimientos nuevos.
+    {{ if ne .BalanceMinor 0 }}<br><strong>Conserva un saldo de {{ formatAmount .BalanceFormatted }} {{ .CurrencyCode }}</strong>, que sigue contando en el patrimonio neto.{{ end }}
+  </p>
+  <form action="/accounts/{{ .ID }}/restore" method="POST">
+    <button type="submit" class="btn btn-primary">Restaurar cuenta</button>
+  </form>
+  {{ end }}
+</div>
 {{ end }}

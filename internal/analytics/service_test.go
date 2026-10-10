@@ -428,3 +428,39 @@ func TestTopCategoriesAddUpToTheTotal(t *testing.T) {
 		t.Errorf("shares add up to %d, want 10000", shares)
 	}
 }
+
+// TestTheMonthsCashFlowIsTheMonthToDateByTheDashboardsRules: what the mobile
+// movements screen shows under the month's name. Before M6's follow-up it summed
+// the last hundred rows in its handler, future-dated ones included.
+func TestTheMonthsCashFlowIsTheMonthToDateByTheDashboardsRules(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t) // today is 2026-10-05
+	food := w.category("Comida", category.Expense)
+	usd := w.open("Mercantil USD", "USD", "1000.00", "2026-09-01")
+	cash := w.open("Efectivo USD", "USD", "", "")
+	ves := w.open("Banesco VES", "VES", "100000.00", "2026-09-01")
+	w.rate("USD", "VES", "2026-09-01", "500")
+
+	w.income(usd, "300.00", "2026-09-30")         // last month: out
+	w.income(usd, "100.00", "2026-10-01")         // the first: in
+	w.expense(ves, food, "5000.00", "2026-10-03") // 10.00 USD at its own day's rate
+	w.expense(usd, food, "999.00", "2026-10-20")  // future: out
+	if _, err := w.ledger.RecordTransfer(t.Context(), ledger.RecordTransferInput{
+		SourceAccountID: usd, DestinationAccountID: cash, Amount: "50.00", EffectiveDate: "2026-10-04",
+	}); err != nil {
+		t.Fatalf("RecordTransfer: %v", err)
+	}
+
+	cf, err := w.analytics.MonthToDateCashFlow(t.Context())
+	if err != nil {
+		t.Fatalf("MonthToDateCashFlow: %v", err)
+	}
+	if got := formatPeriod(cf.Period); got != "2026-10-01 -> 2026-10-05" {
+		t.Errorf("period = %s", got)
+	}
+	if cf.BaseCurrencyCode != "USD" || cf.IncomeMinor != 10000 || cf.ExpenseMinor != 1000 || !cf.Complete {
+		t.Errorf("cash flow = %s income %d, expenses %d, complete %v; want USD 10000, 1000, true",
+			cf.BaseCurrencyCode, cf.IncomeMinor, cf.ExpenseMinor, cf.Complete)
+	}
+}

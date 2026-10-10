@@ -48,6 +48,15 @@ func (a *analyticsAdapter) Dashboard(ctx context.Context, preset web.DashboardPr
 			Complete:       d.Opening.Complete,
 		},
 	}
+	for _, gap := range d.Series.Gaps() {
+		out.Gaps = append(out.Gaps, web.RateGap{
+			CurrencyCode:     gap.FromCurrencyCode,
+			BaseCurrencyCode: gap.ToCurrencyCode,
+			From:             gap.From,
+			To:               gap.To,
+			Days:             gap.Days,
+		})
+	}
 	for _, point := range d.Series.Points {
 		out.Points = append(out.Points, web.NetWorthPoint{
 			Date:           point.Date,
@@ -57,6 +66,14 @@ func (a *analyticsAdapter) Dashboard(ctx context.Context, preset web.DashboardPr
 		})
 	}
 	return out, nil
+}
+
+func (a *analyticsAdapter) MonthToDateCashFlow(ctx context.Context) (web.CashFlow, error) {
+	cf, err := a.svc.MonthToDateCashFlow(ctx)
+	if err != nil {
+		return web.CashFlow{}, TranslateValuationError(err)
+	}
+	return toWebCashFlow(cf), nil
 }
 
 // toWebRatio formats basis points as a percentage with two decimals. Formatting
@@ -95,6 +112,7 @@ func toWebCategoryAmounts(lines []analytics.CategoryAmount) []web.CategoryAmount
 func toWebCashFlow(cf analytics.CashFlow) web.CashFlow {
 	out := web.CashFlow{
 		From:              cf.Period.From,
+		CurrencyCode:      cf.BaseCurrencyCode,
 		To:                cf.Period.To,
 		IncomeMinor:       cf.IncomeMinor,
 		IncomeFormatted:   cf.IncomeFormatted,

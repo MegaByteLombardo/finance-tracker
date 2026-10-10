@@ -27,6 +27,7 @@ type MobileHistoryView struct {
 	Chart          ChartView
 	Periods        []PeriodOption
 	IncompleteDays int
+	Gaps           []RateGap
 	CurrencyCode   string
 }
 
@@ -225,6 +226,7 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 			history.Available = true
 			history.Chart = BuildNetWorthChart(dash.Points, base)
 			history.IncompleteDays = dash.IncompleteDays
+			history.Gaps = dash.Gaps
 			history.CurrencyCode = base
 
 			cashFlow = MobileCashFlowView{

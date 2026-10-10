@@ -690,6 +690,20 @@ And the dashboard is built from that answer and nothing else.
   read `if TRANSFER … else Expense`, the TD-045 shape, and `FX_EXCHANGE` fell
   through. Every type is now named, and a test checks it.
 
+- **The mobile movements summary summed rows in its handler — and the wrong
+  ones.** It added up the income and expenses of the last hundred listed
+  transactions, future-dated ones included, under a heading that named the
+  current month. It now shows `analytics.MonthToDateCashFlow`: the first of the
+  month to today, `INCOME` and `EXPENSE` only, each at its own day's rate, in the
+  valuation base, with the same incomplete-figure warning as the dashboard. No
+  amount is summed anywhere in `internal/web` any more.
+- **Archiving an account had no button.** The domain supported it and M6 warns
+  about archived accounts with a balance, but no screen could do it. Both now
+  can: `POST /accounts/{id}/archive` and `/restore`, which name the state they
+  set rather than toggling, so a double submission cannot undo itself. The edit
+  page states the balance and that it keeps counting; the mobile accounts screen
+  lists archived accounts in their own section with a restore action.
+
 ### Delivered
 
 `internal/analytics`; `valuation.Snapshot`, `GetNetWorthSeries`, the breakdown by
@@ -785,14 +799,6 @@ Parked items, none blocking:
   that manual entry is enough for now: days without a rate are gaps on the chart,
   never guesses (TD-067). An importer of the BCV's historical files would be its
   own milestone.
-- **The mobile transactions summary totals in the handler.** Its per-currency
-  income and expense line predates M6 and sums `TransactionView` amounts in
-  `mobile_transactions.go`. It never converts or mixes currencies, so it is not
-  wrong, but it is the one remaining financial sum outside a domain package and
-  should move onto `analytics` when that screen is next touched.
-- **Archiving an account has no button.** The domain supports it and M6 warns
-  about archived accounts with a balance, but neither the desktop nor the mobile
-  account screen exposes the action.
 - **Cosmetic dates in the mobile shell.** The greeting and the date headings still
   read the clock in UTC. They are display text, not financial dates — the form
   defaults and the valuation date were fixed in M5 — but they should follow the

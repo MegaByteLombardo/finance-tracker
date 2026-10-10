@@ -118,6 +118,9 @@ type MissingFlow struct {
 type CashFlow struct {
 	Period Period
 
+	// BaseCurrencyCode is the valuation base every total is expressed in.
+	BaseCurrencyCode string
+
 	IncomeMinor      int64
 	IncomeFormatted  string
 	ExpenseMinor     int64

@@ -104,3 +104,16 @@ func PeriodFor(preset Preset, today time.Time, earliest time.Time, hasEarliest b
 	}
 	return Period{From: from, To: today}, false
 }
+
+// MonthToDate is the calendar month that contains today, from its first day to
+// today inclusive.
+//
+// It is what a screen titled with the month's name means: "Octubre 2026" is
+// 2026-10-01 to today, not the last hundred movements and not anything dated
+// after today (TD-063).
+func MonthToDate(today time.Time) Period {
+	return Period{
+		From: time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC),
+		To:   today,
+	}
+}

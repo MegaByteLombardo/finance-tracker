@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -21,6 +22,12 @@ type AnalyticsService interface {
 	// today in Venezuela. An unknown preset is ErrInvalidInput; a handler
 	// normalises the query string with ParseDashboardPreset before calling.
 	Dashboard(ctx context.Context, preset DashboardPreset) (DashboardAnalytics, error)
+
+	// MonthToDateCashFlow is income and expenses from the first of the current
+	// month to today, in the valuation base, by the dashboard's rules. It is
+	// what a screen titled with the month's name shows; no handler adds up the
+	// rows it lists.
+	MonthToDateCashFlow(ctx context.Context) (CashFlow, error)
 }
 
 // DashboardPreset names a dashboard period.
@@ -177,6 +184,49 @@ type NetWorthPoint struct {
 	Complete bool
 }
 
+// RateGap is a run of consecutive days on which CurrencyCode could not be
+// valued into BaseCurrencyCode, the valuation base.
+type RateGap struct {
+	CurrencyCode     string
+	BaseCurrencyCode string
+
+	From time.Time
+	To   time.Time
+	Days int
+}
+
+// SingleDay reports a run of one day, which a template names by its date alone.
+func (g RateGap) SingleDay() bool { return g.Days == 1 }
+
+// Pair is the pair the missing rate is written in, "USD/VES": USD is the base
+// of the pair when exactly one side is USD, otherwise the valuation base is.
+// Either orientation resolves the gap (the inverse is computed); this is only
+// the one a person would read off a published rate.
+func (g RateGap) Pair() (base, quote string) {
+	if g.CurrencyCode == "USD" && g.BaseCurrencyCode != "USD" {
+		return g.CurrencyCode, g.BaseCurrencyCode
+	}
+	return g.BaseCurrencyCode, g.CurrencyCode
+}
+
+// PairLabel is Pair as "USD/VES".
+func (g RateGap) PairLabel() string {
+	base, quote := g.Pair()
+	return base + "/" + quote
+}
+
+// FormURL opens the manual-rate form with the pair and the run's first day
+// filled in. An observation dated From covers the whole run, because lookup
+// takes the latest effective_date on or before each day.
+func (g RateGap) FormURL() string {
+	base, quote := g.Pair()
+	q := url.Values{}
+	q.Set("base", base)
+	q.Set("quote", quote)
+	q.Set("date", g.From.Format(time.DateOnly))
+	return "/settings/exchange-rates?" + q.Encode() + "#manual-rate"
+}
+
 // CategoryAmount is one category's total over a period, in the base currency,
 // always positive.
 type CategoryAmount struct {
@@ -202,6 +252,9 @@ type MissingFlow struct {
 type CashFlow struct {
 	From time.Time
 	To   time.Time
+
+	// CurrencyCode is the valuation base the totals are expressed in.
+	CurrencyCode string
 
 	IncomeMinor      int64
 	IncomeFormatted  string
@@ -268,6 +321,10 @@ type DashboardAnalytics struct {
 	// Points is the net worth at the close of every day of the period.
 	Points         []NetWorthPoint
 	IncompleteDays int
+
+	// Gaps says which rates those incomplete days are missing, as runs of
+	// consecutive days per currency.
+	Gaps []RateGap
 
 	// Opening is the net worth at the close of the day before the period, the
 	// baseline Change is measured from.

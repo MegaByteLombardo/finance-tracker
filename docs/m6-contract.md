@@ -120,7 +120,12 @@ were never read.
 `NetWorth` gains `Accounts []AccountComponent`, `ArchivedWithBalance` and
 `FutureMovementCount`; each `Component` and `AccountComponent` gains a `Share` in
 basis points. `Series` is one `Point{Date, TotalMinor, TotalFormatted, Complete,
-Missing}` per day, plus `IncompleteDays`.
+Missing}` per day, plus `IncompleteDays`. `Series.Gaps()` groups the days'
+`Missing` into runs of consecutive days, one `Gap{FromCurrencyCode,
+ToCurrencyCode, From, To, Days}` per currency and run, so a screen can say WHICH
+rates are missing and not only how many days. Under the lookup rule, an
+observation dated a gap's `From` covers the whole run; nothing is filled in on
+the user's behalf.
 
 **Rounding** (TD-047, TD-070): each currency's balance is converted exactly and
 rounded once; the total is the integer sum of the currency lines. Within a
@@ -134,6 +139,9 @@ positive total.
 ```go
 func NewService(valuation *valuation.Service, ledger *ledger.Service, now func() time.Time) *Service
 func (s *Service) Dashboard(ctx, preset Preset) (Dashboard, error)
+func (s *Service) MonthToDateCashFlow(ctx) (CashFlow, error)
+func (s *Service) CashFlow(ctx, period Period) (CashFlow, error)
+func MonthToDate(today time.Time) Period
 ```
 
 ### Periods (TD-069)
@@ -174,6 +182,7 @@ a series is O(days × currencies) in memory; five years of daily points is about
 ```go
 type AnalyticsService interface {
 	Dashboard(ctx context.Context, preset DashboardPreset) (DashboardAnalytics, error)
+	MonthToDateCashFlow(ctx context.Context) (CashFlow, error)
 }
 ```
 
@@ -183,6 +192,8 @@ adapter is `ErrInvalidInput`.
 
 `DashboardAnalytics` carries the period, `NetWorth` (with `Accounts`,
 `ArchivedWithBalance`, `FutureMovementCount`), `Points`, `IncompleteDays`,
+`Gaps` (`RateGap`: the run, `PairLabel` in the `USD`-first orientation, and a
+`FormURL` to the prefilled manual-rate form),
 `Opening`, `Change`, `CashFlow`, `PreviousCashFlow` and `Spending`, every amount
 both as minor units and formatted. `Ratio.Formatted` is the percentage with two
 decimals ("7.24").
@@ -197,6 +208,10 @@ decimals ("7.24").
 | --- | --- |
 | `GET /?period=` | The dashboard. One `Analytics.Dashboard` call. |
 | `GET /mobile?period=` | The mobile Inicio. The same call. |
+| `GET /mobile/movimientos` | The month's summary is `Analytics.MonthToDateCashFlow`: first of the month to today, the dashboard's rules, in the base currency. |
+| `GET /settings/exchange-rates?base=&quote=&date=` | Prefills the manual-rate form. Unknown currencies and malformed dates are ignored; the POST validates as before. |
+| `POST /accounts/{id}/archive` | Sets the account inactive. Never refused for a non-zero balance. Honours a local `return_to`. |
+| `POST /accounts/{id}/restore` | Sets it active again. Same redirect rule. |
 
 The period selector is plain links that htmx enhances with `hx-select`, swapping
 only the analytics block of the same full page. A deep link and a click render the
@@ -212,7 +227,8 @@ backend's formatted totals. No charting library (TD-070).
 ### Desktop
 
 Period selector; KPIs (net worth with change and percentage, income, expenses,
-net cash flow and savings rate); the history chart with its gap note; warnings for
+net cash flow and savings rate); the history chart with its gap note, which lists
+each missing rate's pair and date range with a link to load it; warnings for
 an incomplete total, an incomplete cash flow, future movements and archived
 accounts with a balance; the breakdown by currency (with how each was valued) and
 by account; the cash flow by category; spending with its comparison; recent
@@ -223,6 +239,15 @@ transactions.
 The same figures: net worth with its change, the history chart with period pills,
 and the cash flow and spending card. **The weekly-budget placeholder is gone** —
 budgets are not a feature of this application, and the card suggested they were.
+
+### Archiving
+
+The archive and restore routes name the state they set; posting either twice
+is harmless. The desktop accounts list and edit page, and every mobile account
+card, offer the action. The edit page shows the current balance and says it will
+keep counting in the net worth; the mobile accounts screen lists archived accounts
+in their own section rather than hiding them, because an archived account can
+still hold money (§3).
 
 ### Templates may only
 

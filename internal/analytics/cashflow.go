@@ -30,7 +30,7 @@ const topCategories = 5
 // integer sums of those lines, so a screen's lines add up to its totals. A flow
 // with no rate on its day is left out of the totals and reported in its own
 // currency.
-func buildCashFlow(period Period, flows []ledger.Flow, convert converter, baseMinorUnit int) (CashFlow, error) {
+func buildCashFlow(period Period, flows []ledger.Flow, convert converter, baseCode string, baseMinorUnit int) (CashFlow, error) {
 	type key struct {
 		txType ledger.TransactionType
 		id     int64
@@ -46,7 +46,7 @@ func buildCashFlow(period Period, flows []ledger.Flow, convert converter, baseMi
 	missing := make(map[string]*MissingFlow)
 	var missingOrder []string
 
-	result := CashFlow{Period: period, Complete: true}
+	result := CashFlow{Period: period, BaseCurrencyCode: baseCode, Complete: true}
 
 	for _, flow := range flows {
 		if !period.Contains(flow.Date) {

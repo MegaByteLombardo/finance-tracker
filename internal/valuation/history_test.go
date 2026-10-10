@@ -262,6 +262,45 @@ func TestMissingRateIsAGapWithItsReason(t *testing.T) {
 	}
 }
 
+// TestGapsNameTheMissingRatesAsRuns is what lets a screen say WHICH rates to
+// load: one run per currency, its first and last day, and nothing for a day
+// a zero balance made complete.
+func TestGapsNameTheMissingRatesAsRuns(t *testing.T) {
+	t.Parallel()
+
+	h := newHistory(t)
+	h.open(t, "Mercantil USD", "USD", "100.00", "2026-09-01")
+	ves := h.open(t, "Banesco VES", "VES", "8500.00", "2026-09-02")
+	h.open(t, "Efectivo EUR", "EUR", "50.00", "2026-09-03")
+	h.expense(t, ves.ID, "8500.00", "2026-09-04") // zero bolívares on the 4th
+	h.income(t, ves.ID, "100.00", "2026-09-06")   // and some again on the 6th
+	h.seedOfficial(t, "USD", "EUR", "2026-09-05", "0.9")
+	h.seedOfficial(t, "USD", "VES", "2026-09-07", "850")
+
+	series := h.series(t, "2026-09-01", "2026-09-08")
+	gaps := series.Gaps()
+
+	type run struct {
+		code, from, to string
+		days           int
+	}
+	want := []run{
+		{"VES", "2026-09-02", "2026-09-03", 2},
+		{"EUR", "2026-09-03", "2026-09-04", 2},
+		{"VES", "2026-09-06", "2026-09-06", 1},
+	}
+	if len(gaps) != len(want) {
+		t.Fatalf("Gaps() = %+v, want %d runs", gaps, len(want))
+	}
+	for i, w := range want {
+		g := gaps[i]
+		got := run{g.FromCurrencyCode, database.FormatDate(g.From), database.FormatDate(g.To), g.Days}
+		if got != w || g.ToCurrencyCode != "USD" {
+			t.Errorf("gap %d = %+v into %s, want %+v into USD", i, got, g.ToCurrencyCode, w)
+		}
+	}
+}
+
 // --- what is and is not income ---------------------------------------------
 
 func TestATransferDoesNotCreateNetWorth(t *testing.T) {

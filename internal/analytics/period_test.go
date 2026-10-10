@@ -113,3 +113,17 @@ func TestParsePreset(t *testing.T) {
 		}
 	}
 }
+
+func TestMonthToDateStartsOnTheFirstAndEndsToday(t *testing.T) {
+	t.Parallel()
+
+	for today, want := range map[string]string{
+		"2026-10-05": "2026-10-01 -> 2026-10-05",
+		"2026-10-01": "2026-10-01 -> 2026-10-01", // the first is a one-day month so far
+		"2028-02-29": "2028-02-01 -> 2028-02-29",
+	} {
+		if got := formatPeriod(analytics.MonthToDate(mustDate(t, today))); got != want {
+			t.Errorf("MonthToDate(%s) = %s, want %s", today, got, want)
+		}
+	}
+}

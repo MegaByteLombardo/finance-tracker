@@ -23,10 +23,24 @@ type MobileTransactionsHeaderView struct {
 	CurrentPeriodLabel string
 }
 
-// TransactionsSummaryView holds the income/expense totals for the active period.
+// TransactionsSummaryView is the month's income and expenses, as
+// internal/analytics computed them: from the first of the month to today,
+// INCOME and EXPENSE only, each at the rate of its own day, in the valuation
+// base. The handler copies it; it adds nothing up.
 type TransactionsSummaryView struct {
-	TotalIncomeFormatted  string
-	TotalExpenseFormatted string
+	Available bool
+
+	IncomeFormatted  string
+	ExpenseFormatted string
+	CurrencyCode     string
+
+	// Complete is false when some flow had no rate on its day. MissingMessage
+	// then names the currencies left out of the totals.
+	Complete       bool
+	MissingMessage string
+
+	// ErrorMessage replaces the figures when they could not be computed.
+	ErrorMessage string
 }
 
 // TransactionDateGroup groups transactions by chronological date headings.
@@ -182,26 +196,13 @@ func handleMobileTransactions(logger *slog.Logger, renderer *Renderer, svcs *Ser
 		var dateGroupHeadings []string
 		itemsByHeading := make(map[string][]MobileTransactionItem)
 
-		// Aggregate income and expense by currency for summary
-		incomeByCurr := make(map[string]int64)
-		expenseByCurr := make(map[string]int64)
-		currScale := make(map[string]int)
-
 		for _, tx := range txs {
-			currScale[tx.CurrencyCode] = tx.MinorUnit
 			heading := formatDateHeadingSpanish(tx.EffectiveDate)
 			if _, exists := itemsByHeading[heading]; !exists {
 				dateGroupHeadings = append(dateGroupHeadings, heading)
 			}
 			mItem := mapMobileTransactionItem(tx)
 			itemsByHeading[heading] = append(itemsByHeading[heading], mItem)
-
-			if tx.Type == TransactionTypeIncome {
-				incomeByCurr[tx.CurrencyCode] += tx.AmountMinor
-			} else if tx.Type == TransactionTypeExpense {
-				// AmountMinor is negative for expense in transaction view source movement
-				expenseByCurr[tx.CurrencyCode] += -tx.AmountMinor
-			}
 		}
 
 		var dateGroups []TransactionDateGroup
@@ -212,27 +213,17 @@ func handleMobileTransactions(logger *slog.Logger, renderer *Renderer, svcs *Ser
 			})
 		}
 
-		// Format summary totals
-		var incomeStrs []string
-		for curr, amt := range incomeByCurr {
-			if amt > 0 {
-				incomeStrs = append(incomeStrs, fmt.Sprintf("+ %s %s", formatAmount(amt, currScale[curr]), curr))
-			}
-		}
-		incomeSummary := "0.00"
-		if len(incomeStrs) > 0 {
-			incomeSummary = strings.Join(incomeStrs, " · ")
-		}
-
-		var expenseStrs []string
-		for curr, amt := range expenseByCurr {
-			if amt > 0 {
-				expenseStrs = append(expenseStrs, fmt.Sprintf("- %s %s", formatAmount(amt, currScale[curr]), curr))
-			}
-		}
-		expenseSummary := "0.00"
-		if len(expenseStrs) > 0 {
-			expenseSummary = strings.Join(expenseStrs, " · ")
+		// The month's totals come from the analytics service, by the same rules
+		// as the dashboard. They used to be summed here, over whichever hundred
+		// rows the list happened to show -- future-dated ones included -- under
+		// a heading that named the month. A failure is a message, not a 500:
+		// the list below needs no exchange rate.
+		summary := TransactionsSummaryView{}
+		if cf, cerr := svcs.Analytics.MonthToDateCashFlow(ctx); cerr != nil {
+			logger.Error("computing the month's cash flow", slog.Any("error", cerr))
+			summary.ErrorMessage = "No se pudo calcular el flujo del mes."
+		} else {
+			summary = toTransactionsSummary(cf)
 		}
 
 		data := MobileTransactionsPageView{
@@ -240,10 +231,7 @@ func handleMobileTransactions(logger *slog.Logger, renderer *Renderer, svcs *Ser
 				TotalCount:         len(txs),
 				CurrentPeriodLabel: currentPeriod,
 			},
-			Summary: TransactionsSummaryView{
-				TotalIncomeFormatted:  incomeSummary,
-				TotalExpenseFormatted: expenseSummary,
-			},
+			Summary:    summary,
 			DateGroups: dateGroups,
 			Navigation: MobileNavView{
 				ActiveTab: "movimientos",
@@ -269,8 +257,8 @@ func DefaultMobileTransactionsMockData() MobileTransactionsPageView {
 			CurrentPeriodLabel: "Septiembre 2026",
 		},
 		Summary: TransactionsSummaryView{
-			TotalIncomeFormatted:  "+ $1,170.00",
-			TotalExpenseFormatted: "- $41.99 · - Bs 1,940.00",
+			Available: true, IncomeFormatted: "1170.00", ExpenseFormatted: "41.99",
+			CurrencyCode: "USD", Complete: true,
 		},
 		DateGroups: []TransactionDateGroup{
 			{
@@ -308,6 +296,26 @@ func DefaultMobileTransactionsMockData() MobileTransactionsPageView {
 			ActiveTab: "movimientos",
 		},
 	}
+}
+
+// toTransactionsSummary carries the month's cash flow into the summary card.
+func toTransactionsSummary(cf CashFlow) TransactionsSummaryView {
+	view := TransactionsSummaryView{
+		Available:        true,
+		IncomeFormatted:  cf.IncomeFormatted,
+		ExpenseFormatted: cf.ExpenseFormatted,
+		CurrencyCode:     cf.CurrencyCode,
+		Complete:         cf.Complete,
+	}
+	if !cf.Complete {
+		codes := make([]string, 0, len(cf.Missing))
+		for _, m := range cf.Missing {
+			codes = append(codes, m.CurrencyCode)
+		}
+		view.MissingMessage = "Sin tasa para valorar movimientos en " + strings.Join(codes, ", ") +
+			"; no están incluidos en estos totales."
+	}
+	return view
 }
 
 // exchangeHeadline names an exchange in Spanish, the way the mobile interface

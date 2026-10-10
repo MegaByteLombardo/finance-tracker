@@ -93,11 +93,11 @@ func (s *Service) Dashboard(ctx context.Context, preset Preset) (Dashboard, erro
 	}
 
 	convert := converter(snapshot.ConvertToBaseExact)
-	if result.CashFlow, err = buildCashFlow(period, flows, convert, base.MinorUnit); err != nil {
+	if result.CashFlow, err = buildCashFlow(period, flows, convert, base.Code, base.MinorUnit); err != nil {
 		return Dashboard{}, err
 	}
 	if hasPrevious {
-		if result.PreviousCashFlow, err = buildCashFlow(result.PreviousPeriod, flows, convert, base.MinorUnit); err != nil {
+		if result.PreviousCashFlow, err = buildCashFlow(result.PreviousPeriod, flows, convert, base.Code, base.MinorUnit); err != nil {
 			return Dashboard{}, err
 		}
 	}
@@ -106,4 +106,38 @@ func (s *Service) Dashboard(ctx context.Context, preset Preset) (Dashboard, erro
 		return Dashboard{}, err
 	}
 	return result, nil
+}
+
+// MonthToDateCashFlow totals income and expenses for the current calendar month,
+// from its first day to today in Venezuela, by exactly the rules the dashboard
+// uses: INCOME and EXPENSE only, each flow at the reference rate of its own day,
+// rounded once per category (TD-068).
+//
+// It exists so that no screen sums amounts itself. The mobile movements list
+// used to add up the income and expenses of the rows it happened to show, in
+// its handler.
+func (s *Service) MonthToDateCashFlow(ctx context.Context) (CashFlow, error) {
+	today := database.TodayAt(s.now())
+	return s.CashFlow(ctx, MonthToDate(today))
+}
+
+// CashFlow totals income and expenses over any period. It issues a constant six
+// queries: the valuation snapshot's five, which carry the rates and the base
+// currency every flow is converted with, and one for the flows themselves.
+func (s *Service) CashFlow(ctx context.Context, period Period) (CashFlow, error) {
+	if period.To.Before(period.From) {
+		return CashFlow{}, fmt.Errorf("the period ends on %s, before it starts on %s",
+			database.FormatDate(period.To), database.FormatDate(period.From))
+	}
+
+	snapshot, err := s.valuation.Load(ctx, period.To)
+	if err != nil {
+		return CashFlow{}, err
+	}
+	flows, err := s.ledger.ListFlows(ctx, period.From, period.To)
+	if err != nil {
+		return CashFlow{}, fmt.Errorf("reading the period's flows: %w", err)
+	}
+	base := snapshot.Base()
+	return buildCashFlow(period, flows, converter(snapshot.ConvertToBaseExact), base.Code, base.MinorUnit)
 }

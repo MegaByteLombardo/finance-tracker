@@ -19,8 +19,18 @@
   {{ if .IncompleteDays }}
   <p class="net-worth-note">
     Faltan tasas para {{ .IncompleteDays }} {{ if eq .IncompleteDays 1 }}día{{ else }}días{{ end }}; se muestran como huecos.
-    <a href="/mobile/tasas">Cargar tasas</a>
+    {{ if not .Gaps }}<a href="/mobile/tasas">Cargar tasas</a>{{ end }}
   </p>
+  {{ if .Gaps }}
+  <ul class="net-worth-gaps">
+    {{ range .Gaps }}
+    <li>
+      {{ .PairLabel }}: {{ if .SingleDay }}{{ spanishDate .From }}{{ else }}{{ spanishDate .From }} – {{ spanishDate .To }}{{ end }}
+      · <a href="{{ .FormURL }}">Cargar</a>
+    </li>
+    {{ end }}
+  </ul>
+  {{ end }}
   {{ end }}
 </section>
 {{ end }}

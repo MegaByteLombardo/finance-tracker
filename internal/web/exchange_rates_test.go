@@ -133,6 +133,34 @@ func TestExchangeRatesPageExplainsTheConvention(t *testing.T) {
 	}
 }
 
+// TestTheRateFormOpensOnTheMissingRate is the dashboard's "Cargar tasa" link:
+// the pair and the day arrive filled in, and rubbish is ignored rather than
+// echoed into the form.
+func TestTheRateFormOpensOnTheMissingRate(t *testing.T) {
+	t.Parallel()
+
+	router, _ := newFXRouter(t)
+
+	page := body(t, get(t, router, "/settings/exchange-rates?base=usd&quote=VES&date=2026-09-11"))
+	for _, want := range []string{
+		`<option value="USD" selected>`,
+		`<option value="VES" selected>`,
+		`value="2026-09-11"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the prefilled form does not contain %q", want)
+		}
+	}
+
+	page = body(t, get(t, router, "/settings/exchange-rates?base=XXX&date=11/09/2026"))
+	if strings.Contains(page, "XXX") || strings.Contains(page, "11/09/2026") {
+		t.Error("an unknown currency or a malformed date was echoed into the form")
+	}
+	if !strings.Contains(page, `value="`+todayForForms()+`"`) {
+		t.Error("a malformed date did not fall back to today")
+	}
+}
+
 func TestCreateManualRate(t *testing.T) {
 	t.Parallel()
 

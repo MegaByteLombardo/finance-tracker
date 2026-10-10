@@ -19,8 +19,9 @@ type FakeAnalytics struct {
 
 	services *FakeServices
 
-	dashboard *DashboardAnalytics
-	err       error
+	dashboard     *DashboardAnalytics
+	monthCashFlow *CashFlow
+	err           error
 
 	// Requested records the presets asked for, so a test can check what a
 	// handler passed through.
@@ -138,6 +139,31 @@ func (f *FakeAnalytics) Dashboard(ctx context.Context, preset DashboardPreset) (
 		})
 	}
 	return out, nil
+}
+
+// SetMonthCashFlow makes MonthToDateCashFlow return this value.
+func (f *FakeAnalytics) SetMonthCashFlow(cf CashFlow) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.monthCashFlow = &cf
+}
+
+// MonthToDateCashFlow returns what a test set, or an empty, complete month. It
+// never adds up the fake ledger: that arithmetic is internal/analytics' and is
+// tested there against SQLite.
+func (f *FakeAnalytics) MonthToDateCashFlow(_ context.Context) (CashFlow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return CashFlow{}, f.err
+	}
+	if f.monthCashFlow != nil {
+		return *f.monthCashFlow, nil
+	}
+	return CashFlow{
+		CurrencyCode: "USD", Complete: true,
+		IncomeFormatted: "0.00", ExpenseFormatted: "0.00", NetFormatted: "0.00",
+	}, nil
 }
 
 var _ AnalyticsService = (*FakeAnalytics)(nil)

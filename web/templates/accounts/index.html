@@ -77,6 +77,16 @@
         </td>
         <td class="cell-right">
           <a href="/accounts/{{ .AccountID }}/edit" class="btn btn-sm btn-secondary">Edit</a>
+          {{ if .IsActive }}
+          <form action="/accounts/{{ .AccountID }}/archive" method="POST" style="display: inline;">
+            <button type="submit" class="btn btn-sm btn-secondary"
+                    {{ if ne .BalanceMinor 0 }}title="Su saldo seguirá contando en el patrimonio neto."{{ end }}>Archive</button>
+          </form>
+          {{ else }}
+          <form action="/accounts/{{ .AccountID }}/restore" method="POST" style="display: inline;">
+            <button type="submit" class="btn btn-sm btn-secondary">Restore</button>
+          </form>
+          {{ end }}
         </td>
       </tr>
       {{ end }}
