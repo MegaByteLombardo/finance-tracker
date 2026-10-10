@@ -2,7 +2,6 @@ package fx
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/big"
 	"sort"
@@ -51,15 +50,27 @@ func (s *Service) Resolve(ctx context.Context, from, to string, on time.Time) (R
 		}, nil
 	}
 
-	repo := NewRepository(s.db)
-
-	if resolution, err := resolveDirect(ctx, repo, from, to, on); err == nil {
-		return resolution, nil
-	} else if !errors.Is(err, ErrNotFound) {
+	rates, err := NewRepository(s.db).ListActiveThrough(ctx, on)
+	if err != nil {
 		return Resolution{}, err
 	}
+	return NewBook(rates).Resolve(from, to, on)
+}
 
-	return resolveCross(ctx, repo, from, to, on)
+// BookThrough loads every active observation in effect on or before a date into
+// a Book, with one query.
+//
+// It is how a caller that needs many resolutions -- a historical series, a
+// month of flows each at its own day's rate -- asks the same questions Resolve
+// answers without issuing a query per question (TD-066). A Book built through D
+// can answer for any date up to D and for none after it, because the
+// observations that take effect later were never read.
+func (s *Service) BookThrough(ctx context.Context, through time.Time) (*Book, error) {
+	rates, err := NewRepository(s.db).ListActiveThrough(ctx, through)
+	if err != nil {
+		return nil, err
+	}
+	return NewBook(rates), nil
 }
 
 // resolveDirect looks for an observation of the pair itself, in either
@@ -70,19 +81,14 @@ func (s *Service) Resolve(ctx context.Context, from, to string, on time.Time) (R
 // USD is that same observation inverted. Storing the inverse instead would mean
 // two rows for one fact, and 1/842.2067 does not terminate as a decimal, so the
 // stored inverse would be a rounded copy that could disagree with the original.
-func resolveDirect(ctx context.Context, repo *Repository, from, to string, on time.Time) (Resolution, error) {
+func (b *Book) resolveDirect(from, to string, on time.Time) (Resolution, error) {
 	var candidates []directed
 
-	if published, err := repo.LookupOn(ctx, from, to, on); err == nil {
+	if published, ok := b.lookupOn(from, to, on); ok {
 		candidates = append(candidates, directed{observation: published, inverted: false})
-	} else if !errors.Is(err, ErrNotFound) {
-		return Resolution{}, err
 	}
-
-	if reversed, err := repo.LookupOn(ctx, to, from, on); err == nil {
+	if reversed, ok := b.lookupOn(to, from, on); ok {
 		candidates = append(candidates, directed{observation: reversed, inverted: true})
-	} else if !errors.Is(err, ErrNotFound) {
-		return Resolution{}, err
 	}
 
 	if len(candidates) == 0 {
@@ -119,15 +125,9 @@ func resolveDirect(ctx context.Context, repo *Repository, from, to string, on ti
 //
 // Nothing derived here is stored. A cross rate is a function of two rows, so a
 // persisted copy could end up contradicting both of them.
-func resolveCross(ctx context.Context, repo *Repository, from, to string, on time.Time) (Resolution, error) {
-	fromLegs, err := applicableByCounterpart(ctx, repo, from, on)
-	if err != nil {
-		return Resolution{}, err
-	}
-	toLegs, err := applicableByCounterpart(ctx, repo, to, on)
-	if err != nil {
-		return Resolution{}, err
-	}
+func (b *Book) resolveCross(from, to string, on time.Time) (Resolution, error) {
+	fromLegs := b.applicableByCounterpart(from, on)
+	toLegs := b.applicableByCounterpart(to, on)
 
 	type candidate struct {
 		pivot string
@@ -184,13 +184,8 @@ func resolveCross(ctx context.Context, repo *Repository, from, to string, on tim
 
 // applicableByCounterpart indexes, for one currency, the best usable observation
 // against each other currency, already oriented as code -> counterpart.
-func applicableByCounterpart(
-	ctx context.Context, repo *Repository, code string, on time.Time,
-) (map[string]directed, error) {
-	rates, err := repo.ListApplicableFor(ctx, code, on)
-	if err != nil {
-		return nil, err
-	}
+func (b *Book) applicableByCounterpart(code string, on time.Time) map[string]directed {
+	rates := b.applicableFor(code, on)
 
 	byCounterpart := make(map[string]directed, len(rates))
 	for _, rate := range rates {
@@ -213,7 +208,7 @@ func applicableByCounterpart(
 		}
 		byCounterpart[counterpart] = leg
 	}
-	return byCounterpart, nil
+	return byCounterpart
 }
 
 // directed is an observation together with which way round it is being read.

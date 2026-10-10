@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/account"
 	"github.com/MegaByteLombardo/finance-tracker/internal/category"
@@ -172,30 +173,47 @@ func (r *Repository) ListViews(ctx context.Context, limit int) (_ []TransactionV
 	return views, nil
 }
 
-// balanceQuery derives every balance from the movements.
+// balanceQuery derives every balance from the movements, AS OF A DATE (TD-063).
 //
-// The LEFT JOIN with COALESCE is what gives an account with no movements a
-// balance of zero rather than dropping it from the result: a newly opened
-// account must appear on the dashboard.
+// A balance is the sum of the movements whose transaction has effective_date on
+// or before the date -- never every movement. A transaction dated next week
+// exists, is listed and can be edited, but it is not money the account holds
+// today, and the dashboard, the account screens and the valuation all have to
+// agree about that. The rule is written here, once, in the code that owns
+// balances, rather than as a filter in whichever screen noticed.
+//
+// The same pass counts the movements dated AFTER the date, so a screen can say
+// "2 movimientos futuros" without asking anything else.
+//
+// The aggregation happens in a derived table that is LEFT JOINed back to
+// accounts, which is what gives an account with no movements -- or with only
+// future ones -- a balance of zero rather than dropping it from the result: a
+// newly opened account must appear on the dashboard.
 //
 // SUM over an INTEGER column returns an integer, and SQLite raises "integer
 // overflow" rather than silently switching to floating point if the total
 // exceeds int64 — which is the behaviour this application wants.
+//
+// The two placeholders are the as-of date, twice.
 const balanceQuery = `
 	SELECT a.id, a.name, a.account_type, a.account_subtype, a.institution, a.is_active,
 	       a.currency_code, cur.symbol, cur.minor_unit,
-	       COALESCE(SUM(m.amount_minor), 0)
+	       COALESCE(b.balance_minor, 0), COALESCE(b.future_count, 0)
 	  FROM accounts a
 	  JOIN currencies cur ON cur.code = a.currency_code
-	  LEFT JOIN account_movements m ON m.account_id = a.id`
+	  LEFT JOIN (
+	        SELECT m.account_id,
+	               SUM(CASE WHEN t.effective_date <= ? THEN m.amount_minor ELSE 0 END) AS balance_minor,
+	               SUM(CASE WHEN t.effective_date >  ? THEN 1 ELSE 0 END)              AS future_count
+	          FROM account_movements m
+	          JOIN transactions t ON t.id = m.transaction_id
+	         GROUP BY m.account_id
+	       ) b ON b.account_id = a.id`
 
-const balanceGrouping = `
-	 GROUP BY a.id, a.name, a.account_type, a.account_subtype, a.institution, a.is_active,
-	          a.currency_code, cur.symbol, cur.minor_unit`
-
-// GetBalance returns one account's balance, or ErrAccountNotFound.
-func (r *Repository) GetBalance(ctx context.Context, accountID int64) (AccountBalance, error) {
-	row := r.db.QueryRowContext(ctx, balanceQuery+` WHERE a.id = ?`+balanceGrouping, accountID)
+// GetBalance returns one account's balance as of a date, or ErrAccountNotFound.
+func (r *Repository) GetBalance(ctx context.Context, accountID int64, asOf time.Time) (AccountBalance, error) {
+	day := database.FormatDate(asOf)
+	row := r.db.QueryRowContext(ctx, balanceQuery+` WHERE a.id = ?`, day, day, accountID)
 
 	b, err := scanBalance(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -207,20 +225,21 @@ func (r *Repository) GetBalance(ctx context.Context, accountID int64) (AccountBa
 	return b, nil
 }
 
-// ListBalances returns every account with its balance, ordered by currency
-// code, then name, then id.
+// ListBalances returns every account with its balance as of a date, ordered by
+// currency code, then name, then id.
 //
 // That ordering is part of the contract: it lets a dashboard render its
 // per-currency sections in one pass, breaking whenever the currency changes,
 // with no sorting or grouping in the template.
-func (r *Repository) ListBalances(ctx context.Context, includeInactive bool) (_ []AccountBalance, err error) {
+func (r *Repository) ListBalances(ctx context.Context, includeInactive bool, asOf time.Time) (_ []AccountBalance, err error) {
 	query := balanceQuery
 	if !includeInactive {
 		query += ` WHERE a.is_active = 1`
 	}
-	query += balanceGrouping + ` ORDER BY a.currency_code, a.name, a.id`
+	query += ` ORDER BY a.currency_code, a.name, a.id`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	day := database.FormatDate(asOf)
+	rows, err := r.db.QueryContext(ctx, query, day, day)
 	if err != nil {
 		return nil, fmt.Errorf("listing balances: %w", err)
 	}
@@ -244,23 +263,30 @@ func (r *Repository) ListBalances(ctx context.Context, includeInactive bool) (_ 
 	return balances, nil
 }
 
-// ListCurrencyTotals sums the balances of each currency's accounts.
+// ListCurrencyTotals sums the balances of each currency's accounts as of a
+// date.
 //
-// count(DISTINCT a.id) rather than count(*): the LEFT JOIN produces one row per
-// movement, so counting rows would report the number of movements.
-func (r *Repository) ListCurrencyTotals(ctx context.Context, includeInactive bool) (_ []CurrencyTotal, err error) {
+// count(*) counts accounts, because the derived table has already collapsed
+// each account's movements into one row.
+func (r *Repository) ListCurrencyTotals(ctx context.Context, includeInactive bool, asOf time.Time) (_ []CurrencyTotal, err error) {
 	query := `
 		SELECT cur.code, cur.name, cur.symbol, cur.minor_unit,
-		       count(DISTINCT a.id), COALESCE(SUM(m.amount_minor), 0)
+		       count(*), COALESCE(SUM(b.balance_minor), 0)
 		  FROM accounts a
 		  JOIN currencies cur ON cur.code = a.currency_code
-		  LEFT JOIN account_movements m ON m.account_id = a.id`
+		  LEFT JOIN (
+		        SELECT m.account_id, SUM(m.amount_minor) AS balance_minor
+		          FROM account_movements m
+		          JOIN transactions t ON t.id = m.transaction_id
+		         WHERE t.effective_date <= ?
+		         GROUP BY m.account_id
+		       ) b ON b.account_id = a.id`
 	if !includeInactive {
 		query += ` WHERE a.is_active = 1`
 	}
 	query += ` GROUP BY cur.code, cur.name, cur.symbol, cur.minor_unit ORDER BY cur.code`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, query, database.FormatDate(asOf))
 	if err != nil {
 		return nil, fmt.Errorf("listing currency totals: %w", err)
 	}
@@ -291,6 +317,123 @@ func (r *Repository) ListCurrencyTotals(ctx context.Context, includeInactive boo
 		return nil, fmt.Errorf("iterating currency totals: %w", err)
 	}
 	return totals, nil
+}
+
+// ListDailyAccountDeltas returns, for every account and every effective date on
+// which it moved, the net of that day's movements and how many there were --
+// across the WHOLE ledger, future-dated rows included.
+//
+// It is the one read the historical net worth needs from the ledger (TD-065).
+// A balance as of D is the sum of the deltas dated on or before D, which is the
+// same rule balanceQuery applies; walking the days in order turns a series into
+// running sums, with no query per day. The future-dated rows are what let the
+// same read report how many movements have not taken effect yet.
+//
+// Rows come ordered by date, then account. Their count is bounded by the number
+// of (account, day) pairs with activity, not by the number of movements.
+func (r *Repository) ListDailyAccountDeltas(ctx context.Context) (_ []DailyDelta, err error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT m.account_id, t.effective_date, SUM(m.amount_minor), count(*)
+		  FROM account_movements m
+		  JOIN transactions t ON t.id = m.transaction_id
+		 GROUP BY t.effective_date, m.account_id
+		 ORDER BY t.effective_date, m.account_id`)
+	if err != nil {
+		return nil, fmt.Errorf("listing daily deltas: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("closing daily delta rows: %w", cerr))
+		}
+	}()
+
+	deltas := make([]DailyDelta, 0)
+	for rows.Next() {
+		var (
+			delta DailyDelta
+			date  string
+		)
+		if err := rows.Scan(&delta.AccountID, &date, &delta.AmountMinor, &delta.MovementCount); err != nil {
+			return nil, fmt.Errorf("reading daily delta row: %w", err)
+		}
+		if delta.Date, err = database.ParseDate(date); err != nil {
+			return nil, fmt.Errorf("reading the date of a daily delta: %w", err)
+		}
+		deltas = append(deltas, delta)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating daily deltas: %w", err)
+	}
+	return deltas, nil
+}
+
+// ListFlows returns income and expenses between two dates inclusive, summed per
+// effective date, type, category and currency.
+//
+// The WHERE clause names what it ACCEPTS -- INCOME and EXPENSE -- rather than
+// what it excludes (TD-045). A TRANSFER moves money between two of the user's
+// own accounts, an FX_EXCHANGE changes its currency, and an OPENING_BALANCE
+// states where an account started: none of them was earned or spent, and a
+// transaction type added later must not appear in a cash flow by default.
+//
+// Each row keeps its date because a flow is valued at the rate of its own day
+// (TD-068); summing across days here would lose that.
+func (r *Repository) ListFlows(ctx context.Context, from, to time.Time) (_ []Flow, err error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT t.effective_date, t.transaction_type, t.category_id, cat.name,
+		       a.currency_code, cur.minor_unit,
+		       SUM(m.amount_minor), count(*)
+		  FROM transactions t
+		  JOIN account_movements m ON m.transaction_id = t.id
+		  JOIN accounts a          ON a.id = m.account_id
+		  JOIN currencies cur      ON cur.code = a.currency_code
+		  LEFT JOIN categories cat ON cat.id = t.category_id
+		 WHERE t.effective_date BETWEEN ? AND ?
+		   AND t.transaction_type IN ('INCOME', 'EXPENSE')
+		 GROUP BY t.effective_date, t.transaction_type, t.category_id, cat.name,
+		          a.currency_code, cur.minor_unit
+		 ORDER BY t.effective_date, t.transaction_type, t.category_id, a.currency_code`,
+		database.FormatDate(from), database.FormatDate(to))
+	if err != nil {
+		return nil, fmt.Errorf("listing flows: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("closing flow rows: %w", cerr))
+		}
+	}()
+
+	flows := make([]Flow, 0)
+	for rows.Next() {
+		var (
+			flow         Flow
+			date, txType string
+			categoryID   sql.NullInt64
+			categoryName sql.NullString
+		)
+		if err := rows.Scan(&date, &txType, &categoryID, &categoryName,
+			&flow.CurrencyCode, &flow.MinorUnit, &flow.AmountMinor, &flow.Count); err != nil {
+			return nil, fmt.Errorf("reading flow row: %w", err)
+		}
+		if flow.Date, err = database.ParseDate(date); err != nil {
+			return nil, fmt.Errorf("reading the date of a flow: %w", err)
+		}
+		flow.Type = TransactionType(txType)
+		// The table CHECK guarantees a category for both accepted types; the
+		// NULL branch is read rather than assumed, so that a row edited by hand
+		// surfaces as uncategorised instead of failing the whole dashboard.
+		if categoryID.Valid {
+			flow.CategoryID = categoryID.Int64
+		}
+		if categoryName.Valid {
+			flow.CategoryName = categoryName.String
+		}
+		flows = append(flows, flow)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating flows: %w", err)
+	}
+	return flows, nil
 }
 
 // scanner is satisfied by both *sql.Row and *sql.Rows.
@@ -499,7 +642,8 @@ func scanBalance(s scanner) (AccountBalance, error) {
 	)
 
 	if err := s.Scan(&b.AccountID, &b.AccountName, &accountType, &accountSubtype, &institution,
-		&b.IsActive, &b.CurrencyCode, &currencySymbol, &b.MinorUnit, &b.BalanceMinor); err != nil {
+		&b.IsActive, &b.CurrencyCode, &currencySymbol, &b.MinorUnit, &b.BalanceMinor,
+		&b.FutureMovementCount); err != nil {
 		return AccountBalance{}, err
 	}
 

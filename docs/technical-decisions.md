@@ -1987,3 +1987,229 @@ with an invented offsetting entry.
 exchange, "for comparison". Rejected: it is `exchange_rate_id` wearing a hat, it
 would go stale the moment a `MANUAL` rate for that day was added, and the
 comparison it enables is one nothing in this application has asked for.
+
+---
+
+> **Numbering note.** TD-057 to TD-062 are taken by the production-deployment
+> work on the `cloud-hosting` branch, which is `POSTPONED` and not yet merged.
+> M6 continues from TD-063 so that the two sets can be merged without
+> renumbering either.
+
+## TD-063 — A balance is always "as of" a date, and "current" means today
+
+**Status:** Accepted · **Milestone:** M6
+
+**Decision.** Every balance this application shows is the sum of the movements
+whose transaction has `effective_date <= D` for some date D. The **current**
+balance is the one as of `database.TodayAt(now)` — today in Venezuela (TD-051):
+
+```
+current balance = SUM(amount_minor) WHERE effective_date <= today
+```
+
+not `SUM(amount_minor)` over every movement. The rule lives in the ledger's own
+balance queries (`GetAccountBalance`, `ListAccountBalances`,
+`ListCurrencyTotals`), not in a dashboard filter, so the accounts screens, the
+dashboard and the valuation cannot disagree about what an account holds today.
+
+A future-dated transaction still exists, is listed, and can be edited. It is
+simply not part of the balance yet. Each balance carries
+`FutureMovementCount`, so a screen can say "2 movimientos futuros" without
+computing anything; there is no projected balance.
+
+**Rationale.** Future dates have been allowed since M2 (TD-028). Until M6 the
+"current" balance silently included them, and nothing noticed because nothing
+compared a balance with a date. A historical net worth does exactly that: the
+series point for today would have excluded a movement dated next week while the
+account screen included it, and the two figures for "today" would have differed
+with no explanation. One rule, applied by the code that owns balances, removes
+the possibility.
+
+**Alternatives considered.** Filtering only in the dashboard (rejected: it is
+the inconsistency itself, moved somewhere else). A projected-balance system
+(out of scope; the count is the honest minimum).
+
+---
+
+## TD-064 — Archived accounts are valued; archiving is visibility, not an event
+
+**Status:** Accepted · **Milestone:** M6 · **Supersedes:** M5's "active
+accounts only" valuation rule
+
+**Decision.** The net worth — current and historical — includes **every**
+account, active or archived. `accounts.is_active` decides whether an account is
+offered for new movements and listed by default; it is not a financial fact and
+does not change any figure. There is no `archived_at` and no migration.
+
+An archived account whose balance is not zero is reported
+(`AccountComponent.IsActive = false` with a non-zero balance,
+`NetWorth.ArchivedWithBalance`) so the interface can warn about it. Archiving is
+never refused for that reason.
+
+**Rationale.** Excluding archived accounts from history breaks the one invariant
+a transfer has. Account A holds 100, transfers it to B, and is archived at zero.
+If A disappears from history, the 100 it held before the transfer disappears too
+and reappears in B on the day of the transfer: a transfer creates net worth.
+Excluding archived accounts only from "today" while including them in history
+would make the last point of the chart disagree with the headline figure. The
+ledger is the source of truth; an account's visibility is not.
+
+An `archived_at` column would not fix it either: archiving is reversible, so one
+date cannot describe its history, and the money did not stop existing when the
+account was hidden.
+
+---
+
+## TD-065 — History is rebuilt from the ledger on every read, in bulk
+
+**Status:** Accepted · **Milestone:** M6
+
+**Decision.** `NetWorth(date)` and `NetWorthSeries(from, to)` are derived on
+every request from `account_movements`, `transactions` and `exchange_rates`.
+There are no snapshot tables, no cache and no background job (TD-052 extended to
+history). One request loads everything it needs with a constant number of
+queries:
+
+| Query | What it reads |
+| --- | --- |
+| settings | the valuation base |
+| currencies | names, symbols, minor units |
+| accounts | every account, active or archived |
+| daily deltas | `SUM(amount_minor)` and a movement count per account per `effective_date` |
+| rates | every active observation with `effective_date <= to` |
+
+and then walks the days in memory, adding each day's deltas to running
+per-currency balances. The cost is O(days × currencies) with no I/O inside the
+loop. Five years of daily points is about 1,800 iterations.
+
+The single-date valuation is the same engine asked for one day, so the headline
+figure and the last point of the chart cannot differ.
+
+**Rationale.** At the volume of a personal ledger — tens of thousands of
+movements over a decade at most — the bulk read is a few milliseconds, and a
+stored copy would be a second truth that every edit (backdated, reassigned,
+recategorised) would have to invalidate correctly. Snapshots can be added later
+if a measurement shows they are needed; nothing here makes that harder.
+
+**Indexes.** None added. The deltas query is a full read of the ledger — the
+future-dated rows are needed for the "movimientos futuros" count — for which a
+scan is the optimal plan. The flows query ranges on
+`idx_transactions_effective_date`. The rates query reads a table of a few
+thousand rows. No read is done inside a database transaction: the pool holds a
+single connection, and a read transaction that then called a service using the
+pool would wait on itself forever.
+
+---
+
+## TD-066 — One resolver for one date and for a thousand
+
+**Status:** Accepted · **Milestone:** M6
+
+**Decision.** The rate-resolution rules of M5 — identity, direct, inverted,
+one-pivot cross; `effective_date <= on`, never `>`; precedence `MANUAL >
+BCV_OFFICIAL` within one date only; the freshest stalest leg for a cross — now
+live in one pure function over an in-memory set of observations, `fx.Book`.
+`fx.Service.Resolve` loads the observations and calls it; the historical series
+builds one `Book` and calls it once per currency per day.
+
+The semantics are **unchanged**. There is no maximum age for a rate: the latest
+observation with `effective_date <= D` applies, however old. Every resolution
+reports the effective date of the observations it used, so a screen can show
+how old a rate is.
+
+**Rationale.** The SQL-per-lookup resolver needed two to four queries per
+(currency, date); a 365-day series would have issued thousands. Keeping the SQL
+path for single dates and adding an in-memory path for series would have been
+two implementations of the rule this project most needs to be the same
+everywhere (TD-049, TD-053).
+
+---
+
+## TD-067 — A zero balance needs no rate, and a missing rate is a gap
+
+**Status:** Accepted · **Milestone:** M6
+
+**Decision.** A currency whose balance on a date is exactly zero is valued at
+exactly zero, whether or not a rate exists for it. A non-zero balance with no
+applicable rate makes that date **incomplete** (`Complete = false`, `Missing`
+naming the currency and the amount at stake), as in M5. Never zero, never a
+future rate, never the first rate found looking forward, never an invented one.
+
+On the chart an incomplete day is a **gap**. A change (absolute or percentage)
+whose endpoints include an incomplete day is reported as unavailable, with the
+reason, rather than computed from a partial total.
+
+**Rationale.** Zero times any rate is zero, exactly; demanding a rate for it
+would have made every day before a foreign-currency account's first movement
+incomplete, for no information. A missing rate for money that exists is the
+opposite case: the honest answer is that the figure is unknown.
+
+No historical rates exist before the first BCV fetch. M6 does not backfill them;
+the user can enter past rates manually through the existing rates screen, and the
+gaps close as they do.
+
+---
+
+## TD-068 — Cash flow is income and expense only, each at its own day's rate
+
+**Status:** Accepted · **Milestone:** M6
+
+**Decision.** The cash-flow figures count `INCOME` and `EXPENSE` transactions and
+nothing else; the query names what it accepts (TD-045). `TRANSFER`,
+`FX_EXCHANGE` and `OPENING_BALANCE` are neither income nor expense and appear in
+no flow figure.
+
+Each flow is converted into the valuation base at the reference rate that applied
+on **its own `effective_date`** (the same `<=` rule). Within a category the
+converted amounts are summed as exact rationals and rounded **once**, half to
+even; a total is the integer sum of the rounded category lines, so the lines a
+screen shows add up to its total. A flow with no applicable rate makes the figure
+incomplete and is reported in its own currency.
+
+`Net cash flow = income − expenses`. `Savings rate = (income − expenses) /
+income`, in basis points, half to even. It is **undefined** — shown as "—", never
+NaN, never infinity — when income is zero or the figures are incomplete.
+
+**Rationale.** A flow's value is what it was worth when it happened. Converting a
+March salary at December's rate would make an old month's figures move every
+time the bolívar does. The period-end alternative was rejected for that reason.
+
+---
+
+## TD-069 — Periods are fixed day counts, compared with the adjacent equal period
+
+**Status:** Accepted · **Milestone:** M6
+
+**Decision.** `7D`, `30D`, `90D` and `1Y` are 7, 30, 90 and 365 calendar days
+ending today inclusive. The previous period is the same number of days ending the
+day before the current one starts: no overlap, no gap, equal length. `ALL` starts
+at the earliest movement and has no previous period.
+
+The net-worth change over a period is `NW(to) − NW(from − 1 day)` — from the
+close of the day before the period to the close of its last day. The percentage
+is that change over `|NW(from − 1)|`, undefined when that is zero.
+
+Percentages everywhere are integers in basis points, rounded half to even by
+`internal/money`; they are formatted for display and never computed again.
+
+All of it is Go, driven by an injected clock, and tested with fixed dates.
+
+---
+
+## TD-070 — Breakdown lines are allocated so they add up, and the chart is SVG
+
+**Status:** Accepted · **Milestone:** M6
+
+**Decision.** The per-account equivalents in the base currency are allocated
+from their currency's rounded figure by **largest remainder**, so accounts add up
+to their currency and currencies add up to the total, to the minor unit. Shares
+of the total are allocated the same way to 10,000 basis points.
+
+The history chart is an inline `<svg>` generated by the server. Its coordinates
+are computed in Go from the integer series with integer arithmetic. No charting
+library, no JavaScript computing anything, and no float.
+
+**Rationale.** Rounding each account independently would produce a breakdown
+whose lines disagree with its total by a cent, which on a finance screen reads as
+a bug. A charting library for one line, with no interaction beyond a period
+switch, would be the largest dependency in the project for the smallest job.

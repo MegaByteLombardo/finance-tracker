@@ -1,0 +1,74 @@
+{{ define "cash_flow_summary" }}
+{{ if .Available }}
+<section class="mobile-section cashflow-section" aria-labelledby="cashflow-heading">
+  <div class="section-top-bar">
+    <h2 id="cashflow-heading" class="section-title">Flujo de caja</h2>
+    <span class="cashflow-period">{{ .PeriodDescription }}</span>
+  </div>
+
+  <div class="cashflow-grid">
+    <div class="cashflow-cell">
+      <span class="cashflow-label">Ingresos</span>
+      <span class="cashflow-value is-income">{{ formatAmount .CashFlow.IncomeFormatted }}</span>
+    </div>
+    <div class="cashflow-cell">
+      <span class="cashflow-label">Egresos</span>
+      <span class="cashflow-value is-expense">{{ formatAmount .CashFlow.ExpenseFormatted }}</span>
+    </div>
+    <div class="cashflow-cell">
+      <span class="cashflow-label">Flujo neto</span>
+      <span class="cashflow-value {{ if isNegative .CashFlow.NetMinor }}is-expense{{ else }}is-income{{ end }}">{{ formatAmount .CashFlow.NetFormatted }}</span>
+    </div>
+    <div class="cashflow-cell">
+      <span class="cashflow-label">Tasa de ahorro</span>
+      <span class="cashflow-value">{{ ratio .CashFlow.SavingsRate }}</span>
+    </div>
+  </div>
+  <p class="cashflow-footnote">En {{ .CurrencyCode }}. Transferencias y cambios de divisa no son ingresos ni egresos.</p>
+
+  {{ if not .CashFlow.Complete }}
+  <p class="net-worth-incomplete" role="status">
+    Flujo incompleto: falta la tasa de
+    {{ range $i, $m := .CashFlow.Missing }}{{ if $i }}, {{ end }}{{ $m.CurrencyCode }}{{ end }}
+    para alguna fecha. <a href="/mobile/tasas">Agregar tasa</a>
+  </p>
+  {{ end }}
+
+  <div class="spending-block">
+    <div class="spending-head">
+      <span class="cashflow-label">Gasto</span>
+      <span class="spending-total">{{ formatAmount .Spending.TotalFormatted }}</span>
+    </div>
+    <div class="spending-meta">
+      <span>Promedio diario {{ formatAmount .Spending.DailyAverageFormatted }}</span>
+      {{ if and .HasPrevious .Spending.Change.Defined }}
+      <span class="{{ if .Spending.Change.IsPositive }}is-expense{{ else if .Spending.Change.IsNegative }}is-income{{ end }}">
+        {{ signedRatio .Spending.Change.Percent }} vs. período anterior
+      </span>
+      {{ else if .HasPrevious }}
+      <span>Sin comparación: faltan tasas en el período anterior</span>
+      {{ end }}
+    </div>
+
+    {{ if .Spending.Categories }}
+    <ul class="spending-list" aria-label="Principales categorías de gasto">
+      {{ range .Spending.Categories }}
+      <li class="spending-row">
+        <div class="spending-row-top">
+          <span class="spending-name{{ if .Other }} is-other{{ end }}">{{ .CategoryName }}</span>
+          <span class="spending-amount">{{ formatAmount .CurrentFormatted }}</span>
+        </div>
+        <div class="spending-row-bottom">
+          <span>{{ ratio .Share }} del gasto</span>
+          {{ if $.HasPrevious }}<span>{{ signedRatio .Change.Percent }}</span>{{ end }}
+        </div>
+      </li>
+      {{ end }}
+    </ul>
+    {{ else }}
+    <p class="cashflow-footnote">Sin egresos en el período.</p>
+    {{ end }}
+  </div>
+</section>
+{{ end }}
+{{ end }}

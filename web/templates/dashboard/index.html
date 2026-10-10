@@ -2,7 +2,7 @@
 <div class="page-header">
   <div class="page-title-group">
     <h1>Dashboard</h1>
-    <p class="page-subtitle">Overview of accounts, derived balances, and recent ledger activity</p>
+    <p class="page-subtitle">Patrimonio neto, su evolución, el flujo de caja y el gasto del período</p>
   </div>
   <div class="page-actions">
     <a href="/accounts/new" class="btn btn-secondary">+ New Account</a>
@@ -19,172 +19,340 @@
 </div>
 {{ end }}
 
-<!-- Consolidated net worth. Derived on every request from the ledger, the stored
-     reference rates and the base currency; never stored, never cached. -->
-<section class="net-worth-panel" aria-labelledby="net-worth-title" style="margin-bottom: var(--space-8);">
+<!-- Everything in this block is computed by internal/analytics and internal/valuation
+     on every request, from the ledger and the stored reference rates. Nothing is
+     stored or cached, and nothing here adds anything up. The period selector swaps
+     only this block (htmx selects it out of the full page), so a deep link to
+     ?period=90D renders exactly what a click does. -->
+<div id="dashboard-analytics" class="dash">
   {{ if .NetWorthError }}
   <div class="alert alert-warning" role="alert">{{ .NetWorthError }}</div>
   {{ else }}
-  <div class="card">
-    <div class="card-header">
-      <h2 id="net-worth-title" class="card-title" style="font-size: 1rem;">
+  {{ $a := .Analytics }}
+  {{ $base := .NetWorth.BaseCurrencyCode }}
+
+  <nav class="dash-periods" aria-label="Período">
+    {{ range .Periods }}
+    <a href="{{ .URL }}" class="dash-period{{ if .Active }} is-active{{ end }}"
+       {{ if .Active }}aria-current="true"{{ end }}
+       hx-get="{{ .URL }}" hx-select="#dashboard-analytics" hx-target="#dashboard-analytics"
+       hx-swap="outerHTML" hx-push-url="true">{{ .Label }}</a>
+    {{ end }}
+    <span class="dash-period-range text-muted">
+      {{ spanishDate $a.PeriodFrom }} → {{ spanishDate $a.PeriodTo }}
+      {{ if $a.HasPrevious }}· comparado con {{ spanishDate $a.PreviousFrom }} → {{ spanishDate $a.PreviousTo }}{{ end }}
+    </span>
+  </nav>
+
+  <!-- KPIs -->
+  <section class="dash-kpis" aria-label="Indicadores">
+    <article class="card dash-kpi dash-kpi-main" aria-labelledby="net-worth-title">
+      <h2 id="net-worth-title" class="dash-kpi-label">
         Patrimonio neto
-        {{ if not .NetWorth.Complete }}
-        <span class="badge badge-warning" style="font-size: 0.75rem; vertical-align: middle; margin-left: 6px;">incompleto</span>
-        {{ end }}
+        {{ if not .NetWorth.Complete }}<span class="badge badge-warning">incompleto</span>{{ end }}
       </h2>
-      <span class="text-muted" style="font-size: 0.8125rem;">
-        Base: {{ .NetWorth.BaseCurrencyCode }}{{ if not .NetWorth.RatesAsOf.IsZero }} · Tasas al {{ formatDate .NetWorth.RatesAsOf }}{{ end }}
-      </span>
-    </div>
-    <div class="card-body" style="padding: var(--space-4);">
-      <p class="net-worth-total" style="font-size: 2rem; font-weight: 700; margin: 0 0 var(--space-4) 0;">
-        {{ formatAmount .NetWorth.TotalFormatted }} {{ .NetWorth.BaseCurrencyCode }}
-        {{ if not .NetWorth.Complete }}
-        <span class="text-muted" style="font-size: 1rem; font-weight: 500;">(parcial)</span>
+      <p class="dash-kpi-value">
+        {{ formatAmount .NetWorth.TotalFormatted }} <span class="dash-kpi-currency">{{ $base }}</span>
+        {{ if not .NetWorth.Complete }}<span class="text-muted dash-kpi-note">(parcial)</span>{{ end }}
+      </p>
+      {{ if $a.Change.Defined }}
+      <p class="dash-kpi-change {{ if $a.Change.IsPositive }}is-up{{ else if $a.Change.IsNegative }}is-down{{ end }}">
+        {{ signedChange $a.Change }} {{ $base }}
+        <span>{{ signedRatio $a.Change.Percent }}</span>
+        <span class="text-muted">{{ $a.Preset.Description }}</span>
+      </p>
+      {{ else }}
+      <p class="dash-kpi-change text-muted">{{ $a.Change.UnavailableMessage }}</p>
+      {{ end }}
+      <p class="dash-kpi-meta text-muted">
+        Base: {{ $base }}{{ if not .NetWorth.RatesAsOf.IsZero }} · Tasas al {{ formatDate .NetWorth.RatesAsOf }}{{ end }}
+      </p>
+    </article>
+
+    <article class="card dash-kpi">
+      <h2 class="dash-kpi-label">Ingresos</h2>
+      <p class="dash-kpi-value amount-income">{{ formatAmount $a.CashFlow.IncomeFormatted }} <span class="dash-kpi-currency">{{ $base }}</span></p>
+      <p class="dash-kpi-meta text-muted">{{ $a.Preset.Description }}</p>
+    </article>
+
+    <article class="card dash-kpi">
+      <h2 class="dash-kpi-label">Egresos</h2>
+      <p class="dash-kpi-value amount-expense">{{ formatAmount $a.CashFlow.ExpenseFormatted }} <span class="dash-kpi-currency">{{ $base }}</span></p>
+      <p class="dash-kpi-meta text-muted">{{ $a.Preset.Description }}</p>
+    </article>
+
+    <article class="card dash-kpi">
+      <h2 class="dash-kpi-label">Flujo neto</h2>
+      <p class="dash-kpi-value {{ if isNegative $a.CashFlow.NetMinor }}amount-expense{{ else }}amount-income{{ end }}">
+        {{ formatAmount $a.CashFlow.NetFormatted }} <span class="dash-kpi-currency">{{ $base }}</span>
+      </p>
+      <p class="dash-kpi-meta text-muted">
+        Tasa de ahorro: <strong>{{ ratio $a.CashFlow.SavingsRate }}</strong>
+        {{ if not $a.CashFlow.SavingsRate.Defined }}
+          {{ if not $a.CashFlow.Complete }}(faltan tasas){{ else }}(sin ingresos){{ end }}
         {{ end }}
       </p>
+    </article>
+  </section>
 
-      {{ if not .NetWorth.Complete }}
-      <div class="alert alert-warning" role="alert">
-        <div>
-          <strong>Este total está incompleto:</strong>
-          {{ range .NetWorth.Missing }}
-          Falta una tasa {{ .FromCurrencyCode }} → {{ .ToCurrencyCode }} para valorar
-          {{ .BalanceFormatted }} {{ .FromCurrencyCode }}.
-          {{ end }}
-          <a href="/settings/exchange-rates" style="margin-left: 8px; font-weight: 600; color: inherit; text-decoration: underline;">Agregar tasa &rarr;</a>
-        </div>
-      </div>
+  {{ if not $a.CashFlow.Complete }}
+  <div class="alert alert-warning" role="alert">
+    <div>
+      <strong>El flujo de caja está incompleto:</strong>
+      {{ range $a.CashFlow.Missing }}
+      no hay tasa para valorar {{ if .IncomeMinor }}{{ formatAmount .IncomeFormatted }} {{ .CurrencyCode }} de ingresos{{ end }}{{ if and .IncomeMinor .ExpenseMinor }} y {{ end }}{{ if .ExpenseMinor }}{{ formatAmount .ExpenseFormatted }} {{ .CurrencyCode }} de egresos{{ end }} en su fecha.
       {{ end }}
-
-      {{ if .NetWorth.Components }}
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Moneda</th>
-            <th class="numeric">Saldo</th>
-            <th class="numeric">En {{ $.NetWorth.BaseCurrencyCode }}</th>
-            <th>Cómo se valoró</th>
-          </tr>
-        </thead>
-        <tbody>
-          {{ range .NetWorth.Components }}
-          <tr>
-            <td><strong>{{ .CurrencyCode }}</strong> <span class="text-muted">{{ .CurrencyName }}</span></td>
-            <td class="numeric">{{ formatAmount .BalanceFormatted }}</td>
-            <td class="numeric">
-              {{ if .Valued }}{{ formatAmount .ConvertedFormatted }}{{ else }}&mdash;{{ end }}
-            </td>
-            <td style="font-size: 0.8125rem;">
-              {{ if not .Valued }}
-              <span class="badge badge-warning">sin tasa</span>
-              {{ else if .Resolution }}
-                <div>
-                  <strong>{{ .Resolution.MethodLabel }}</strong>
-                  {{ if .Resolution.UsesManualOverride }}
-                  <span class="badge badge-warning" title="Se usó una tasa manual en lugar de la publicada para esa misma fecha">
-                    override manual
-                  </span>
-                  {{ end }}
-                </div>
-                {{ range .Resolution.Legs }}
-                <div class="text-muted" style="margin-top: 2px;">
-                  {{ .Pair }} = {{ .Rate }}{{ if .Inverted }} (invertida){{ end }}
-                  · {{ .SourceLabel }} · {{ formatDate .EffectiveDate }}
-                </div>
-                {{ end }}
-              {{ end }}
-            </td>
-          </tr>
-          {{ end }}
-        </tbody>
-      </table>
-      {{ end }}
+      <a href="/settings/exchange-rates" style="margin-left: 8px; font-weight: 600; color: inherit; text-decoration: underline;">Agregar tasa &rarr;</a>
     </div>
   </div>
   {{ end }}
-</section>
+
+  <!-- History -->
+  <section class="card dash-section" aria-labelledby="history-title">
+    <div class="card-header">
+      <h2 id="history-title" class="card-title" style="font-size: 1rem;">Evolución del patrimonio</h2>
+      <span class="text-muted" style="font-size: 0.8125rem;">Al cierre de cada día · {{ $base }}</span>
+    </div>
+    <div class="card-body">
+      {{ template "net_worth_chart" .Chart }}
+      {{ if $a.IncompleteDays }}
+      <p class="dash-note">
+        <span class="badge badge-warning">huecos</span>
+        Faltan tasas históricas para {{ $a.IncompleteDays }} {{ if eq $a.IncompleteDays 1 }}día{{ else }}días{{ end }} del período;
+        esos días no se dibujan en lugar de mostrar un total parcial.
+        <a href="/settings/exchange-rates">Cargar tasas pasadas &rarr;</a>
+      </p>
+      {{ end }}
+    </div>
+  </section>
+
+  {{ if not .NetWorth.Complete }}
+  <div class="alert alert-warning" role="alert">
+    <div>
+      <strong>Este total está incompleto:</strong>
+      {{ range .NetWorth.Missing }}
+      Falta una tasa {{ .FromCurrencyCode }} → {{ .ToCurrencyCode }} para valorar
+      {{ .BalanceFormatted }} {{ .FromCurrencyCode }}.
+      {{ end }}
+      <a href="/settings/exchange-rates" style="margin-left: 8px; font-weight: 600; color: inherit; text-decoration: underline;">Agregar tasa &rarr;</a>
+    </div>
+  </div>
+  {{ end }}
+
+  {{ if .NetWorth.FutureMovementCount }}
+  <p class="dash-note">
+    <span class="badge badge-neutral">{{ .NetWorth.FutureMovementCount }} {{ if eq .NetWorth.FutureMovementCount 1 }}movimiento futuro{{ else }}movimientos futuros{{ end }}</span>
+    Tienen fecha posterior a hoy: existen en el ledger, pero aún no forman parte de ningún saldo.
+  </p>
+  {{ end }}
+
+  {{ if .NetWorth.ArchivedWithBalance }}
+  <div class="alert alert-warning" role="alert">
+    <div>
+      <strong>{{ .NetWorth.ArchivedWithBalance }} {{ if eq .NetWorth.ArchivedWithBalance 1 }}cuenta archivada conserva{{ else }}cuentas archivadas conservan{{ end }} saldo.</strong>
+      Archivar una cuenta solo la oculta: su dinero sigue contando en el patrimonio.
+    </div>
+  </div>
+  {{ end }}
+
+  <!-- Breakdown: stacked, because the currency table explains each valuation
+       and needs the width. -->
+  <div class="dash-stack">
+    <section class="card dash-section" aria-labelledby="by-currency-title">
+      <div class="card-header">
+        <h2 id="by-currency-title" class="card-title" style="font-size: 1rem;">Por moneda</h2>
+      </div>
+      <div class="card-body table-container">
+        {{ if .NetWorth.Components }}
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Moneda</th>
+              <th class="numeric">Saldo</th>
+              <th class="numeric">En {{ $base }}</th>
+              <th class="numeric">%</th>
+              <th>Cómo se valoró</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ range .NetWorth.Components }}
+            <tr>
+              <td><strong>{{ .CurrencyCode }}</strong> <span class="text-muted">{{ .CurrencyName }}</span></td>
+              <td class="numeric">{{ formatAmount .BalanceFormatted }}</td>
+              <td class="numeric">{{ if .Valued }}{{ formatAmount .ConvertedFormatted }}{{ else }}&mdash;{{ end }}</td>
+              <td class="numeric">{{ ratio .Share }}</td>
+              <td style="font-size: 0.8125rem;">
+                {{ if not .Valued }}
+                <span class="badge badge-warning">sin tasa</span>
+                {{ else if .Resolution }}
+                  <div>
+                    <strong>{{ .Resolution.MethodLabel }}</strong>
+                    {{ if .Resolution.UsesManualOverride }}
+                    <span class="badge badge-warning" title="Se usó una tasa manual en lugar de la publicada para esa misma fecha">override manual</span>
+                    {{ end }}
+                  </div>
+                  {{ range .Resolution.Legs }}
+                  <div class="text-muted" style="margin-top: 2px;">
+                    {{ .Pair }} = {{ .Rate }}{{ if .Inverted }} (invertida){{ end }}
+                    · {{ .SourceLabel }} · {{ formatDate .EffectiveDate }}
+                  </div>
+                  {{ end }}
+                {{ else }}
+                <span class="text-muted">saldo cero</span>
+                {{ end }}
+              </td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+        {{ else }}
+        <p class="text-muted">Sin saldos todavía.</p>
+        {{ end }}
+      </div>
+    </section>
+
+    <section class="card dash-section" aria-labelledby="by-account-title">
+      <div class="card-header">
+        <h2 id="by-account-title" class="card-title" style="font-size: 1rem;">Por cuenta</h2>
+      </div>
+      <div class="card-body table-container">
+        {{ if .NetWorth.Accounts }}
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Cuenta</th>
+              <th class="numeric">Saldo</th>
+              <th class="numeric">En {{ $base }}</th>
+              <th class="numeric">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ range .NetWorth.Accounts }}
+            <tr>
+              <td>
+                <div style="font-weight: 500;">{{ .AccountName }}</div>
+                <div class="text-muted" style="font-size: 0.75rem;">
+                  {{ .AccountType }}{{ if .Institution }} · {{ derefString .Institution }}{{ end }}
+                  {{ if .ArchivedWithBalance }}<span class="badge badge-warning">archivada con saldo</span>{{ else if not .IsActive }}<span class="badge badge-neutral">archivada</span>{{ end }}
+                </div>
+              </td>
+              <td class="numeric cell-mono">
+                <span class="{{ if isNegative .BalanceMinor }}amount-expense{{ end }}">{{ formatAmount .BalanceFormatted }}</span>
+                <span class="currency-badge">{{ .CurrencyCode }}</span>
+              </td>
+              <td class="numeric cell-mono">{{ if .Valued }}{{ formatAmount .ConvertedFormatted }}{{ else }}&mdash;{{ end }}</td>
+              <td class="numeric">{{ ratio .Share }}</td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+        {{ else }}
+        <p class="text-muted">Sin cuentas todavía.</p>
+        {{ end }}
+      </div>
+    </section>
+  </div>
+
+  <!-- Cash flow and spending -->
+  <div class="dash-grid">
+    <section class="card dash-section" aria-labelledby="cash-flow-title">
+      <div class="card-header">
+        <h2 id="cash-flow-title" class="card-title" style="font-size: 1rem;">Flujo de caja</h2>
+        <span class="text-muted" style="font-size: 0.8125rem;">{{ $a.CashFlow.TransactionCount }} transacciones</span>
+      </div>
+      <div class="card-body">
+        <dl class="dash-figures">
+          <div><dt>Ingresos</dt><dd class="amount-income">{{ formatAmount $a.CashFlow.IncomeFormatted }} {{ $base }}</dd></div>
+          <div><dt>Egresos</dt><dd class="amount-expense">{{ formatAmount $a.CashFlow.ExpenseFormatted }} {{ $base }}</dd></div>
+          <div><dt>Flujo neto</dt><dd>{{ formatAmount $a.CashFlow.NetFormatted }} {{ $base }}</dd></div>
+          <div><dt>Tasa de ahorro</dt><dd>{{ ratio $a.CashFlow.SavingsRate }}</dd></div>
+        </dl>
+        {{ if $a.CashFlow.IncomeCategories }}
+        <h3 class="dash-subtitle">Ingresos por categoría</h3>
+        <ul class="dash-list">
+          {{ range $a.CashFlow.IncomeCategories }}
+          <li><span>{{ .CategoryName }}</span><span class="cell-mono">{{ formatAmount .AmountFormatted }}</span></li>
+          {{ end }}
+        </ul>
+        {{ end }}
+        <p class="dash-note text-muted">
+          Las transferencias entre cuentas propias y los cambios de divisa no son ingresos ni egresos y no aparecen aquí.
+          Cada movimiento se valora con la tasa de referencia de su propia fecha.
+        </p>
+      </div>
+    </section>
+
+    <section class="card dash-section" aria-labelledby="spending-title">
+      <div class="card-header">
+        <h2 id="spending-title" class="card-title" style="font-size: 1rem;">Gasto</h2>
+        <span class="text-muted" style="font-size: 0.8125rem;">{{ $a.Preset.Description }}</span>
+      </div>
+      <div class="card-body">
+        <dl class="dash-figures">
+          <div><dt>Gasto total</dt><dd>{{ formatAmount $a.Spending.TotalFormatted }} {{ $base }}</dd></div>
+          <div><dt>Promedio diario</dt><dd>{{ formatAmount $a.Spending.DailyAverageFormatted }} {{ $base }}</dd></div>
+          {{ if $a.HasPrevious }}
+          <div><dt>Período anterior</dt><dd>{{ formatAmount $a.Spending.PreviousTotalFormatted }} {{ $base }}</dd></div>
+          <div>
+            <dt>Variación</dt>
+            {{ if $a.Spending.Change.Defined }}
+            <dd class="{{ if $a.Spending.Change.IsPositive }}amount-expense{{ else if $a.Spending.Change.IsNegative }}amount-income{{ end }}">
+              {{ signedChange $a.Spending.Change }} ({{ signedRatio $a.Spending.Change.Percent }})
+            </dd>
+            {{ else }}
+            <dd class="text-muted" style="font-family: var(--font-sans); font-weight: 500; font-size: 0.75rem;">{{ $a.Spending.Change.UnavailableMessage }}</dd>
+            {{ end }}
+          </div>
+          {{ end }}
+        </dl>
+        {{ if $a.Spending.Categories }}
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Categoría</th>
+              <th class="numeric">Actual</th>
+              {{ if $a.HasPrevious }}<th class="numeric">Anterior</th><th class="numeric">Cambio</th>{{ end }}
+              <th class="numeric">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ range $a.Spending.Categories }}
+            <tr>
+              <td>{{ if .Other }}<span class="text-muted">{{ .CategoryName }}</span>{{ else }}{{ .CategoryName }}{{ end }}</td>
+              <td class="numeric cell-mono">{{ formatAmount .CurrentFormatted }}</td>
+              {{ if $a.HasPrevious }}
+              <td class="numeric cell-mono">{{ formatAmount .PreviousFormatted }}</td>
+              <td class="numeric">{{ signedRatio .Change.Percent }}</td>
+              {{ end }}
+              <td class="numeric">{{ ratio .Share }}</td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+        {{ else }}
+        <p class="text-muted">Sin egresos en el período.</p>
+        {{ end }}
+      </div>
+    </section>
+  </div>
+  {{ end }}
+</div>
 
 <div class="notice-box">
   <strong>Cómo se calcula:</strong> los saldos se derivan de los movimientos del ledger en su propia
-  moneda y nunca se suman entre monedas. El patrimonio neto de arriba es una <em>valoración</em>
-  calculada al momento con tasas de referencia; no se guarda en ninguna parte y no modifica ningún
-  saldo. La tasa de una transacción concreta es otra cosa y no existe en esta aplicación.
+  moneda y nunca se suman entre monedas. El patrimonio neto es una <em>valoración</em> calculada al
+  momento con las tasas de referencia vigentes en cada fecha (nunca una posterior); no se guarda en
+  ninguna parte y no modifica ningún saldo. Un movimiento con fecha futura no cuenta hasta su fecha.
 </div>
 
-<!-- Account Balances by Currency -->
-<section style="margin-bottom: var(--space-10);">
-  <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: var(--space-5);">Account Balances</h2>
-
-  {{ if not .HasAccounts }}
-  <div class="empty-state">
-    <div class="empty-state-icon">💳</div>
-    <h3 class="empty-state-title">No accounts yet</h3>
-    <p class="empty-state-text">Start by creating your first bank account, cash stash, or digital wallet.</p>
-    <a href="/accounts/new" class="btn btn-primary">Create your first account</a>
-  </div>
-  {{ else }}
-
-    {{ range .CurrencySections }}
-    <div class="currency-section">
-      <div class="currency-section-header">
-        <div class="currency-section-title">
-          <span>{{ .CurrencyCode }}</span>
-          <span style="font-size: 0.875rem; font-weight: 400; color: var(--text-muted);">{{ .CurrencyName }}</span>
-        </div>
-        <div class="currency-section-total">
-          <span style="font-size: 0.8125rem; font-weight: 600; color: var(--text-muted); margin-right: 4px;">Total {{ .CurrencyCode }}:</span>
-          <span>{{ if .CurrencySymbol }}{{ .CurrencySymbol }} {{ end }}{{ formatAmount .TotalFormatted }}</span>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-3">
-        {{ range .Accounts }}
-        <div class="balance-card">
-          <div class="balance-card-header">
-            <div>
-              <div class="account-name">{{ .AccountName }}</div>
-              <div class="account-institution">
-                {{ if .Institution }}{{ .Institution }}{{ else }}&mdash;{{ end }}
-              </div>
-            </div>
-            <span class="badge {{ if eq .AccountType "BANK" }}badge-bank{{ else if eq .AccountType "CASH" }}badge-cash{{ else if eq .AccountType "WALLET" }}badge-wallet{{ else }}badge-other{{ end }}">
-              {{ .AccountType }}
-            </span>
-          </div>
-
-          <div class="balance-card-amount">
-            <span class="currency-badge">{{ .CurrencyCode }}</span>
-            <span class="{{ if isNegative .BalanceMinor }}amount-expense{{ end }}">
-              {{ formatAmount .BalanceFormatted }}
-            </span>
-          </div>
-
-          <div class="balance-card-footer">
-            <div>
-              {{ if .AccountSubtype }}
-              <span class="badge badge-neutral">{{ derefSubtype .AccountSubtype }}</span>
-              {{ else }}
-              <span style="color: var(--text-subtle);">&mdash;</span>
-              {{ end }}
-            </div>
-            <div>
-              {{ if .IsActive }}
-              <span style="color: var(--success); font-weight: 500;">Active</span>
-              {{ else }}
-              <span style="color: var(--text-muted);">Archived</span>
-              {{ end }}
-            </div>
-          </div>
-        </div>
-        {{ end }}
-      </div>
-    </div>
-    {{ end }}
-
-  {{ end }}
-</section>
+{{ if not .HasAccounts }}
+<div class="empty-state">
+  <div class="empty-state-icon">💳</div>
+  <h3 class="empty-state-title">No accounts yet</h3>
+  <p class="empty-state-text">Start by creating your first bank account, cash stash, or digital wallet.</p>
+  <a href="/accounts/new" class="btn btn-primary">Create your first account</a>
+</div>
+{{ end }}
 
 <!-- Recent Transactions -->
 <section>
@@ -221,6 +389,7 @@
       </thead>
       <tbody>
         {{ range .RecentTransactions }}
+        {{/* Every type is named; none falls through to another's rendering (TD-045). */}}
         <tr>
           <td class="cell-mono" style="white-space: nowrap;">{{ formatDate .EffectiveDate }}</td>
           <td>
@@ -229,39 +398,34 @@
                 {{ derefString .Description }}
               {{ else }}
                 <span style="color: var(--text-muted); font-style: italic;">
-                  {{ if eq .Type "OPENING_BALANCE" }}Initial balance{{ else if eq .Type "TRANSFER" }}Internal transfer{{ else }}No description{{ end }}
+                  {{ if eq .Type "OPENING_BALANCE" }}Initial balance{{ else if eq .Type "TRANSFER" }}Internal transfer{{ else if eq .Type "FX_EXCHANGE" }}{{ exchangeLabel .Exchange }}{{ else }}No description{{ end }}
                 </span>
               {{ end }}
             </div>
             <div>
-              {{ if eq .Type "OPENING_BALANCE" }}
-              <span class="badge badge-opening">Opening balance</span>
-              {{ else if eq .Type "INCOME" }}
-              <span class="badge badge-income">Income</span>
-              {{ else if eq .Type "TRANSFER" }}
-              <span class="badge badge-transfer">Transfer</span>
-              {{ else }}
-              <span class="badge badge-expense">Expense</span>
+              {{ if eq .Type "OPENING_BALANCE" }}<span class="badge badge-opening">Opening balance</span>
+              {{ else if eq .Type "INCOME" }}<span class="badge badge-income">Income</span>
+              {{ else if eq .Type "EXPENSE" }}<span class="badge badge-expense">Expense</span>
+              {{ else if eq .Type "TRANSFER" }}<span class="badge badge-transfer">Transfer</span>
+              {{ else if eq .Type "FX_EXCHANGE" }}<span class="badge badge-transfer">Exchange</span>
+              {{ else }}<span class="badge badge-neutral">{{ .Type }}</span>
               {{ end }}
             </div>
           </td>
           <td>
-            {{ if eq .Type "TRANSFER" }}
-              <span style="color: var(--text-subtle);">&mdash;</span>
-            {{ else if .CategoryName }}
-              {{ derefString .CategoryName }}
+            {{ if or (eq .Type "INCOME") (eq .Type "EXPENSE") }}
+              {{ if .CategoryName }}{{ derefString .CategoryName }}{{ else }}<span style="color: var(--text-subtle);">&mdash;</span>{{ end }}
             {{ else }}
               <span style="color: var(--text-subtle);">&mdash;</span>
             {{ end }}
           </td>
           <td>
             {{ if and (eq .Type "TRANSFER") .Transfer }}
-              <div style="font-weight: 500;">
-                {{ .Transfer.SourceAccountName }} &rarr; {{ .Transfer.DestinationAccountName }}
-              </div>
-              <div style="font-size: 0.75rem; color: var(--text-muted);">
-                Internal transfer
-              </div>
+              <div style="font-weight: 500;">{{ .Transfer.SourceAccountName }} &rarr; {{ .Transfer.DestinationAccountName }}</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted);">Internal transfer</div>
+            {{ else if and (eq .Type "FX_EXCHANGE") .Exchange }}
+              <div style="font-weight: 500;">{{ .Exchange.SourceAccountName }} &rarr; {{ .Exchange.DestinationAccountName }}</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted);">{{ executionRateLabel .Exchange.ExecutionRate }}</div>
             {{ else }}
               <div style="font-weight: 500;">{{ .AccountName }}</div>
               <div style="font-size: 0.75rem; color: var(--text-muted);">
@@ -270,16 +434,23 @@
             {{ end }}
           </td>
           <td>
-            {{ if eq .Type "TRANSFER" }}
-              <span style="color: var(--text-subtle);">&mdash;</span>
-            {{ else }}
+            {{ if or (eq .Type "INCOME") (eq .Type "EXPENSE") }}
               {{ paymentMethodLabel .PaymentMethodName }}
+            {{ else }}
+              <span style="color: var(--text-subtle);">&mdash;</span>
             {{ end }}
           </td>
           <td class="cell-right cell-mono" style="white-space: nowrap;">
+            {{ if and (eq .Type "FX_EXCHANGE") .Exchange }}
+            <span class="amount-transfer">
+              -{{ formatAmount .Exchange.SourceAmountFormatted }} {{ .Exchange.SourceCurrencyCode }}
+              / +{{ formatAmount .Exchange.DestinationAmountFormatted }} {{ .Exchange.DestinationCurrencyCode }}
+            </span>
+            {{ else }}
             <span class="{{ if eq .Type "INCOME" }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else if eq .Type "TRANSFER" }}amount-transfer{{ else }}amount-opening{{ end }}">
               {{ formatSignedAmount . }} {{ .CurrencyCode }}
             </span>
+            {{ end }}
           </td>
         </tr>
         {{ end }}

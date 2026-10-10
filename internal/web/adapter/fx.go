@@ -9,6 +9,7 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/fx"
+	"github.com/MegaByteLombardo/finance-tracker/internal/money"
 	"github.com/MegaByteLombardo/finance-tracker/internal/settings"
 	"github.com/MegaByteLombardo/finance-tracker/internal/valuation"
 	"github.com/MegaByteLombardo/finance-tracker/internal/web"
@@ -173,17 +174,25 @@ func (a *valuationAdapter) GetCurrentNetWorth(ctx context.Context) (web.NetWorth
 	if err != nil {
 		return web.NetWorth{}, TranslateValuationError(err)
 	}
+	return toWebNetWorth(worth), nil
+}
 
+// toWebNetWorth carries a valuation across unchanged. Every figure in it was
+// computed by internal/valuation; nothing here adds anything up.
+func toWebNetWorth(worth valuation.NetWorth) web.NetWorth {
 	out := web.NetWorth{
-		BaseCurrencyCode: worth.BaseCurrencyCode,
-		BaseCurrencyName: worth.BaseCurrencyName,
-		BaseSymbol:       worth.BaseSymbol,
-		BaseMinorUnit:    worth.BaseMinorUnit,
-		ValuationDate:    worth.ValuationDate,
-		TotalMinor:       worth.TotalMinor,
-		TotalFormatted:   worth.TotalFormatted,
-		Complete:         worth.Complete,
-		Components:       make([]web.NetWorthComponent, 0, len(worth.Components)),
+		BaseCurrencyCode:    worth.BaseCurrencyCode,
+		BaseCurrencyName:    worth.BaseCurrencyName,
+		BaseSymbol:          worth.BaseSymbol,
+		BaseMinorUnit:       worth.BaseMinorUnit,
+		ValuationDate:       worth.ValuationDate,
+		TotalMinor:          worth.TotalMinor,
+		TotalFormatted:      worth.TotalFormatted,
+		Complete:            worth.Complete,
+		Components:          make([]web.NetWorthComponent, 0, len(worth.Components)),
+		Accounts:            make([]web.NetWorthAccount, 0, len(worth.Accounts)),
+		ArchivedWithBalance: worth.ArchivedWithBalance,
+		FutureMovementCount: worth.FutureMovementCount,
 	}
 
 	for _, component := range worth.Components {
@@ -198,6 +207,7 @@ func (a *valuationAdapter) GetCurrentNetWorth(ctx context.Context) (web.NetWorth
 			ConvertedMinor:     component.ConvertedMinor,
 			ConvertedFormatted: component.ConvertedFormatted,
 			Valued:             component.Valued,
+			Share:              toWebShare(component.Share),
 		}
 
 		if component.Resolution != nil {
@@ -217,6 +227,24 @@ func (a *valuationAdapter) GetCurrentNetWorth(ctx context.Context) (web.NetWorth
 		out.Components = append(out.Components, converted)
 	}
 
+	for _, line := range worth.Accounts {
+		out.Accounts = append(out.Accounts, web.NetWorthAccount{
+			AccountID:          line.AccountID,
+			AccountName:        line.AccountName,
+			AccountType:        line.AccountType,
+			Institution:        line.Institution,
+			IsActive:           line.IsActive,
+			CurrencyCode:       line.CurrencyCode,
+			CurrencySymbol:     line.CurrencySymbol,
+			BalanceMinor:       line.BalanceMinor,
+			BalanceFormatted:   line.BalanceFormatted,
+			ConvertedMinor:     line.ConvertedMinor,
+			ConvertedFormatted: line.ConvertedFormatted,
+			Valued:             line.Valued,
+			Share:              toWebShare(line.Share),
+		})
+	}
+
 	for _, missing := range worth.Missing {
 		out.Missing = append(out.Missing, web.MissingRateView{
 			FromCurrencyCode: missing.FromCurrencyCode,
@@ -225,7 +253,16 @@ func (a *valuationAdapter) GetCurrentNetWorth(ctx context.Context) (web.NetWorth
 		})
 	}
 
-	return out, nil
+	return out
+}
+
+// toWebShare formats basis points as a percentage with two decimals. It is
+// formatting, not arithmetic: 724 bp is the string "7.24".
+func toWebShare(share valuation.Share) web.Ratio {
+	if !share.Defined {
+		return web.Ratio{}
+	}
+	return web.Ratio{BasisPoints: share.BasisPoints, Defined: true, Formatted: money.Format(share.BasisPoints, 2)}
 }
 
 func toWebResolution(resolution fx.Resolution) web.RateResolutionView {

@@ -590,7 +590,10 @@ func TestChangingTheBaseCurrencyChangesNothingButThePresentation(t *testing.T) {
 	}
 }
 
-func TestArchivedAccountsAreNotValued(t *testing.T) {
+// TestArchivedAccountsAreStillValued is TD-064, which superseded M5's rule:
+// archiving is a matter of visibility, not a financial event, so the money in an
+// archived account is still the user's and still counts.
+func TestArchivedAccountsAreStillValued(t *testing.T) {
 	t.Parallel()
 
 	h := newHarness(t)
@@ -601,24 +604,39 @@ func TestArchivedAccountsAreNotValued(t *testing.T) {
 
 	on := mustDate(t, "2026-09-11")
 
-	worth, err := h.valuation.GetNetWorthAt(t.Context(), on)
+	before, err := h.valuation.GetNetWorthAt(t.Context(), on)
 	if err != nil {
 		t.Fatalf("GetNetWorthAt: %v", err)
 	}
-	if worth.TotalMinor != 125000 {
-		t.Fatalf("total = %d, want 125000", worth.TotalMinor)
+	if before.TotalMinor != 125000 {
+		t.Fatalf("total = %d, want 125000", before.TotalMinor)
 	}
 
 	if _, err := h.accounts.SetActive(t.Context(), retired.ID, false); err != nil {
 		t.Fatalf("archiving the account: %v", err)
 	}
 
-	worth, err = h.valuation.GetNetWorthAt(t.Context(), on)
+	after, err := h.valuation.GetNetWorthAt(t.Context(), on)
 	if err != nil {
 		t.Fatalf("GetNetWorthAt: %v", err)
 	}
-	if worth.TotalMinor != 100000 {
-		t.Errorf("total = %d after archiving, want 100000", worth.TotalMinor)
+	if after.TotalMinor != 125000 {
+		t.Errorf("total = %d after archiving, want 125000: archiving is not a financial event", after.TotalMinor)
+	}
+	if after.ArchivedWithBalance != 1 {
+		t.Errorf("ArchivedWithBalance = %d, want 1 so the interface can warn", after.ArchivedWithBalance)
+	}
+	var listed bool
+	for _, line := range after.Accounts {
+		if line.AccountID == retired.ID {
+			listed = true
+			if line.IsActive || line.ConvertedMinor != 25000 {
+				t.Errorf("the archived account's line = %+v, want inactive and worth 25000", line)
+			}
+		}
+	}
+	if !listed {
+		t.Error("the archived account holding 250.00 is missing from the breakdown")
 	}
 }
 

@@ -31,7 +31,7 @@ func TestNoFloatInTheMoneyPath(t *testing.T) {
 
 	// Every package that touches a rate, an amount, or a conversion between
 	// them.
-	packages := []string{".", "../money", "../valuation", "../settings", "../ledger"}
+	packages := []string{".", "../money", "../valuation", "../settings", "../ledger", "../analytics"}
 
 	for _, pkg := range packages {
 		t.Run(strings.TrimPrefix(pkg, "../"), func(t *testing.T) {

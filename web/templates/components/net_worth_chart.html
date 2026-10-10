@@ -1,0 +1,41 @@
+{{ define "net_worth_chart" }}
+{{/* The net worth over a period, as an inline SVG laid out by internal/web/chart.go.
+     Every coordinate is an integer computed on the server; every label is a figure
+     the backend formatted. An incomplete day is a gap, never a point. */}}
+<figure class="nw-chart">
+  {{ if .HasData }}
+  <div class="nw-chart-axis nw-chart-axis-y" aria-hidden="true">
+    <span>máx {{ .MaxLabel }}</span>
+    <span>mín {{ .MinLabel }}</span>
+  </div>
+  <svg class="nw-chart-svg" viewBox="0 0 {{ .Width }} {{ .Height }}" preserveAspectRatio="none" role="img"
+       aria-label="Evolución del patrimonio neto del {{ .StartLabel }} al {{ .EndLabel }}. Máximo {{ .MaxLabel }}, mínimo {{ .MinLabel }}.">
+    {{ if .HasZeroLine }}
+    <line class="nw-chart-zero" x1="0" x2="{{ .Width }}" y1="{{ .ZeroY }}" y2="{{ .ZeroY }}" vector-effect="non-scaling-stroke"></line>
+    {{ end }}
+    {{ range .Segments }}
+      {{ if .Dot }}
+      <circle class="nw-chart-dot" cx="{{ .DotX }}" cy="{{ .DotY }}" r="4" vector-effect="non-scaling-stroke"></circle>
+      {{ else }}
+      <path class="nw-chart-area" d="{{ .Area }}"></path>
+      <path class="nw-chart-line" d="{{ .Line }}" vector-effect="non-scaling-stroke"></path>
+      {{ end }}
+    {{ end }}
+    {{ range .Markers }}
+    <circle class="nw-chart-hit" cx="{{ .X }}" cy="{{ .Y }}" r="10"><title>{{ .Label }}</title></circle>
+    {{ end }}
+    {{ if .HasLast }}
+    <circle class="nw-chart-last" cx="{{ .Last.X }}" cy="{{ .Last.Y }}" r="5"><title>{{ .Last.Label }}</title></circle>
+    {{ end }}
+  </svg>
+  <figcaption class="nw-chart-axis nw-chart-axis-x">
+    <span>{{ .StartLabel }}</span>
+    <span>{{ .EndLabel }}</span>
+  </figcaption>
+  {{ else }}
+  <div class="nw-chart-empty">
+    No hay ningún día del período que se pueda valorar: faltan tasas de cambio para todas las fechas.
+  </div>
+  {{ end }}
+</figure>
+{{ end }}

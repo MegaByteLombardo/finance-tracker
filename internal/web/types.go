@@ -311,8 +311,14 @@ type AccountBalance struct {
 	CurrencySymbol *string
 	MinorUnit      int
 
+	// BalanceMinor is the CURRENT balance: the movements dated on or before
+	// today (TD-063).
 	BalanceMinor     int64
 	BalanceFormatted string
+
+	// FutureMovementCount is how many movements are dated after today. They
+	// are listed, and not yet in the balance.
+	FutureMovementCount int
 }
 
 type CurrencyTotal struct {

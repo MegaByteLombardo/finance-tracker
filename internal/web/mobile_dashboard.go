@@ -7,13 +7,41 @@ import (
 )
 
 // MobileDashboardView encapsulates the presentation data for the mobile Inicio dashboard.
+//
+// Its financial figures come from the same analytics service as the desktop
+// dashboard: the two screens differ in layout, never in the rules behind a
+// number.
 type MobileDashboardView struct {
 	Header       MobileHeaderView
 	NetWorth     NetWorthView
+	History      MobileHistoryView
+	CashFlow     MobileCashFlowView
 	Balances     CurrencyBalancesView
-	Budget       WeeklyBudgetView
 	Transactions RecentTransactionsView
 	Navigation   MobileNavView
+}
+
+// MobileHistoryView is the net-worth chart and its period selector.
+type MobileHistoryView struct {
+	Available      bool
+	Chart          ChartView
+	Periods        []PeriodOption
+	IncompleteDays int
+	CurrencyCode   string
+}
+
+// MobileCashFlowView is the period's cash flow and spending, as the backend
+// computed them. Budgets are not a feature of this application; this card
+// replaced a placeholder that suggested otherwise.
+type MobileCashFlowView struct {
+	Available bool
+
+	CurrencyCode      string
+	PeriodDescription string
+
+	CashFlow    CashFlow
+	Spending    Spending
+	HasPrevious bool
 }
 
 // MobileHeaderView holds information for the mobile top bar.
@@ -31,11 +59,10 @@ type MobileHeaderView struct {
 // read from the ledger, the stored rates and the base currency. Nothing here is
 // stored or cached.
 //
-// It carries no monthly change. M4 shipped one that was a hard-coded "+2.4%"
-// with no computation behind it, which in a finance application is worse than
-// showing nothing: a fabricated trend is indistinguishable from a real one.
-// A genuine change needs the net worth AT A PAST DATE, which is the historical
-// milestone's job, not this one's.
+// Its change over the period is computed by internal/analytics from the net
+// worth AT A PAST DATE (TD-069). M4 once shipped a hard-coded "+2.4%" here with
+// nothing behind it; the figure now exists because the history does, and when
+// it cannot be computed the view says why instead of showing a number.
 type NetWorthView struct {
 	// AmountFormatted is the total, already computed in integer minor units by
 	// the only code allowed to do arithmetic on money. A template must never add
@@ -59,6 +86,17 @@ type NetWorthView struct {
 
 	// IncompleteMessage names what is missing and is empty when Complete.
 	IncompleteMessage string
+
+	// Change is the change over the selected period, and PeriodDescription
+	// names that period ("últimos 30 días").
+	Change            Change
+	HasChange         bool
+	PeriodDescription string
+
+	// FutureMovementCount and ArchivedWithBalance are the two notes a net
+	// worth can carry (TD-063, TD-064).
+	FutureMovementCount int
+	ArchivedWithBalance int
 }
 
 // CurrencyBalanceItem represents a single currency's consolidated balance.
@@ -72,18 +110,6 @@ type CurrencyBalanceItem struct {
 type CurrencyBalancesView struct {
 	Currencies      []CurrencyBalanceItem
 	ViewAccountsURL string
-}
-
-// WeeklyBudgetView represents the weekly budget progress and metrics.
-type WeeklyBudgetView struct {
-	SpentFormatted     string
-	TotalFormatted     string
-	RemainingFormatted string
-	CurrencyCode       string
-	Percentage         float64
-	DaysRemaining      int
-	DaysRemainingText  string
-	Status             string // "normal", "warning", "danger"
 }
 
 // MobileTransactionItem represents a single movement item in the mobile feed.
@@ -129,7 +155,10 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		totals, err := svcs.Ledger.ListCurrencyTotals(ctx, false)
+		// Archived accounts included: the balances by currency are the same
+		// money the net worth values, and archiving an account does not make
+		// its money stop existing (TD-064).
+		totals, err := svcs.Ledger.ListCurrencyTotals(ctx, true)
 		if err != nil {
 			logger.Error("listing currency totals for mobile dashboard", slog.Any("error", err))
 			http.Error(w, "Failed to load totals", http.StatusInternalServerError)
@@ -172,17 +201,40 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 			mRecentTxs = append(mRecentTxs, mapMobileTransactionItem(tx))
 		}
 
-		// The consolidated net worth, derived on every read. A failure to value
-		// must not take the dashboard down: the per-currency balances below are
-		// the ledger's own figures and are still worth showing, so the header
-		// degrades to a message instead.
+		// The consolidated net worth, its history and the period's cash flow,
+		// all from one analytics call -- the same one the desktop dashboard
+		// makes. A failure to value must not take the screen down: the
+		// per-currency balances below are the ledger's own figures and are still
+		// worth showing, so the figures degrade to a message instead.
+		preset := ParseDashboardPreset(r.URL.Query().Get("period"))
 		netWorth := NetWorthView{CurrencyCode: primaryCurrency, CurrencyLabel: primaryCurrency + " · moneda base"}
-		if worth, verr := svcs.Valuation.GetCurrentNetWorth(ctx); verr != nil {
-			logger.Error("computing the net worth for the mobile dashboard", slog.Any("error", verr))
+		history := MobileHistoryView{Periods: periodOptions("/mobile", preset)}
+		var cashFlow MobileCashFlowView
+
+		if dash, aerr := svcs.Analytics.Dashboard(ctx, preset); aerr != nil {
+			logger.Error("computing the mobile dashboard", slog.Any("error", aerr))
 			netWorth.AmountFormatted = "-"
 			netWorth.IncompleteMessage = "No se pudo calcular el patrimonio consolidado."
 		} else {
-			netWorth = toNetWorthView(worth)
+			netWorth = toNetWorthView(dash.NetWorth)
+			netWorth.Change = dash.Change
+			netWorth.HasChange = true
+			netWorth.PeriodDescription = dash.Preset.Description()
+
+			base := dash.NetWorth.BaseCurrencyCode
+			history.Available = true
+			history.Chart = BuildNetWorthChart(dash.Points, base)
+			history.IncompleteDays = dash.IncompleteDays
+			history.CurrencyCode = base
+
+			cashFlow = MobileCashFlowView{
+				Available:         true,
+				CurrencyCode:      base,
+				PeriodDescription: dash.Preset.Description(),
+				CashFlow:          dash.CashFlow,
+				Spending:          dash.Spending,
+				HasPrevious:       dash.HasPrevious,
+			}
 		}
 
 		data := MobileDashboardView{
@@ -197,16 +249,8 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 				Currencies:      balanceItems,
 				ViewAccountsURL: "/mobile/cuentas",
 			},
-			Budget: WeeklyBudgetView{
-				SpentFormatted:     "0.00",
-				TotalFormatted:     "Activo",
-				RemainingFormatted: "Sin límite",
-				CurrencyCode:       primaryCurrency,
-				Percentage:         0,
-				DaysRemaining:      7 - int(now.Weekday()),
-				DaysRemainingText:  "Periodo activo",
-				Status:             "normal",
-			},
+			History:  history,
+			CashFlow: cashFlow,
 			Transactions: RecentTransactionsView{
 				Transactions: mRecentTxs,
 				ViewAllURL:   "/mobile/movimientos",
@@ -224,76 +268,5 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 		if err := renderer.RenderMobilePage(w, r, http.StatusOK, "mobile/index.html", pageData); err != nil {
 			logger.Error("rendering mobile dashboard", slog.Any("error", err))
 		}
-	}
-}
-
-// DefaultMobileMockData returns the high-fidelity mock data for test fallbacks.
-func DefaultMobileMockData() MobileDashboardView {
-	return MobileDashboardView{
-		Header: MobileHeaderView{
-			UserName:      "Andres",
-			Greeting:      "Hola, Andres",
-			FormattedDate: "Domingo, 6 de septiembre",
-			UserInitials:  "A",
-			AvatarURL:     "",
-		},
-		// No invented figure and no invented trend: the mock shows the shape of
-		// the view, not a plausible-looking net worth.
-		NetWorth: NetWorthView{
-			AmountFormatted: "0.00",
-			CurrencyCode:    "USD",
-			CurrencyLabel:   "USD · moneda base",
-			Complete:        true,
-		},
-		Balances: CurrencyBalancesView{
-			Currencies: []CurrencyBalanceItem{
-				{
-					CurrencyCode:   "USD",
-					CurrencyName:   "Dólares",
-					FormattedTotal: "$2,057.56",
-				},
-				{
-					CurrencyCode:   "VES",
-					CurrencyName:   "Bolívares",
-					FormattedTotal: "Bs 150,548.84",
-				},
-				{
-					CurrencyCode:   "EUR",
-					CurrencyName:   "Euros",
-					FormattedTotal: "€850.00",
-				},
-			},
-			ViewAccountsURL: "/mobile/cuentas",
-		},
-		Budget: WeeklyBudgetView{
-			SpentFormatted:     "Bs 8,450",
-			TotalFormatted:     "Bs 12,000",
-			RemainingFormatted: "Bs 3,550",
-			CurrencyCode:       "VES",
-			Percentage:         70.4,
-			DaysRemaining:      3,
-			DaysRemainingText:  "Quedan 3 días",
-			Status:             "normal",
-		},
-		Transactions: RecentTransactionsView{
-			Transactions: []MobileTransactionItem{
-				{
-					ID:              "tx-1",
-					Merchant:        "Supermercado",
-					AccountName:     "Banesco",
-					CategoryName:    "Alimentación",
-					DateLabel:       "Hoy",
-					AmountFormatted: "- Bs 1,240.00",
-					Type:            "EXPENSE",
-					CategoryIcon:    "cart",
-					IsPositive:      false,
-					CurrencyCode:    "VES",
-				},
-			},
-			ViewAllURL: "/mobile/movimientos",
-		},
-		Navigation: MobileNavView{
-			ActiveTab: "inicio",
-		},
 	}
 }

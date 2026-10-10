@@ -39,7 +39,8 @@ HTTP  →  Application / Services  →  Repository  →  SQLite
   layer. Do not create a package before it has code.
 - `internal/application` is for **writes** spanning two domains atomically.
   `internal/valuation` is a cross-domain **read**, and is its own package for
-  that reason (TD-052).
+  that reason (TD-052). `internal/analytics` (M6) is the dashboard's
+  cross-domain read over a period, built on `valuation`.
 
 Each domain package declares its own sentinel errors and **translates** errors
 from packages it consults, so a handler never has to import a neighbouring domain
@@ -224,6 +225,39 @@ and payment methods; internal same-currency transfers.
 - **`MovementSide` / `AccountSideError`** are M4's `TransferSide` /
   `TransferAccountError` renamed as **aliases**, not parallel types.
 
+**M6 (closed): historical net worth & analytics dashboard.** Read
+[`docs/m6-contract.md`](docs/m6-contract.md).
+
+- **A balance is always "as of" a date, and "current" means today** in Venezuela
+  (TD-063): `SUM(movements WHERE effective_date <= today)`, never every
+  movement. The rule lives in the ledger's balance queries, not in a screen. A
+  future-dated movement is listed and counted (`FutureMovementCount`), never
+  summed early.
+- **Archived accounts are valued, current and historical** (TD-064). Archiving is
+  visibility, not a financial event; an archived account with a balance is
+  warned about, never excluded. This superseded M5's active-only rule.
+- **One engine.** `valuation.Service.Load(through)` reads, with a constant number
+  of queries, settings, currencies, every account, the ledger's daily deltas and
+  the rates through that date into a `Snapshot`; `NetWorthAt`, `Series` and
+  `ConvertToBaseExact` work in memory. The headline figure is the series asked
+  for today. **No query per day, per account or per currency** (TD-065).
+- **One rate resolver**: `fx.Book`, used by `fx.Service.Resolve` and by the
+  series. M5's lookup policy is unchanged and lives only there (TD-066).
+- **A zero balance needs no rate; a non-zero one without a rate is a gap**
+  (TD-067): incomplete point, `Missing`, a hole in the chart, a change shown as
+  unavailable. Never zero, never a later rate.
+- **Cash flow is `INCOME` and `EXPENSE` only**, each converted at the rate of its
+  own `effective_date`, summed exactly per category and rounded once (TD-068).
+  `TRANSFER`, `FX_EXCHANGE` and `OPENING_BALANCE` are never income or expense.
+- **Periods are fixed day counts** (7/30/90/365, ALL) ending today; the previous
+  period is adjacent and equally long; the change is `NW(to) − NW(from − 1)`
+  (TD-069). The clock is injected.
+- **Percentages are `int64` basis points**, half to even, with `Defined = false`
+  for a ratio over nothing. Never NaN, never Inf.
+- **Breakdown lines are allocated by largest remainder** so they add up; **the
+  chart is a server-rendered SVG with integer geometry** (TD-070). Templates
+  only prefix a sign or a `%` to strings the backend formatted.
+
 **Not built, and not to be added opportunistically:**
 
 - **No delete of anything.** Archive or correct.
@@ -235,8 +269,11 @@ and payment methods; internal same-currency transfers.
   the other computed). Both amounts are always entered.
 - **No cross-currency transfers**, no transfer fees, no split transactions, no
   scheduled or recurring transfers, no scheduled or automatic exchanges.
-- **No historical net worth and no chart.** `GetNetWorthAt` takes a date because
-  that is the honest shape of a valuation, not because M5 draws history.
+- **No budgets, spending limits, alerts, anomaly detection, notifications,
+  forecasting or recommendations.** M6's dashboard reports; it does not judge.
+- **No projected balance**, no maximum age for a rate, no automatic importer of
+  historical BCV rates, no snapshot table, no cache, no background job, no JSON
+  API and no charting library.
 - **No third-party rate mirror** (TD-054).
 - No credit, loans, instalments, calendar, recurring transactions, budgets, tags,
   hierarchical categories, authentication or public API.
@@ -277,6 +314,11 @@ Short list, because each cost real time and each is easy to repeat.
   has not reached. Nothing caught it because nothing called it (TD-051).
 - **Go does not chase AIA, and Windows does.** A TLS chain that verifies on the
   development machine can fail in the container. Test the container (TD-050).
+- **A balance with no date silently included the future** for five milestones
+  (TD-063). Nothing compared a balance with a date until a history did. And the
+  forms' default date was still UTC, so once balances were cut at "today" an
+  evening entry would have been tomorrow's. A date-sensitive rule needs every
+  "today" in the application to be the same one: `database.TodayAt`.
 - **A read model that anchors on a semantic property can hide broken data.**
   Picking a transfer's row by "the negative movement" drops a malformed transfer
   with no negative movement out of the listing entirely. Anchor structurally,

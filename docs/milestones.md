@@ -9,6 +9,7 @@ The living roadmap. This file is updated as milestones open and close.
 | `PLANNED` | On the roadmap. Scope not yet defined or approved. |
 | `IN PROGRESS` | Scope approved, implementation under way. |
 | `CLOSED` | Delivered, verified against its acceptance criteria, and documented. |
+| `POSTPONED` | Started or scoped, then deliberately set aside. Its work is kept, not deleted. |
 
 ---
 
@@ -619,6 +620,109 @@ of edits.
 
 ---
 
+## M6 — Historical Net Worth & Analytics Dashboard · `CLOSED`
+
+One milestone where the roadmap had two. M6 (Historical Net Worth) and M7
+(Dashboard & Analytics) were merged because neither is useful alone: every figure
+the dashboard needs — the change over a period, the chart, the breakdown — is a
+question about the net worth at a date, and a history with no screen is a
+function nobody calls.
+
+### The question it answers
+
+> What was everything I hold worth at the close of a given day, in my base
+> currency, using only the information and the rates available for that day?
+
+And the dashboard is built from that answer and nothing else.
+
+### Scope
+
+- **One engine for a date and for a range.** `valuation.Service.Load` reads,
+  with five queries, everything a valuation up to a date needs into a
+  `Snapshot`; `NetWorthAt`, `Series` and `ConvertToBaseExact` then work in
+  memory. The headline figure is the series asked for today (TD-065).
+- **One rate resolver.** M5's resolution rules moved, unchanged, into a pure
+  `fx.Book`. `fx.Service.Resolve` and the series both use it (TD-066).
+- **Balances are "as of" a date; "current" means today** (TD-063), in the
+  ledger's own queries. Future-dated movements are counted, not summed.
+- **Archived accounts are valued** (TD-064). Archiving is visibility.
+- **A zero balance needs no rate; a missing rate is a gap** (TD-067).
+- **`internal/analytics`**: periods, change, cash flow, savings rate, spending
+  and its comparison with the previous period (TD-068, TD-069).
+- **The dashboard**, desktop and mobile: KPIs, the history chart with a period
+  selector, the breakdown by currency and by account, cash flow and spending. The
+  chart is a server-rendered SVG with integer geometry (TD-070).
+
+### Decisions worth naming
+
+- **The current balance used to include future-dated movements.** Nothing
+  compared a balance with a date until a history did, and the series point for
+  today would have disagreed with the account screen. The rule moved into the
+  ledger rather than into a dashboard filter, so there is one definition of
+  "what this account holds today".
+- **Excluding archived accounts from history would let a transfer create net
+  worth.** Account A holds 100, transfers it to B and is archived empty; drop A,
+  and the 100 appears in B from nowhere on the day of the transfer. M5's
+  active-only rule was superseded rather than extended to history.
+- **A zero balance needs no rate.** Without that, every day before a
+  foreign-currency account's first movement would have been "incomplete" for no
+  information at all.
+- **Flows are valued at their own day's rate**, not the period-end one: a
+  March salary converted at December's rate would make March's figures move
+  every time the bolívar does.
+- **Percentages are basis points.** `Ratio{BasisPoints, Defined}`; a ratio over
+  nothing is undefined and shown as "—". There is no float in which a NaN could
+  hide.
+- **No index, no migration, no snapshot table.** Each was considered and
+  measured against the reads the milestone actually makes (data-model.md).
+- **No charting library.** One line, one area, gaps, hover titles: about a
+  hundred lines of Go.
+
+### Found and fixed on the way
+
+- **The desktop forms defaulted to the UTC date.** `TodayDate()` — the default
+  effective date of the account, transaction and transfer forms — still read the
+  clock in UTC, so for four hours every evening it offered tomorrow. Harmless
+  until M6, when a movement dated tomorrow stopped counting in today's balance.
+  It now uses the Venezuelan calendar, and two tests that built "today" in UTC
+  were corrected the same way.
+- **The dashboard labelled an exchange as an expense.** Its recent-activity table
+  read `if TRANSFER … else Expense`, the TD-045 shape, and `FX_EXCHANGE` fell
+  through. Every type is now named, and a test checks it.
+
+### Delivered
+
+`internal/analytics`; `valuation.Snapshot`, `GetNetWorthSeries`, the breakdown by
+account; `fx.Book`, `fx.Service.BookThrough`, `Repository.ListActiveThrough`
+(replacing `LookupOn` and `ListApplicableFor`); `ledger.ListDailyAccountDeltas`,
+`ledger.ListFlows`, as-of balances and `FutureMovementCount`;
+`money.ConvertMinorExact`, `RoundHalfEven`, `RatioBasisPoints`, `Allocate`; the
+web `AnalyticsService`, its adapter and fake, `chart.go`, the rebuilt desktop
+dashboard and the mobile history and cash-flow cards; the contract in
+[m6-contract.md](m6-contract.md); TD-063 to TD-070. Schema version unchanged: 13.
+
+### Verification
+
+- `gofmt -l` silent, `go vet ./...` clean, `go test ./... -count=1` green, and
+  `go test -race ./...` green in the Linux container.
+- The no-float test now covers `internal/analytics` too.
+- The milestone's twelve cases each have a test against real SQLite: single
+  currency, several currencies, historical FX, no future leakage, a missing rate,
+  income, expense, transfer, currency exchange, an account with no activity, an
+  empty portfolio, zero income, period comparison and both boundaries.
+- Desktop and mobile were checked in a browser against a seeded ledger with a
+  month of missing rates, a future-dated expense, a transfer and an exchange.
+
+### Not in M6
+
+Budgets, spending limits and alerts; anomaly detection; notifications; credit,
+debt and instalments; forecasting and recommendations; a projected balance; an
+automatic importer of historical BCV rates; a maximum age for rates; snapshot
+tables, caches or background jobs; a JSON API; production deployment; **any
+delete**; and audit history of edits.
+
+---
+
 ## Roadmap
 
 Everything below is **provisional**. These are the currently expected shape of
@@ -633,11 +737,23 @@ below has acceptance criteria yet, by design.
 | --- | --- | --- |
 | M5 | Multi-Currency, Exchange Rates & Current Net Worth | `IN PROGRESS` |
 | M5.5 | Currency Exchange Transactions | `CLOSED` |
-| M6 | Historical Net Worth | `PLANNED` |
-| M7 | Dashboard & Analytics | `PLANNED` |
-| M8 | Credit & Debt | `PLANNED` |
-| M9 | Instalments & Calendar | `PLANNED` |
-| M10 | Hardening | `PLANNED` |
+| M6 | Historical Net Worth & Analytics Dashboard | `CLOSED` |
+| — | Production Deployment, Private Access & Continuous Backup | `POSTPONED` |
+| M7 | Credit & Debt | `PLANNED` |
+| M8 | Instalments & Calendar | `PLANNED` |
+| M9 | Hardening | `PLANNED` |
+
+**M6 merges what were M6 (Historical Net Worth) and M7 (Dashboard &
+Analytics).** They were never separable: every figure the dashboard needs — the
+change over a period, the chart, the breakdown — is a question about the net
+worth at a date, so building the history without its only consumer, or the
+dashboard without its only source, would each have produced half a feature.
+
+**Production deployment is `POSTPONED`, not dropped.** It was inserted as M6 on
+the `cloud-hosting` branch, where its work (Compose for production, Litestream,
+Tailscale, the OCI runbook, TD-057 to TD-062) is kept intact and unmerged. It
+takes a milestone number again when it is resumed. The application keeps running
+in its current local environment until then.
 
 The roadmap has now been renumbered three times, which is what "provisional"
 above means in practice. Everything after M3 shifted by one when M3 became Data
@@ -665,9 +781,18 @@ Parked items, none blocking:
   only. If distinguishing savings from day-to-day money ever has a real
   consumer, it arrives as its own decision rather than as more enum values.
 - **Historical backfill of exchange rates.** M5 stores what it is told and what it
-  fetches from today onward; there is no history before the first run. Until a
-  trustworthy source exists it is manual entry, one observation at a time. M6 will
-  have to decide whether that is enough.
+  fetches from today onward; there is no history before the first run. M6 decided
+  that manual entry is enough for now: days without a rate are gaps on the chart,
+  never guesses (TD-067). An importer of the BCV's historical files would be its
+  own milestone.
+- **The mobile transactions summary totals in the handler.** Its per-currency
+  income and expense line predates M6 and sums `TransactionView` amounts in
+  `mobile_transactions.go`. It never converts or mixes currencies, so it is not
+  wrong, but it is the one remaining financial sum outside a domain package and
+  should move onto `analytics` when that screen is next touched.
+- **Archiving an account has no button.** The domain supports it and M6 warns
+  about archived accounts with a balance, but neither the desktop nor the mobile
+  account screen exposes the action.
 - **Cosmetic dates in the mobile shell.** The greeting and the date headings still
   read the clock in UTC. They are display text, not financial dates — the form
   defaults and the valuation date were fixed in M5 — but they should follow the

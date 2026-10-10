@@ -59,10 +59,18 @@
           <span class="{{ if isNegative .BalanceMinor }}amount-expense{{ end }}">
             {{ formatAmount .BalanceFormatted }} {{ .CurrencyCode }}
           </span>
+          {{ if .FutureMovementCount }}
+          <div style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-sans);"
+               title="Movimientos con fecha posterior a hoy: existen, pero aún no forman parte del saldo.">
+            + {{ .FutureMovementCount }} {{ if eq .FutureMovementCount 1 }}movimiento futuro{{ else }}movimientos futuros{{ end }}
+          </div>
+          {{ end }}
         </td>
         <td>
           {{ if .IsActive }}
           <span class="badge badge-active">Active</span>
+          {{ else if ne .BalanceMinor 0 }}
+          <span class="badge badge-warning" title="Archivar solo oculta la cuenta: su saldo sigue contando en el patrimonio.">Archived · con saldo</span>
           {{ else }}
           <span class="badge badge-inactive">Archived</span>
           {{ end }}

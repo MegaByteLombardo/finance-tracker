@@ -4,6 +4,17 @@
   <div class="net-worth-main">
     <span class="net-worth-amount">{{ .AmountFormatted }}</span>
   </div>
+  {{ if .HasChange }}
+    {{ if .Change.Defined }}
+    <p class="net-worth-change {{ if .Change.IsPositive }}is-up{{ else if .Change.IsNegative }}is-down{{ end }}">
+      <span>{{ signedChange .Change }}</span>
+      <span>{{ signedRatio .Change.Percent }}</span>
+      <span class="net-worth-change-period">{{ .PeriodDescription }}</span>
+    </p>
+    {{ else }}
+    <p class="net-worth-change net-worth-change-na">{{ .Change.UnavailableMessage }}</p>
+    {{ end }}
+  {{ end }}
   <div class="net-worth-meta">
     <span class="net-worth-base-tag">{{ .CurrencyLabel }}</span>
     {{ if .RatesAsOf }}
@@ -14,6 +25,16 @@
   <p class="net-worth-incomplete" role="status">
     {{ .IncompleteMessage }}
     <a href="/mobile/tasas">Agregar tasa</a>
+  </p>
+  {{ end }}
+  {{ if .ArchivedWithBalance }}
+  <p class="net-worth-incomplete" role="status">
+    {{ .ArchivedWithBalance }} {{ if eq .ArchivedWithBalance 1 }}cuenta archivada conserva{{ else }}cuentas archivadas conservan{{ end }} saldo y sigue{{ if ne .ArchivedWithBalance 1 }}n{{ end }} contando.
+  </p>
+  {{ end }}
+  {{ if .FutureMovementCount }}
+  <p class="net-worth-note">
+    {{ .FutureMovementCount }} {{ if eq .FutureMovementCount 1 }}movimiento futuro aún no cuenta{{ else }}movimientos futuros aún no cuentan{{ end }}.
   </p>
   {{ end }}
 </section>

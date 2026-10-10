@@ -52,7 +52,7 @@ cmd/web                         serve (default) | restore
    ↓
 HTTP                    (internal/httpserver, internal/web)
    ↓
-cross-domain reads      (internal/valuation)
+cross-domain reads      (internal/analytics -> internal/valuation)
 cross-domain workflows  (internal/application)
    ↓
 domain services         (internal/currency, internal/account,
@@ -336,6 +336,15 @@ the only one whose failure is routine. That shapes it:
 - `refresh.go` is one goroutine and one ticker. Every failure it meets is a log
   line, because there is nobody to return an error to.
 
+**Resolution is one pure function over an in-memory `Book`** *(M6)*. The lookup
+policy — the latest `effective_date <= D`, never later; `MANUAL > BCV_OFFICIAL`
+within one date only; identity, direct, inverted, one pivot — lives in
+`book.go` and nowhere else. `Service.Resolve` loads the observations in effect on
+a date (`ListActiveThrough`, one query) and asks a `Book`; the historical series
+builds one `Book` for its whole range and asks it once per currency per day. A
+single date and five years of dates are therefore resolved by the same code
+([TD-066](technical-decisions.md)). There is still no maximum age for a rate.
+
 ### `internal/settings` *(M5)*
 
 The application's own configuration, as opposed to the deployment's, which is
@@ -365,6 +374,50 @@ A currency it cannot value is **reported**, not raised: the result carries
 `Complete = false` and the list of missing pairs, so the interface can show what
 is known and name what is not.
 
+**M6 made it historical.** `Service.Load(through)` reads, with a constant number
+of queries, everything a valuation up to a date needs — settings, currencies,
+every account (archived ones included), the ledger's daily deltas per account,
+and the rates in effect through that date — into a `Snapshot`. Every figure after
+that is computed in memory:
+
+- `NetWorthAt(D)` — the net worth at the close of D, with its breakdown by
+  currency and by account, allocated by largest remainder so the lines add up
+  ([TD-070](technical-decisions.md));
+- `Series(from, to)` — one point per day, walking the calendar once and adding
+  each day's deltas to running per-currency balances ([TD-065](technical-decisions.md));
+- `ConvertToBaseExact(amount, currency, D)` — an amount at the rate of its own
+  day, unrounded, for the cash flow.
+
+`GetCurrentNetWorth` is `NetWorthAt(today)`, so the headline figure and the last
+point of the chart are the same computation. A balance as of D is the sum of the
+movements dated on or before D — the same rule the ledger's current balances use
+([TD-063](technical-decisions.md)). Archived accounts are valued like any other
+([TD-064](technical-decisions.md)). A zero balance needs no rate; a non-zero one
+without a rate makes that day a gap ([TD-067](technical-decisions.md)).
+
+### `internal/analytics` *(M6)*
+
+The dashboard's questions about a period: how the net worth moved, what came in,
+what went out, and where it went. Like `valuation` it is a cross-domain **read**
+and writes nothing.
+
+It owns the arithmetic **of a period** and nothing else: the presets (7D, 30D,
+90D, 1Y, ALL), the previous period of equal length, the change from the close of
+the day before the period, income, expenses, net cash flow, the savings rate,
+spending by category and its comparison. Balances, history and conversion come
+from one `valuation.Snapshot`; flows come from `ledger.ListFlows`, which accepts
+`INCOME` and `EXPENSE` and nothing else ([TD-068](technical-decisions.md)). Each
+flow is converted at the rate of its own day and rounded once per category.
+
+Every percentage is an integer number of basis points rounded half to even by
+`internal/money`, and a ratio over nothing is `Defined = false` — never NaN,
+never infinity. "Today" comes from a clock injected by the composition root, so
+every period is testable with fixed dates ([TD-069](technical-decisions.md)).
+
+One dashboard request costs a constant number of queries whatever its period:
+the snapshot's five plus one for the flows of the current and previous period
+together. No query is issued per day, per account or per currency.
+
 ### `internal/application`
 
 Cross-domain workflows, and nothing else. One today: `OpenAccount`, which creates
@@ -374,7 +427,9 @@ A workflow earns a place here by coordinating two domains atomically. Pass-throu
 wrappers do not belong in it, and neither does anything a single domain service
 can already do — **and neither does a read**. M5's consolidated net worth spans
 three domains and went to `internal/valuation` instead, because it writes nothing
-and the atomicity that justifies this package does not apply to it.
+and the atomicity that justifies this package does not apply to it. M6's history
+and analytics went to `internal/valuation` and `internal/analytics` for the same
+reason.
 
 ### `internal/httpserver`
 
@@ -486,6 +541,19 @@ There is no request-logging middleware. A health endpoint is typically polled on
 a short interval, and a line per successful probe would bury everything else.
 The health handler logs only on failure. This will be revisited when there are
 endpoints worth tracing.
+
+### The dashboard *(M6)*
+
+`GET /?period=7D|30D|90D|1Y|ALL` (desktop) and `GET /mobile?period=…` both make
+**one** call to the analytics service and render what it returns. An absent or
+unknown period means 30D. The period selector is a set of ordinary links that
+htmx enhances with `hx-select`: it fetches the same full page and swaps only the
+analytics block, so a deep link and a click are rendered by the same server code
+and the page works with JavaScript off. There is no JSON endpoint; the chart is an
+inline SVG whose integer geometry `internal/web/chart.go` computes from the series
+(TD-070). No handler, template or script performs financial arithmetic; the
+template functions `signedChange`, `signedRatio` and `ratio` only prefix a sign or
+a `%` to strings the backend already formatted.
 
 ## Lifecycle
 

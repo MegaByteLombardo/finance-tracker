@@ -10,7 +10,6 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/fx"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
-	"github.com/MegaByteLombardo/finance-tracker/internal/money"
 	"github.com/MegaByteLombardo/finance-tracker/internal/settings"
 )
 
@@ -24,14 +23,19 @@ var (
 	// up, so reaching this means the database was edited by hand. It warrants a
 	// 500, not a message on a form.
 	ErrBaseCurrencyUnavailable = errors.New("the valuation base currency is unavailable")
+
+	// ErrInvalidRange means a series was asked for a range that ends before it
+	// starts, runs past the date its rates were loaded for, or is longer than
+	// any history this application could hold.
+	ErrInvalidRange = errors.New("invalid valuation range")
 )
 
-// Service computes the consolidated net worth.
+// Service computes the consolidated net worth, for one date or for a range.
 //
-// It holds the three services it reads from rather than their repositories:
-// valuing money is a question asked of the domain, not of the tables, and going
-// through the services is what keeps the ledger's own rules -- which accounts
-// count, how a balance is derived -- in one place.
+// It holds the services it reads from rather than their repositories: valuing
+// money is a question asked of the domain, not of the tables, and going through
+// the services is what keeps the ledger's own rules -- what a balance is, which
+// movements count on which day -- and fx's lookup policy in one place each.
 type Service struct {
 	ledger   *ledger.Service
 	rates    *fx.Service
@@ -47,7 +51,7 @@ type Service struct {
 	now func() time.Time
 }
 
-// NewService wires the three domains together.
+// NewService wires the domains together.
 func NewService(
 	ledgerService *ledger.Service,
 	rateService *fx.Service,
@@ -68,25 +72,22 @@ func NewService(
 // Today is the Venezuelan calendar date, which is the same business day the rate
 // provider publishes against. Using a UTC date would, for four hours out of
 // every twenty-four, ask for rates effective on a day that has not happened yet.
+// It is also the date the ledger's current balances are cut at (TD-063), so the
+// figure here and the balances on the account screens describe the same day.
 func (s *Service) GetCurrentNetWorth(ctx context.Context) (NetWorth, error) {
 	return s.GetNetWorthAt(ctx, database.TodayAt(s.now()))
 }
 
-// GetNetWorthAt values everything the user holds as of a given date.
-//
-// The date parameter exists because it is the honest shape of this computation:
-// a valuation is always "as of" something, and writing that into the signature
-// now costs nothing. M5 calls it with today and draws no history; what a chart
-// would need is a loop around this function, and that belongs to its own
-// milestone with its own decisions about resolution and storage.
+// GetNetWorthAt values everything the user held at the close of a date: the
+// movements dated on or before it, at the rates in effect on it.
 //
 // # Rounding
 //
-// Each currency's balance is summed EXACTLY by the ledger, converted as an exact
-// rational, and rounded once -- half to even -- into the base currency's minor
-// units. The total is then the integer sum of those rounded components, with no
-// further rounding, so the components a screen shows add up to the total that
-// screen shows.
+// Each currency's balance is summed EXACTLY from the ledger, converted as an
+// exact rational, and rounded once -- half to even -- into the base currency's
+// minor units. The total is then the integer sum of those rounded components,
+// with no further rounding, so the components a screen shows add up to the total
+// that screen shows.
 //
 // # A missing rate is reported, not raised
 //
@@ -95,96 +96,73 @@ func (s *Service) GetCurrentNetWorth(ctx context.Context) (NetWorth, error) {
 // error would deny the user the part of their net worth that IS known, and a
 // zero would silently shrink the total.
 func (s *Service) GetNetWorthAt(ctx context.Context, on time.Time) (NetWorth, error) {
+	snapshot, err := s.Load(ctx, on)
+	if err != nil {
+		return NetWorth{}, err
+	}
+	return snapshot.NetWorthAt(on)
+}
+
+// GetNetWorthSeries values the user's holdings at the close of every day from
+// one date to another, inclusive. It is GetNetWorthAt for each day, computed in
+// one pass from one load (TD-065).
+func (s *Service) GetNetWorthSeries(ctx context.Context, from, to time.Time) (Series, error) {
+	snapshot, err := s.Load(ctx, to)
+	if err != nil {
+		return Series{}, err
+	}
+	return snapshot.Series(from, to)
+}
+
+// Load reads everything a valuation up to a date needs, with a constant number
+// of queries, and returns it as a Snapshot that answers every later question in
+// memory.
+//
+// It reads the settings, the currencies, every account (archived ones included,
+// TD-064), the daily deltas of the whole ledger, and every active rate
+// observation in effect on or before through. Nothing is read inside a database
+// transaction: the pool has one connection, and the services this calls each use
+// it (TD-065).
+func (s *Service) Load(ctx context.Context, through time.Time) (*Snapshot, error) {
 	appSettings, err := s.settings.Get(ctx)
 	if err != nil {
 		if errors.Is(err, settings.ErrMissing) {
-			return NetWorth{}, fmt.Errorf("%w: %s", ErrBaseCurrencyUnavailable, err)
+			return nil, fmt.Errorf("%w: %s", ErrBaseCurrencyUnavailable, err)
 		}
-		return NetWorth{}, fmt.Errorf("reading the valuation base: %w", err)
+		return nil, fmt.Errorf("reading the valuation base: %w", err)
 	}
 
-	base, err := s.currencies.Get(ctx, appSettings.BaseCurrencyCode)
+	currencies, err := s.currencies.List(ctx, true)
 	if err != nil {
-		if errors.Is(err, currency.ErrNotFound) {
-			return NetWorth{}, fmt.Errorf("%w: currency %q does not exist",
-				ErrBaseCurrencyUnavailable, appSettings.BaseCurrencyCode)
-		}
-		return NetWorth{}, fmt.Errorf("reading the valuation base currency: %w", err)
+		return nil, fmt.Errorf("reading currencies: %w", err)
+	}
+	byCode := make(map[string]currency.Currency, len(currencies))
+	for _, c := range currencies {
+		byCode[c.Code] = c
+	}
+	base, ok := byCode[appSettings.BaseCurrencyCode]
+	if !ok {
+		return nil, fmt.Errorf("%w: currency %q does not exist",
+			ErrBaseCurrencyUnavailable, appSettings.BaseCurrencyCode)
 	}
 
-	// Active accounts only, which is what the dashboard has always shown. An
-	// archived account is money the user has told this application to stop
-	// counting.
-	//
-	// An active account in an ARCHIVED CURRENCY still counts, and its rate is
-	// looked up normally. Archiving a currency retires it from new accounts; it
-	// does not make the money in existing ones stop existing.
-	totals, err := s.ledger.ListCurrencyTotals(ctx, false)
+	// Every account, archived or not. Only the metadata is used: the balances
+	// this listing carries are the ledger's CURRENT ones, and a valuation at
+	// another date rebuilds its own from the deltas below.
+	accounts, err := s.ledger.ListAccountBalances(ctx, true)
 	if err != nil {
-		return NetWorth{}, fmt.Errorf("reading currency totals: %w", err)
+		return nil, fmt.Errorf("reading accounts: %w", err)
 	}
 
-	result := NetWorth{
-		BaseCurrencyCode: base.Code,
-		BaseCurrencyName: base.Name,
-		BaseSymbol:       base.Symbol,
-		BaseMinorUnit:    base.MinorUnit,
-		ValuationDate:    on,
-		Complete:         true,
-		Components:       make([]Component, 0, len(totals)),
+	deltas, err := s.ledger.ListDailyAccountDeltas(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the ledger's daily deltas: %w", err)
 	}
 
-	for _, total := range totals {
-		component := Component{
-			CurrencyCode:     total.CurrencyCode,
-			CurrencyName:     total.CurrencyName,
-			CurrencySymbol:   total.CurrencySymbol,
-			MinorUnit:        total.MinorUnit,
-			AccountCount:     total.AccountCount,
-			BalanceMinor:     total.TotalMinor,
-			BalanceFormatted: total.TotalFormatted,
-		}
-
-		resolution, err := s.rates.Resolve(ctx, total.CurrencyCode, base.Code, on)
-		switch {
-		case err == nil:
-			// Resolved.
-		case errors.Is(err, fx.ErrRateUnavailable), errors.Is(err, fx.ErrNotFound):
-			result.Complete = false
-			result.Missing = append(result.Missing, MissingRate{
-				FromCurrencyCode: total.CurrencyCode,
-				ToCurrencyCode:   base.Code,
-				BalanceMinor:     total.TotalMinor,
-				BalanceFormatted: total.TotalFormatted,
-			})
-			result.Components = append(result.Components, component)
-			continue
-		default:
-			return NetWorth{}, fmt.Errorf("resolving %s to %s: %w",
-				total.CurrencyCode, base.Code, err)
-		}
-
-		converted, err := money.ConvertMinor(
-			total.TotalMinor, total.MinorUnit, base.MinorUnit, resolution.Rate())
-		if err != nil {
-			// Overflow, and nothing else: the rate is positive by construction
-			// and both minor units come from the currencies table. A balance
-			// this large is a real failure and is reported as one rather than
-			// being folded in with "no rate", which would send the user to a
-			// form that cannot help them.
-			return NetWorth{}, fmt.Errorf("converting %s %s into %s: %w",
-				total.TotalFormatted, total.CurrencyCode, base.Code, err)
-		}
-
-		component.Valued = true
-		component.ConvertedMinor = converted
-		component.ConvertedFormatted = money.Format(converted, base.MinorUnit)
-		component.Resolution = &resolution
-
-		result.TotalMinor += converted
-		result.Components = append(result.Components, component)
+	book, err := s.rates.BookThrough(ctx, through)
+	if err != nil {
+		return nil, fmt.Errorf("reading exchange rates through %s: %w", database.FormatDate(through), err)
 	}
 
-	result.TotalFormatted = money.Format(result.TotalMinor, base.MinorUnit)
-	return result, nil
+	return newSnapshot(base, byCode, accounts, deltas, book, through)
 }

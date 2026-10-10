@@ -31,31 +31,56 @@ type PageData struct {
 	Data      any
 }
 
-// DashboardView holds all data needed for the Dashboard page
+// DashboardView holds all data needed for the Dashboard page.
+//
+// Every financial figure on it comes from Analytics, which internal/analytics
+// and internal/valuation computed and formatted. The handler adds nothing up and
+// the template formats nothing that is not already a string (docs/m6-contract.md).
 type DashboardView struct {
-	// NetWorth is the consolidated figure, DERIVED on every request from the
-	// ledger, the stored rates and the base currency. It is never stored.
-	//
-	// When NetWorthError is set the rest of the page still renders: the
-	// per-currency balances below are the ledger's own figures and do not depend
-	// on any exchange rate.
-	NetWorth      NetWorth
+	// Analytics is the M6 dashboard: today's net worth and its breakdown, its
+	// history over the period, the change, the cash flow and the spending.
+	Analytics DashboardAnalytics
+
+	// NetWorth is Analytics.NetWorth, kept as its own field because the M5
+	// panel renders it.
+	NetWorth NetWorth
+
+	// NetWorthError is set when the analytics could not be computed. The rest
+	// of the page still renders: recent transactions need no exchange rate.
 	NetWorthError string
 
-	CurrencySections   []CurrencySection
-	CurrencyTotals     []CurrencyTotal
+	// Chart is Analytics' series, laid out.
+	Chart ChartView
+
+	// Periods is the selector, with the active preset marked.
+	Periods []PeriodOption
+
 	RecentTransactions []TransactionView
 	HasAccounts        bool
 	HasCategories      bool
 	HasTransactions    bool
 }
 
-type CurrencySection struct {
-	CurrencyCode   string
-	CurrencyName   string
-	CurrencySymbol *string
-	TotalFormatted string
-	Accounts       []AccountBalance
+// PeriodOption is one button of the period selector.
+type PeriodOption struct {
+	Preset DashboardPreset
+	Label  string
+	URL    string
+	Active bool
+}
+
+// periodOptions builds the selector for a page at path.
+func periodOptions(path string, active DashboardPreset) []PeriodOption {
+	options := make([]PeriodOption, 0, len(DashboardPresets()))
+	for _, preset := range DashboardPresets() {
+		options = append(options, PeriodOption{
+			Preset: preset,
+			Label:  preset.Label(),
+			URL:    path + "?period=" + string(preset),
+			Active: preset == active,
+		})
+	}
+	return options
 }
 
 // AccountForm holds state and validation for the new account form
@@ -161,8 +186,15 @@ type CategoryGroupView struct {
 
 // Helper methods
 
+// TodayDate is the default effective date a form offers: today on the
+// Venezuelan calendar (TD-051).
+//
+// It was the UTC date until M6, which for four hours every evening offered
+// tomorrow. Once current balances began excluding future-dated movements
+// (TD-063), that default would have recorded an evening purchase as not yet
+// having happened.
 func TodayDate() string {
-	return time.Now().UTC().Format("2006-01-02")
+	return time.Now().In(economicLocation).Format("2006-01-02")
 }
 
 func OptionalString(s string) *string {

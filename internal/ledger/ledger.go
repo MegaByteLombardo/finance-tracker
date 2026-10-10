@@ -550,17 +550,23 @@ type AccountBalance struct {
 	CurrencySymbol *string
 	MinorUnit      int
 
-	// BalanceMinor is the sum of the account's movements. An account with none
-	// has a balance of zero.
+	// BalanceMinor is the sum of the account's movements dated on or before the
+	// as-of date -- today, for the current balance (TD-063). An account with
+	// none has a balance of zero.
 	BalanceMinor     int64
 	BalanceFormatted string
+
+	// FutureMovementCount is how many of the account's movements are dated
+	// AFTER the as-of date. They exist and are listed, but are not part of
+	// BalanceMinor yet. It is a count, not a projected balance.
+	FutureMovementCount int
 }
 
-// CurrencyTotal is the sum of every account balance in one currency.
+// CurrencyTotal is the sum of every account balance in one currency, as of a
+// date.
 //
-// Currencies are never converted into one another: a dashboard shows USD, VES
-// and EUR side by side. A single consolidated figure needs exchange rates and
-// belongs to the FX milestone.
+// Currencies are never converted into one another here. A consolidated figure
+// needs exchange rates, and is internal/valuation's job.
 type CurrencyTotal struct {
 	CurrencyCode   string
 	CurrencyName   string
@@ -570,6 +576,51 @@ type CurrencyTotal struct {
 	AccountCount   int
 	TotalMinor     int64
 	TotalFormatted string
+}
+
+// DailyDelta is the net effect of one day's movements on one account.
+//
+// It is the unit the historical net worth is rebuilt from (TD-065): an
+// account's balance as of D is the sum of its deltas dated on or before D, the
+// same rule every balance in this package follows.
+type DailyDelta struct {
+	AccountID int64
+
+	// Date is the transactions' effective_date, at UTC midnight like every
+	// other calendar date in this application.
+	Date time.Time
+
+	// AmountMinor is the signed sum of that day's movements, in the account's
+	// own currency. It may be zero: a day can hold a movement and its reversal.
+	AmountMinor int64
+
+	// MovementCount is how many movements the delta sums.
+	MovementCount int
+}
+
+// Flow is income or expense on one day, in one category and one currency,
+// summed.
+//
+// Only INCOME and EXPENSE produce flows. A transfer, an exchange and an opening
+// balance were neither earned nor spent (TD-068).
+type Flow struct {
+	Date time.Time
+
+	// Type is Income or Expense, and nothing else.
+	Type TransactionType
+
+	CategoryID   int64
+	CategoryName string
+
+	CurrencyCode string
+	MinorUnit    int
+
+	// AmountMinor is the signed sum as stored: positive for income, negative
+	// for an expense.
+	AmountMinor int64
+
+	// Count is how many transactions the flow sums.
+	Count int
 }
 
 // RecordIncomeInput is the input to Service.RecordIncome.

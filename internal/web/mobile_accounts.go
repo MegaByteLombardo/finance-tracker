@@ -36,6 +36,10 @@ type MobileAccountItemView struct {
 	BalanceFormatted string
 	IsNegative       bool
 	IsActive         bool
+
+	// FutureMovementCount is how many of the account's movements are dated
+	// after today and are therefore not in BalanceFormatted yet (TD-063).
+	FutureMovementCount int
 }
 
 // handleMobileAccounts serves the mobile accounts view populated with real data.
@@ -86,9 +90,11 @@ func handleMobileAccounts(logger *slog.Logger, renderer *Renderer, svcs *Service
 			b, hasBal := balMap[acct.ID]
 			balFormatted := "0.00"
 			isNeg := false
+			future := 0
 			if hasBal {
 				balFormatted = b.BalanceFormatted
 				isNeg = b.BalanceMinor < 0
+				future = b.FutureMovementCount
 			}
 
 			var inst string
@@ -106,6 +112,8 @@ func handleMobileAccounts(logger *slog.Logger, renderer *Renderer, svcs *Service
 				BalanceFormatted: balFormatted,
 				IsNegative:       isNeg,
 				IsActive:         acct.IsActive,
+
+				FutureMovementCount: future,
 			})
 		}
 

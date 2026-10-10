@@ -275,6 +275,8 @@ func toWebAccountBalance(b ledger.AccountBalance) web.AccountBalance {
 		MinorUnit:        b.MinorUnit,
 		BalanceMinor:     b.BalanceMinor,
 		BalanceFormatted: b.BalanceFormatted,
+
+		FutureMovementCount: b.FutureMovementCount,
 	}
 }
 

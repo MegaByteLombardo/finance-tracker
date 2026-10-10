@@ -484,105 +484,6 @@ html, body {
 }
 
 /* ==========================================================================
-   3. Presupuesto Semanal (Weekly Budget)
-   ========================================================================== */
-.budget-days-pill {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--m-text-muted);
-  background-color: var(--m-bg-muted);
-  padding: 3px 9px;
-  border-radius: 9999px;
-}
-
-.budget-content-card {
-  background-color: var(--m-bg-card);
-  border: 1px solid var(--m-border-light);
-  border-radius: 12px;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.budget-amounts-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-
-.budget-spent-group {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-}
-
-.budget-fraction-main {
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--m-text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
-.budget-fraction-sep {
-  font-size: 0.875rem;
-  color: var(--m-text-subtle);
-}
-
-.budget-fraction-total {
-  font-size: 0.875rem;
-  color: var(--m-text-muted);
-  font-variant-numeric: tabular-nums;
-  font-weight: 500;
-}
-
-.budget-available-group {
-  text-align: right;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-}
-
-.budget-avail-num {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--m-positive);
-  font-variant-numeric: tabular-nums;
-}
-
-.budget-avail-label {
-  font-size: 0.6875rem;
-  font-weight: 500;
-  color: var(--m-text-muted);
-  text-transform: lowercase;
-  margin-top: -1px;
-}
-
-.budget-progress-track {
-  width: 100%;
-  height: 7px;
-  background-color: var(--m-bg-muted);
-  border-radius: 9999px;
-  overflow: hidden;
-  position: relative;
-}
-
-.budget-progress-fill {
-  height: 100%;
-  border-radius: 9999px;
-  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  background-color: var(--m-primary-btn);
-}
-
-.budget-progress-fill.status-warning {
-  background-color: var(--m-warning);
-}
-
-.budget-progress-fill.status-danger {
-  background-color: var(--m-negative);
-}
-
-/* ==========================================================================
    4. Últimos Movimientos (Recent Transactions)
    ========================================================================== */
 .transactions-container {
@@ -2069,3 +1970,144 @@ html, body {
   text-decoration: underline;
   white-space: nowrap;
 }
+
+/* ==========================================================================
+   M6 — Net-worth change, history and cash flow on the mobile Inicio.
+   Same figures as the desktop dashboard, from the same service; only the
+   layout differs. The chart itself is styled in app.css (.nw-chart).
+   ========================================================================== */
+.net-worth-change {
+  margin: 4px 0 8px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--m-text-secondary);
+}
+.net-worth-change.is-up { color: var(--m-positive); }
+.net-worth-change.is-down { color: var(--m-negative); }
+.net-worth-change-period { font-weight: 500; color: var(--m-text-muted); }
+.net-worth-change-na { font-weight: 500; color: var(--m-text-muted); }
+.net-worth-note {
+  margin: 8px 0 0 0;
+  font-size: 0.75rem;
+  color: var(--m-text-muted);
+}
+.net-worth-note a { color: inherit; font-weight: 600; }
+
+.history-currency,
+.cashflow-period {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--m-text-muted);
+}
+.history-periods {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 10px 0;
+  overflow-x: auto;
+}
+.history-period {
+  flex: 1 0 auto;
+  text-align: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--m-border-light);
+  background-color: var(--m-bg-card);
+  color: var(--m-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.history-period.is-active {
+  color: var(--m-accent);
+  border-color: var(--m-accent);
+  background-color: var(--m-accent-bg);
+}
+.history-chart {
+  background-color: var(--m-bg-card);
+  border: 1px solid var(--m-border-light);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.cashflow-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background-color: var(--m-border-light);
+  border: 1px solid var(--m-border-light);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.cashflow-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  background-color: var(--m-bg-card);
+}
+.cashflow-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--m-text-muted);
+}
+.cashflow-value {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--m-text-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.cashflow-value.is-income, .spending-meta .is-income { color: var(--m-positive); }
+.cashflow-value.is-expense, .spending-meta .is-expense { color: var(--m-negative); }
+.cashflow-footnote {
+  margin: 8px 0 0 0;
+  font-size: 0.75rem;
+  color: var(--m-text-muted);
+}
+
+.spending-block {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background-color: var(--m-bg-card);
+  border: 1px solid var(--m-border-light);
+  border-radius: 12px;
+}
+.spending-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.spending-total {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--m-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.spending-meta {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--m-text-muted);
+}
+.spending-list { list-style: none; margin: 10px 0 0 0; padding: 0; }
+.spending-row {
+  padding: 8px 0;
+  border-top: 1px solid var(--m-border-subtle);
+}
+.spending-row-top, .spending-row-bottom {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.spending-name { font-size: 0.875rem; font-weight: 600; color: var(--m-text-primary); }
+.spending-name.is-other { color: var(--m-text-muted); }
+.spending-amount { font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.spending-row-bottom { margin-top: 2px; font-size: 0.6875rem; color: var(--m-text-muted); }

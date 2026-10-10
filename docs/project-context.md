@@ -65,38 +65,38 @@ going.
 
 ## What exists today
 
-The project is at milestone **M1**.
+The project has closed milestone **M6**. M5 (multi-currency) still has interface
+polish outstanding.
 
 **Built:**
 
-- The technical foundation from M0 — configuration, a correctly configured
-  SQLite database, a health endpoint, graceful shutdown, a container image.
-- **Currencies.** A seeded set (USD, EUR, VES), each with its name, symbol and
-  minor unit. They can be created, renamed and archived; they are never deleted.
-- **Accounts.** Multiple accounts across the four container types — bank, cash,
-  wallet, other — each denominated in exactly one currency that never changes.
-  They can be created, edited and archived; they are never deleted.
-- Both are reachable through Go services, and covered by tests against real
-  SQLite.
+- The technical foundation — configuration, a correctly configured SQLite
+  database, migrations, backups and restore, a health endpoint, a container image.
+- **Currencies and accounts**, archived rather than deleted; one currency per
+  account, forever.
+- **The ledger**: income, expenses, opening balances, internal transfers and
+  currency exchanges, editable, never deleted; categories and payment methods.
+  Balances are derived from the movements **as of a date** — the current one is
+  as of today — and never stored.
+- **Reference exchange rates**: manual entry and the BCV's official publication,
+  with exact inversion and cross rates and no look-ahead.
+- **Net worth, current and historical**: everything held, valued in the base
+  currency at the close of any day with the rates in effect that day, and a daily
+  series over any range. Days without a rate are reported as gaps.
+- **The dashboard**, desktop and mobile: net worth and its change, its evolution
+  over 7 days to the whole history, the breakdown by currency and by account,
+  income, expenses, net cash flow, savings rate, and spending by category against
+  the previous period.
 
 **Not built:**
 
-- **No user interface.** Nothing renders any of this yet; the domain is exercised
-  through its tests.
-- **No amounts.** Accounts have no balance, and no monetary value is stored
-  anywhere in the system. Balances will be derived from the movement ledger once
-  it exists.
-- No categories, transactions, transfers, exchange rates, credit, instalments,
-  calendar or analysis.
+- Credit, debt, instalments, a calendar, recurring or scheduled transactions,
+  budgets and alerts, forecasting, an importer of historical rates, and
+  production deployment (postponed).
 
-The ordering is deliberate. M0 gave the first real financial data somewhere
-correct to land — durable storage settings, enforced foreign keys, and the rule
-that money is never a floating-point number. M1 gave it a shape to land in.
-Amounts come next, into a schema that already knows what currency they are in.
-
-See [milestones.md](milestones.md) for what M0 delivered and what is planned
-next, and [data-model.md](data-model.md) for the persistence conventions that
-the future domain will follow.
+See [milestones.md](milestones.md) for what each milestone delivered and what is
+planned next, and [data-model.md](data-model.md) for the schema and its
+conventions.
 
 ## Constraints that shape the design
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/account"
+	"github.com/MegaByteLombardo/finance-tracker/internal/analytics"
 	"github.com/MegaByteLombardo/finance-tracker/internal/application"
 	"github.com/MegaByteLombardo/finance-tracker/internal/backup"
 	"github.com/MegaByteLombardo/finance-tracker/internal/category"
@@ -347,6 +348,7 @@ var (
 	_ web.BackupService        = (*backupAdapter)(nil)
 	_ web.ApplicationService   = (*applicationAdapter)(nil)
 	_ web.PaymentMethodService = (*paymentMethodAdapter)(nil)
+	_ web.AnalyticsService     = (*analyticsAdapter)(nil)
 )
 
 // New builds the presentation layer's services over a real database and backup service.
@@ -354,6 +356,7 @@ func New(db *sql.DB, backups *backup.Service, rates *fx.Service) *web.Services {
 	ledgerService := ledger.NewService(db)
 	settingsService := settings.NewService(db)
 	currencyService := currency.NewService(db)
+	valuationService := valuation.NewService(ledgerService, rates, settingsService, currencyService)
 
 	return &web.Services{
 		Currencies:  &currencyAdapter{svc: currencyService},
@@ -368,10 +371,15 @@ func New(db *sql.DB, backups *backup.Service, rates *fx.Service) *web.Services {
 		// being built here, because it holds the provider -- which is
 		// configuration, and which the caller may deliberately have switched
 		// off.
-		Rates:    &exchangeRateAdapter{svc: rates, now: time.Now},
-		Settings: &settingsAdapter{svc: settingsService},
-		Valuation: &valuationAdapter{
-			svc: valuation.NewService(ledgerService, rates, settingsService, currencyService),
+		Rates:     &exchangeRateAdapter{svc: rates, now: time.Now},
+		Settings:  &settingsAdapter{svc: settingsService},
+		Valuation: &valuationAdapter{svc: valuationService},
+
+		// M6. The dashboard reads the same valuation, so the headline figure
+		// and the chart come from one engine. Its clock is the real one; a
+		// test that needs a fixed date builds analytics.Service itself.
+		Analytics: &analyticsAdapter{
+			svc: analytics.NewService(valuationService, ledgerService, time.Now),
 		},
 	}
 }
