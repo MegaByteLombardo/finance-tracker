@@ -555,6 +555,15 @@ inline SVG whose integer geometry `internal/web/chart.go` computes from the seri
 template functions `signedChange`, `signedRatio` and `ratio` only prefix a sign or
 a `%` to strings the backend already formatted.
 
+### Presentation *(design overhaul)*
+
+The visual system is a skeuomorphic instrument with two finishes, Aluminio and
+Grafito, all tokens in `web/static/css/app.css`; `mobile.css` aliases them
+(TD-071). Headline figures sit in `.lcd` readouts whose value line never wraps;
+`web/static/js/fit.js` shrinks a `data-fit` figure that would overflow its
+container and computes nothing. Fonts (Archivo, DM Mono) are embedded under
+`web/static/fonts`; no page requests anything from another host.
+
 ## Lifecycle
 
 Startup, in order:

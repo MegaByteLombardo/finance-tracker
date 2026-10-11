@@ -258,6 +258,23 @@ and payment methods; internal same-currency transfers.
   chart is a server-rendered SVG with integer geometry** (TD-070). Templates
   only prefix a sign or a `%` to strings the backend formatted.
 
+**Design overhaul (in progress): skeuomorphic instrument** (TD-071).
+
+- One visual system for desktop and `/mobile`: brushed chassis panels, keys for
+  every action, recessed **LCD readouts for headline figures**, ledger paper for
+  lists. Two finishes behind the toggle: Aluminio (light, default) and Grafito
+  (dark). Every colour is a token in `app.css`; `mobile.css` only aliases them.
+  A new component rule takes its colours from those tokens.
+- **A figure never wraps and never overflows its container.** Put it in
+  `.lcd-value` (or another `nowrap` element) with `data-fit`; `fit.js` shrinks
+  it if needed. `fit.js` measures text only and must never read or compute a
+  number. Every amount a template shows goes through `formatAmount`.
+- **Fonts are embedded** (`web/static/fonts`, OFL). No Google Fonts, no CDN, no
+  request to another host from any page.
+- The desktop dashboard is a grid: summary; evolution beside accounts;
+  currencies beside the wide cash-flow card; recent movements at full width.
+  A new block goes into that grid, not appended below it.
+
 **Not built, and not to be added opportunistically:**
 
 - **No delete of anything.** Archive or correct.
