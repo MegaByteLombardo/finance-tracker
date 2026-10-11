@@ -202,12 +202,7 @@ func (g RateGap) SingleDay() bool { return g.Days == 1 }
 // of the pair when exactly one side is USD, otherwise the valuation base is.
 // Either orientation resolves the gap (the inverse is computed); this is only
 // the one a person would read off a published rate.
-func (g RateGap) Pair() (base, quote string) {
-	if g.CurrencyCode == "USD" && g.BaseCurrencyCode != "USD" {
-		return g.CurrencyCode, g.BaseCurrencyCode
-	}
-	return g.BaseCurrencyCode, g.CurrencyCode
-}
+func (g RateGap) Pair() (base, quote string) { return ratePair(g.CurrencyCode, g.BaseCurrencyCode) }
 
 // PairLabel is Pair as "USD/VES".
 func (g RateGap) PairLabel() string {
@@ -218,13 +213,75 @@ func (g RateGap) PairLabel() string {
 // FormURL opens the manual-rate form with the pair and the run's first day
 // filled in. An observation dated From covers the whole run, because lookup
 // takes the latest effective_date on or before each day.
-func (g RateGap) FormURL() string {
-	base, quote := g.Pair()
+func (g RateGap) FormURL() string { return rateFormURL(g.CurrencyCode, g.BaseCurrencyCode, g.From) }
+
+func ratePair(currency, valuationBase string) (base, quote string) {
+	if currency == "USD" && valuationBase != "USD" {
+		return currency, valuationBase
+	}
+	return valuationBase, currency
+}
+
+func rateFormURL(currency, valuationBase string, on time.Time) string {
+	base, quote := ratePair(currency, valuationBase)
 	q := url.Values{}
 	q.Set("base", base)
 	q.Set("quote", quote)
-	q.Set("date", g.From.Format(time.DateOnly))
+	q.Set("date", on.Format(time.DateOnly))
 	return "/settings/exchange-rates?" + q.Encode() + "#manual-rate"
+}
+
+// MissingExpense is spending in one currency, in one of the two compared
+// periods, that has no rate on its day -- the reason a spending change is
+// unavailable.
+type MissingExpense struct {
+	// Previous is true for the previous period, false for the current one.
+	Previous bool
+
+	CurrencyCode     string
+	BaseCurrencyCode string
+	AmountFormatted  string
+
+	// From and To are the first and last day of those expenses.
+	From time.Time
+	To   time.Time
+}
+
+// SingleDay reports expenses all on one day.
+func (m MissingExpense) SingleDay() bool { return m.From.Equal(m.To) }
+
+// PairLabel is the pair to load, as "USD/VES".
+func (m MissingExpense) PairLabel() string {
+	base, quote := ratePair(m.CurrencyCode, m.BaseCurrencyCode)
+	return base + "/" + quote
+}
+
+// FormURL opens the manual-rate form on the first of those days; a rate dated
+// then values all of them.
+func (m MissingExpense) FormURL() string {
+	return rateFormURL(m.CurrencyCode, m.BaseCurrencyCode, m.From)
+}
+
+// MissingExpenses lists the unvalued expenses of the period and of the
+// previous one, current first.
+func (d DashboardAnalytics) MissingExpenses() []MissingExpense {
+	var out []MissingExpense
+	collect := func(cf CashFlow, previous bool) {
+		for _, m := range cf.Missing {
+			if m.ExpenseMinor == 0 {
+				continue
+			}
+			out = append(out, MissingExpense{
+				Previous: previous, CurrencyCode: m.CurrencyCode, BaseCurrencyCode: d.NetWorth.BaseCurrencyCode,
+				AmountFormatted: m.ExpenseFormatted, From: m.ExpenseFrom, To: m.ExpenseTo,
+			})
+		}
+	}
+	collect(d.CashFlow, false)
+	if d.HasPrevious {
+		collect(d.PreviousCashFlow, true)
+	}
+	return out
 }
 
 // CategoryAmount is one category's total over a period, in the base currency,
@@ -245,6 +302,10 @@ type MissingFlow struct {
 	ExpenseMinor     int64
 	ExpenseFormatted string
 	Count            int
+
+	// ExpenseFrom and ExpenseTo are the first and last day of those expenses.
+	ExpenseFrom time.Time
+	ExpenseTo   time.Time
 }
 
 // CashFlow is income and expenses over a period. Transfers and currency
@@ -301,6 +362,16 @@ type Spending struct {
 	PreviousTotalMinor     int64
 	PreviousTotalFormatted string
 	Change                 Change
+}
+
+// ChangeUnavailableMessage says why spending cannot be compared. Its
+// "incomplete" is about expenses with no rate on their day, not about the
+// ends of the period as for the net worth.
+func (s Spending) ChangeUnavailableMessage() string {
+	if s.Change.Reason == ChangeReasonIncomplete {
+		return "No disponible: hay gastos sin tasa de cambio en su fecha, en este período o en el anterior."
+	}
+	return s.Change.UnavailableMessage()
 }
 
 // DashboardAnalytics is everything the dashboard shows, computed.

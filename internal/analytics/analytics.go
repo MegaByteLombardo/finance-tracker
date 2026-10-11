@@ -106,6 +106,12 @@ type MissingFlow struct {
 	ExpenseMinor     int64
 	ExpenseFormatted string
 
+	// ExpenseFrom and ExpenseTo are the first and last day of an unvalued
+	// expense in this currency; zero when there is none. A rate dated
+	// ExpenseFrom values every one of them (latest effective_date <= day).
+	ExpenseFrom time.Time
+	ExpenseTo   time.Time
+
 	Count int
 }
 
@@ -217,6 +223,11 @@ type Dashboard struct {
 
 	// Change is NetWorth against Opening (TD-069).
 	Change Change
+
+	// Gaps are the missing rates of Opening and of Series together. Opening is
+	// not drawn, but a rate missing on that day is what makes Change
+	// unavailable, so a screen that lists what to load must list it too.
+	Gaps []valuation.Gap
 
 	CashFlow         CashFlow
 	PreviousCashFlow CashFlow

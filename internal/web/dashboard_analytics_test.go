@@ -337,3 +337,66 @@ func firstCategory(t *testing.T, fs *FakeServices, kind CategoryType) int64 {
 	}
 	return created.ID
 }
+
+// TestAMissingBaselineRateIsListedEvenWithNoHoleInTheChart is the case where
+// every day of the period has its rate but the close before it does not: the
+// chart has no hole, the change is unavailable, and the page must still say
+// which rate to load.
+func TestAMissingBaselineRateIsListedEvenWithNoHoleInTheChart(t *testing.T) {
+	t.Parallel()
+
+	d := sampleAnalytics()
+	for i := range d.Points {
+		d.Points[i].Complete = true
+	}
+	d.IncompleteDays = 0
+	d.Opening.Complete = false
+	d.Change = Change{Reason: ChangeReasonIncomplete}
+	d.Gaps = []RateGap{{
+		CurrencyCode: "VES", BaseCurrencyCode: "USD",
+		From: d.Opening.Date, To: d.Opening.Date, Days: 1,
+	}}
+
+	for _, path := range []string{"/", "/mobile"} {
+		_, fetch := analyticsRouter(t, &d, nil)
+		_, page := fetch(path)
+		for _, phrase := range []string{"USD/VES", "5 sep 2026", "date=2026-09-05"} {
+			if !strings.Contains(page, phrase) {
+				t.Errorf("%s does not show %q", path, phrase)
+			}
+		}
+	}
+}
+
+// TestAnUnavailableSpendingChangeSaysWhichExpensesLackARate: the message is
+// about expenses, not the ends of the period, and each unvalued group of
+// expenses is listed with the rate that would value it.
+func TestAnUnavailableSpendingChangeSaysWhichExpensesLackARate(t *testing.T) {
+	t.Parallel()
+
+	d := sampleAnalytics()
+	d.Spending.Change = Change{Reason: ChangeReasonIncomplete}
+	d.PreviousCashFlow.Missing = []MissingFlow{{
+		CurrencyCode: "VES", ExpenseMinor: 15000, ExpenseFormatted: "150.00",
+		ExpenseFrom: time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC),
+		ExpenseTo:   time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC),
+	}}
+
+	for path, phrases := range map[string][]string{
+		"/":       {"hay gastos sin tasa de cambio en su fecha", "150.00 VES de gastos", "del período anterior", "12 ago 2026", "30 ago 2026", "date=2026-08-12"},
+		"/mobile": {"hay gastos sin tasa en su fecha", "150.00 VES", "período anterior", "date=2026-08-12"},
+	} {
+		_, fetch := analyticsRouter(t, &d, nil)
+		_, page := fetch(path)
+		// The net worth's change is defined here, so this phrase could only
+		// come from the spending block.
+		if strings.Contains(page, "extremos del período") {
+			t.Errorf("%s explains spending with the net worth's message", path)
+		}
+		for _, phrase := range phrases {
+			if !strings.Contains(page, phrase) {
+				t.Errorf("%s does not show %q", path, phrase)
+			}
+		}
+	}
+}

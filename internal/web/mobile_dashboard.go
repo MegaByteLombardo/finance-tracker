@@ -28,7 +28,11 @@ type MobileHistoryView struct {
 	Periods        []PeriodOption
 	IncompleteDays int
 	Gaps           []RateGap
-	CurrencyCode   string
+
+	// OpeningIncomplete is the day before the period missing a rate, which
+	// is what makes the change unavailable.
+	OpeningIncomplete bool
+	CurrencyCode      string
 }
 
 // MobileCashFlowView is the period's cash flow and spending, as the backend
@@ -43,6 +47,9 @@ type MobileCashFlowView struct {
 	CashFlow    CashFlow
 	Spending    Spending
 	HasPrevious bool
+
+	// MissingExpenses are why Spending.Change may be unavailable.
+	MissingExpenses []MissingExpense
 }
 
 // MobileHeaderView holds information for the mobile top bar.
@@ -227,6 +234,7 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 			history.Chart = BuildNetWorthChart(dash.Points, base)
 			history.IncompleteDays = dash.IncompleteDays
 			history.Gaps = dash.Gaps
+			history.OpeningIncomplete = !dash.Opening.Complete
 			history.CurrencyCode = base
 
 			cashFlow = MobileCashFlowView{
@@ -236,6 +244,7 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 				CashFlow:          dash.CashFlow,
 				Spending:          dash.Spending,
 				HasPrevious:       dash.HasPrevious,
+				MissingExpenses:   dash.MissingExpenses(),
 			}
 		}
 

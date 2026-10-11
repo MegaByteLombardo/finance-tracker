@@ -115,11 +115,16 @@
     </div>
     <div class="card-body">
       {{ template "net_worth_chart" .Chart }}
-      {{ if $a.IncompleteDays }}
+      {{ if or $a.IncompleteDays $a.Gaps }}
       <p class="dash-note">
         <span class="badge badge-warning">huecos</span>
+        {{ if $a.IncompleteDays }}
         Faltan tasas históricas para {{ $a.IncompleteDays }} {{ if eq $a.IncompleteDays 1 }}día{{ else }}días{{ end }} del período;
         esos días no se dibujan en lugar de mostrar un total parcial.
+        {{ end }}
+        {{ if not $a.Opening.Complete }}
+        Falta la tasa del {{ spanishDate $a.Opening.Date }}, el cierre anterior al período desde el que se mide la variación.
+        {{ end }}
         {{ if not $a.Gaps }}<a href="/settings/exchange-rates">Cargar tasas pasadas &rarr;</a>{{ end }}
       </p>
       {{ if $a.Gaps }}
@@ -315,11 +320,25 @@
               {{ signedChange $a.Spending.Change }} ({{ signedRatio $a.Spending.Change.Percent }})
             </dd>
             {{ else }}
-            <dd class="text-muted" style="font-family: var(--font-sans); font-weight: 500; font-size: 0.75rem;">{{ $a.Spending.Change.UnavailableMessage }}</dd>
+            <dd class="text-muted" style="font-family: var(--font-sans); font-weight: 500; font-size: 0.75rem;">{{ $a.Spending.ChangeUnavailableMessage }}</dd>
             {{ end }}
           </div>
           {{ end }}
         </dl>
+        {{ if and $a.HasPrevious (not $a.Spending.Change.Defined) }}
+        {{ with $a.MissingExpenses }}
+        <ul class="dash-gaps">
+          {{ range . }}
+          <li>
+            <strong>{{ .PairLabel }}</strong>: {{ formatAmount .AmountFormatted }} {{ .CurrencyCode }} de gastos
+            {{ if .Previous }}del período anterior{{ else }}de este período{{ end }},
+            {{ if .SingleDay }}el {{ spanishDate .From }}{{ else }}entre el {{ spanishDate .From }} y el {{ spanishDate .To }}{{ end }}
+            &middot; <a href="{{ .FormURL }}">Cargar tasa del {{ spanishDate .From }} &rarr;</a>
+          </li>
+          {{ end }}
+        </ul>
+        {{ end }}
+        {{ end }}
         {{ if $a.Spending.Categories }}
         <table class="data-table">
           <thead>

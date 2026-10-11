@@ -82,6 +82,12 @@ func buildCashFlow(period Period, flows []ledger.Flow, convert converter, baseCo
 				entry.IncomeMinor += magnitude
 			} else {
 				entry.ExpenseMinor += magnitude
+				if entry.ExpenseFrom.IsZero() || flow.Date.Before(entry.ExpenseFrom) {
+					entry.ExpenseFrom = flow.Date
+				}
+				if flow.Date.After(entry.ExpenseTo) {
+					entry.ExpenseTo = flow.Date
+				}
 			}
 			entry.Count += flow.Count
 			continue
@@ -198,6 +204,16 @@ func compare(previous, current int64, bothComplete, hasPrevious bool, minorUnit 
 	}, nil
 }
 
+// expensesComplete reports a cash flow whose every expense was valued.
+func expensesComplete(cf CashFlow) bool {
+	for _, missing := range cf.Missing {
+		if missing.ExpenseMinor != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // buildSpending looks at the expense side of the current period against the
 // previous one.
 func buildSpending(current, previous CashFlow, hasPrevious bool, baseMinorUnit int) (Spending, error) {
@@ -213,7 +229,9 @@ func buildSpending(current, previous CashFlow, hasPrevious bool, baseMinorUnit i
 	result.DailyAverageMinor = average
 	result.DailyAverageFormatted = money.Format(average, baseMinorUnit)
 
-	bothComplete := current.Complete && (!hasPrevious || previous.Complete)
+	// Only expenses decide whether spending can be compared: an income with no
+	// rate leaves the cash flow incomplete, but not the spending.
+	bothComplete := expensesComplete(current) && (!hasPrevious || expensesComplete(previous))
 	if hasPrevious {
 		result.PreviousTotalMinor = previous.ExpenseMinor
 		result.PreviousTotalFormatted = previous.ExpenseFormatted

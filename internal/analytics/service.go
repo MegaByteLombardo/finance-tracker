@@ -70,6 +70,7 @@ func (s *Service) Dashboard(ctx context.Context, preset Preset) (Dashboard, erro
 		return Dashboard{}, err
 	}
 	result.Opening = full.Points[0]
+	result.Gaps = full.Gaps()
 	result.Series = full
 	result.Series.From = period.From
 	result.Series.Points = full.Points[1:]

@@ -16,9 +16,10 @@
   <div class="history-chart">
     {{ template "net_worth_chart" .Chart }}
   </div>
-  {{ if .IncompleteDays }}
+  {{ if or .IncompleteDays .Gaps }}
   <p class="net-worth-note">
-    Faltan tasas para {{ .IncompleteDays }} {{ if eq .IncompleteDays 1 }}día{{ else }}días{{ end }}; se muestran como huecos.
+    {{ if .IncompleteDays }}Faltan tasas para {{ .IncompleteDays }} {{ if eq .IncompleteDays 1 }}día{{ else }}días{{ end }}; se muestran como huecos.{{ end }}
+    {{ if .OpeningIncomplete }}Falta la tasa del día anterior al período, base de la variación.{{ end }}
     {{ if not .Gaps }}<a href="/mobile/tasas">Cargar tasas</a>{{ end }}
   </p>
   {{ if .Gaps }}

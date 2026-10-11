@@ -48,7 +48,7 @@ func (a *analyticsAdapter) Dashboard(ctx context.Context, preset web.DashboardPr
 			Complete:       d.Opening.Complete,
 		},
 	}
-	for _, gap := range d.Series.Gaps() {
+	for _, gap := range d.Gaps {
 		out.Gaps = append(out.Gaps, web.RateGap{
 			CurrencyCode:     gap.FromCurrencyCode,
 			BaseCurrencyCode: gap.ToCurrencyCode,
@@ -134,6 +134,8 @@ func toWebCashFlow(cf analytics.CashFlow) web.CashFlow {
 			ExpenseMinor:     missing.ExpenseMinor,
 			ExpenseFormatted: missing.ExpenseFormatted,
 			Count:            missing.Count,
+			ExpenseFrom:      missing.ExpenseFrom,
+			ExpenseTo:        missing.ExpenseTo,
 		})
 	}
 	return out

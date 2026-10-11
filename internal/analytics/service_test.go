@@ -268,6 +268,43 @@ func TestAMissingRateMakesTheCashFlowIncompleteAndSaysWhat(t *testing.T) {
 	}
 }
 
+// TestSpendingIsComparedUnlessAnExpenseHasNoRate: a missing rate on an income
+// leaves the cash flow incomplete but says nothing about spending; one on an
+// expense of the previous period makes the comparison unavailable, and says
+// over which days, so the screen can name the rate to load.
+func TestSpendingIsComparedUnlessAnExpenseHasNoRate(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	food := w.category("Comida", category.Expense)
+	usd := w.open("Mercantil USD", "USD", "1000.00", "2026-08-01")
+	ves := w.open("Banesco VES", "VES", "", "")
+	w.expense(usd, food, "10.00", "2026-08-20")
+	w.expense(usd, food, "20.00", "2026-09-20")
+	w.income(ves, "500.00", "2026-08-10") // no VES rate exists at all
+
+	d := w.dashboard(analytics.Preset30D)
+	if d.PreviousCashFlow.Complete {
+		t.Fatal("the previous cash flow is complete with an unconvertible income")
+	}
+	if !d.Spending.Change.Defined {
+		t.Errorf("spending change = %+v, want defined: the missing rate is on an income", d.Spending.Change)
+	}
+
+	w.expense(ves, food, "100.00", "2026-08-12")
+	w.expense(ves, food, "50.00", "2026-08-30")
+
+	d = w.dashboard(analytics.Preset30D)
+	if d.Spending.Change.Defined || d.Spending.Change.Reason != analytics.ReasonIncomplete {
+		t.Errorf("spending change = %+v, want unavailable: an expense has no rate", d.Spending.Change)
+	}
+	m := d.PreviousCashFlow.Missing
+	if len(m) != 1 || database.FormatDate(m[0].ExpenseFrom) != "2026-08-12" ||
+		database.FormatDate(m[0].ExpenseTo) != "2026-08-30" {
+		t.Errorf("previous missing = %+v, want VES expenses from 2026-08-12 to 2026-08-30", m)
+	}
+}
+
 func TestSavingsRateWithNoIncomeIsUndefinedNotInfinite(t *testing.T) {
 	t.Parallel()
 
@@ -364,6 +401,12 @@ func TestAnIncompleteBaselineMakesTheChangeUnavailable(t *testing.T) {
 	}
 	if d.Series.IncompleteDays != 25 { // 2026-09-06 .. 2026-09-30
 		t.Errorf("IncompleteDays = %d, want 25", d.Series.IncompleteDays)
+	}
+	// The list of missing rates starts at the baseline, the day before the
+	// period: a rate loaded for the period's first day would not fix Change.
+	if len(d.Gaps) != 1 || database.FormatDate(d.Gaps[0].From) != "2026-09-05" ||
+		database.FormatDate(d.Gaps[0].To) != "2026-09-30" || d.Gaps[0].Days != 26 {
+		t.Errorf("Gaps = %+v, want one VES run from 2026-09-05 to 2026-09-30", d.Gaps)
 	}
 	if !d.NetWorth.Complete || d.NetWorth.TotalMinor != 10000 {
 		t.Errorf("today's net worth = %+v, want a complete 10000", d.NetWorth)

@@ -164,7 +164,7 @@ On 2026-10-05, `30D` is 2026-09-06 → 2026-10-05 and its previous period is
 | Conversion of a flow | At the reference rate of **its own** `effective_date`; summed exactly per category, rounded once per category; totals are the sums of the lines. |
 | Net cash flow | `income − expenses`. |
 | Savings rate | `(income − expenses) / income`, basis points. **Undefined** when income is zero or the cash flow is incomplete — never NaN, never infinity. |
-| Spending | Total expenses; daily average = total ÷ days, rounded once; top 5 categories plus "Otras categorías", each with its share and its change against the previous period. |
+| Spending | Total expenses; daily average = total ÷ days, rounded once; top 5 categories plus "Otras categorías", each with its share and its change against the previous period. The change is unavailable only when an **expense** of either period has no rate on its day; an unvalued income leaves the cash flow incomplete but not the spending comparison. Each `MissingFlow` carries `ExpenseFrom`/`ExpenseTo`, so the screen lists the unvalued expenses with the rate to load. |
 
 Every ratio is `Ratio{BasisPoints int64, Defined bool}`. Every change is
 `Change{Defined, Reason, AmountMinor, AmountFormatted, Percent}` with `Reason`
@@ -192,7 +192,9 @@ adapter is `ErrInvalidInput`.
 
 `DashboardAnalytics` carries the period, `NetWorth` (with `Accounts`,
 `ArchivedWithBalance`, `FutureMovementCount`), `Points`, `IncompleteDays`,
-`Gaps` (`RateGap`: the run, `PairLabel` in the `USD`-first orientation, and a
+`Gaps` (`RateGap`: the run, computed over `Opening` AND the period, because a rate
+missing on the baseline day is what makes `Change` unavailable even when the chart
+has no hole; `PairLabel` in the `USD`-first orientation, and a
 `FormURL` to the prefilled manual-rate form),
 `Opening`, `Change`, `CashFlow`, `PreviousCashFlow` and `Spending`, every amount
 both as minor units and formatted. `Ratio.Formatted` is the percentage with two

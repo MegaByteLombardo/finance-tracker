@@ -46,9 +46,21 @@
         {{ signedRatio .Spending.Change.Percent }} vs. período anterior
       </span>
       {{ else if .HasPrevious }}
-      <span>Sin comparación: faltan tasas en el período anterior</span>
+      <span>Sin comparación: hay gastos sin tasa en su fecha</span>
       {{ end }}
     </div>
+    {{ if and .HasPrevious (not .Spending.Change.Defined) .MissingExpenses }}
+    <ul class="net-worth-gaps">
+      {{ range .MissingExpenses }}
+      <li>
+        {{ .PairLabel }}: {{ formatAmount .AmountFormatted }} {{ .CurrencyCode }}
+        ({{ if .Previous }}período anterior{{ else }}este período{{ end }}),
+        {{ if .SingleDay }}{{ spanishDate .From }}{{ else }}{{ spanishDate .From }} – {{ spanishDate .To }}{{ end }}
+        · <a href="{{ .FormURL }}">Cargar</a>
+      </li>
+      {{ end }}
+    </ul>
+    {{ end }}
 
     {{ if .Spending.Categories }}
     <ul class="spending-list" aria-label="Principales categorías de gasto">
