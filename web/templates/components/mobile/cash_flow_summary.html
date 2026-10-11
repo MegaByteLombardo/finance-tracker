@@ -17,21 +17,21 @@
   </nav>
 
   <div class="cashflow-grid">
-    <div class="cashflow-cell">
+    <div class="cashflow-cell lcd">
       <span class="cashflow-label">Ingresos</span>
-      <span class="cashflow-value is-income">{{ formatAmount .CashFlow.IncomeFormatted }}</span>
+      <span class="cashflow-value is-income" data-fit>{{ formatAmount .CashFlow.IncomeFormatted }}</span>
     </div>
-    <div class="cashflow-cell">
+    <div class="cashflow-cell lcd">
       <span class="cashflow-label">Egresos</span>
-      <span class="cashflow-value is-expense">{{ formatAmount .CashFlow.ExpenseFormatted }}</span>
+      <span class="cashflow-value is-expense" data-fit>{{ formatAmount .CashFlow.ExpenseFormatted }}</span>
     </div>
-    <div class="cashflow-cell">
+    <div class="cashflow-cell lcd">
       <span class="cashflow-label">Flujo neto</span>
-      <span class="cashflow-value {{ if isNegative .CashFlow.NetMinor }}is-expense{{ else }}is-income{{ end }}">{{ formatAmount .CashFlow.NetFormatted }}</span>
+      <span data-fit class="cashflow-value {{ if isNegative .CashFlow.NetMinor }}is-expense{{ else }}is-income{{ end }}">{{ formatAmount .CashFlow.NetFormatted }}</span>
     </div>
-    <div class="cashflow-cell">
+    <div class="cashflow-cell lcd">
       <span class="cashflow-label">Tasa de ahorro</span>
-      <span class="cashflow-value">{{ ratio .CashFlow.SavingsRate }}</span>
+      <span class="cashflow-value" data-fit>{{ ratio .CashFlow.SavingsRate }}</span>
     </div>
   </div>
   <p class="cashflow-footnote">En {{ .CurrencyCode }}. Transferencias y cambios de divisa no son ingresos ni egresos.</p>

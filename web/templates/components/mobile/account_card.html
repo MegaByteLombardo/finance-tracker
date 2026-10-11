@@ -48,7 +48,7 @@
   <div class="account-card-bottom">
     <div class="account-balance-display">
       <span class="account-balance-amount {{ if .IsNegative }}is-negative{{ end }}">
-        {{ .BalanceFormatted }}
+        {{ formatAmount .BalanceFormatted }}
       </span>
       <span class="account-currency-code">{{ .CurrencyCode }}</span>
     </div>

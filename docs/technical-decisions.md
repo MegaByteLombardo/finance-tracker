@@ -2213,3 +2213,50 @@ library, no JavaScript computing anything, and no float.
 whose lines disagree with its total by a cent, which on a finance screen reads as
 a bug. A charting library for one line, with no interaction beyond a period
 switch, would be the largest dependency in the project for the smallest job.
+
+---
+
+## TD-071 — A skeuomorphic instrument as the visual system, with self-hosted fonts
+
+**Status:** Accepted · **Milestone:** Design overhaul (after M6)
+
+**Decision.** Both layouts (desktop and `/mobile`) share one visual system built
+as a physical instrument: panels are a brushed chassis held by screws, every
+action is a key that presses down, the selected period or section is a pressed
+key with a lit pilot, headline figures sit in recessed **LCD readouts**, and
+lists and tables are **ledger paper**. It has two finishes behind the existing
+toggle: *Aluminio* (light, the default for a browser with no stored choice) and
+*Grafito* (dark, backlit LCD). Every colour is a token in `app.css`;
+`mobile.css` aliases its `--m-*` names to those tokens instead of defining its
+own palette.
+
+The desktop dashboard fits one screen at 1440×900: row 1 is the net worth and
+four indicators, row 2 the history beside the composition by currency, row 3 the
+detail (accounts, cash flow and spending, recent movements). Nothing was
+removed: every warning, gap list and rate link is still rendered.
+
+**Figures always fit their container.** A readout's value line never wraps
+(`.lcd-value`, `white-space: nowrap`) and is sized from its container's width
+with container-query units. `web/static/js/fit.js` is the guarantee: when an
+element marked `data-fit` would still overflow, it lowers that element's font
+size until it fits. It measures text only; it reads no number and computes
+nothing, so TD-070's "no script computes anything" still holds. Amounts on the
+mobile view that arrived without thousands separators now go through
+`formatAmount` like the desktop.
+
+**Fonts are files in the binary.** Archivo (variable width and weight) for text
+and DM Mono for figures, latin subset, WOFF2, embedded under `web/static/fonts`
+with their OFL licences. Nothing is fetched from Google or any other host at
+runtime: the application is local and must look the same offline.
+
+**Rationale.** The figures are the product. An LCD well gives every number a
+fixed, high-contrast background, so its legibility does not depend on what is
+behind it, and encoding state in form (a pressed key, a lit pilot) does not rely
+on colour alone. A glassmorphism prototype was compared side by side and
+rejected: its text contrast varies with whatever shows through the panel, and
+`backdrop-filter` on a dozen panels costs GPU on every scroll.
+
+**Alternatives considered.** Glassmorphism (above). Neumorphism — low-contrast
+by construction, the opposite of the goal. Loading fonts from Google Fonts — a
+third-party request from a local, offline-capable application. A CSS framework
+— the class vocabulary already existed and only its finish changed.

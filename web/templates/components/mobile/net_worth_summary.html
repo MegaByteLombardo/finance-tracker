@@ -1,8 +1,8 @@
 {{ define "net_worth_summary" }}
 <section class="mobile-section net-worth-section" aria-labelledby="net-worth-heading">
   <span id="net-worth-heading" class="section-eyebrow">Patrimonio neto</span>
-  <div class="net-worth-main">
-    <span class="net-worth-amount">{{ .AmountFormatted }}</span>
+  <div class="net-worth-main lcd">
+    <span class="net-worth-amount" data-fit>{{ formatAmount .AmountFormatted }}</span>
   </div>
   {{ if .HasChange }}
     {{ if .Change.Defined }}

@@ -3,21 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#0b1329">
+  <meta name="theme-color" content="#dcd8cf">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>{{ if .Title }}{{ .Title }} · {{ end }}Finance Tracker</title>
+  <link rel="preload" href="/static/fonts/archivo-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/dm-mono-latin-500.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/css/app.css">
   <link rel="stylesheet" href="/static/css/mobile.css">
   <script src="/static/js/theme.js"></script>
   <script src="/static/vendor/htmx.min.js"></script>
   <script src="/static/js/ui-controls.js"></script>
   <script src="/static/js/chart_tooltip.js" defer></script>
+  <script src="/static/js/fit.js" defer></script>
 </head>
 <body class="mobile-body">
   <!-- Barra de control en desktop (oculta en modo móvil real) -->
   <div class="desktop-preview-bar">
-    <span class="preview-badge">📱 Finance Tracker · Vista Móvil</span>
+    <span class="preview-badge">Finance Tracker · Vista Móvil</span>
     <div class="desktop-preview-links">
       <a href="/mobile" class="preview-link">Inicio</a>
       <a href="/mobile/movimientos" class="preview-link">Movimientos</a>

@@ -81,7 +81,7 @@
             <option value="">Selecciona una cuenta...</option>
             {{ range .Accounts }}
             <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}">
-              {{ .Name }} ({{ .CurrencyCode }}) · {{ .BalanceFormatted }}
+              {{ .Name }} ({{ .CurrencyCode }}) · {{ formatAmount .BalanceFormatted }}
             </option>
             {{ end }}
           </select>
@@ -100,7 +100,7 @@
             <option value="">Selecciona cuenta receptora...</option>
             {{ range .Accounts }}
             <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}">
-              {{ .Name }} ({{ .CurrencyCode }}) · {{ .BalanceFormatted }}
+              {{ .Name }} ({{ .CurrencyCode }}) · {{ formatAmount .BalanceFormatted }}
             </option>
             {{ end }}
           </select>

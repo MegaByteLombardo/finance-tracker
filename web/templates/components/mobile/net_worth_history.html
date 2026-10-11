@@ -26,7 +26,7 @@
       <span>{{ .Change.UnavailableMessage }}</span>
       {{ end }}
     </p>
-    {{ template "net_worth_chart" .Chart }}
+    <div class="lcd">{{ template "net_worth_chart" .Chart }}</div>
     {{ else }}
     <p class="net-worth-note">{{ if .ErrorMessage }}{{ .ErrorMessage }}{{ else }}No se pudo calcular la evolución.{{ end }}</p>
     {{ end }}
