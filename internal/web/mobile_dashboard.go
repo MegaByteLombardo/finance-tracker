@@ -14,25 +14,11 @@ import (
 type MobileDashboardView struct {
 	Header       MobileHeaderView
 	NetWorth     NetWorthView
-	History      MobileHistoryView
+	History      NetWorthHistoryView
 	CashFlow     MobileCashFlowView
 	Balances     CurrencyBalancesView
 	Transactions RecentTransactionsView
 	Navigation   MobileNavView
-}
-
-// MobileHistoryView is the net-worth chart and its period selector.
-type MobileHistoryView struct {
-	Available      bool
-	Chart          ChartView
-	Periods        []PeriodOption
-	IncompleteDays int
-	Gaps           []RateGap
-
-	// OpeningIncomplete is the day before the period missing a rate, which
-	// is what makes the change unavailable.
-	OpeningIncomplete bool
-	CurrencyCode      string
 }
 
 // MobileCashFlowView is the period's cash flow and spending, as the backend
@@ -47,6 +33,10 @@ type MobileCashFlowView struct {
 	CashFlow    CashFlow
 	Spending    Spending
 	HasPrevious bool
+
+	// Periods is the selector for this card and the header's change: the
+	// page's period, which the chart card no longer sets.
+	Periods []PeriodOption
 
 	// MissingExpenses are why Spending.Change may be unavailable.
 	MissingExpenses []MissingExpense
@@ -215,8 +205,9 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 		// per-currency balances below are the ledger's own figures and are still
 		// worth showing, so the figures degrade to a message instead.
 		preset := ParseDashboardPreset(r.URL.Query().Get("period"))
+		chart, keepChart := parseChartPreset(r.URL.Query().Get("chart"), preset)
 		netWorth := NetWorthView{CurrencyCode: primaryCurrency, CurrencyLabel: primaryCurrency + " · moneda base"}
-		history := MobileHistoryView{Periods: periodOptions("/mobile", preset)}
+		var history NetWorthHistoryView
 		var cashFlow MobileCashFlowView
 
 		if dash, aerr := svcs.Analytics.Dashboard(ctx, preset); aerr != nil {
@@ -230,12 +221,7 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 			netWorth.PeriodDescription = dash.Preset.Description()
 
 			base := dash.NetWorth.BaseCurrencyCode
-			history.Available = true
-			history.Chart = BuildNetWorthChart(dash.Points, base)
-			history.IncompleteDays = dash.IncompleteDays
-			history.Gaps = dash.Gaps
-			history.OpeningIncomplete = !dash.Opening.Complete
-			history.CurrencyCode = base
+			history = loadHistory(r, logger, svcs, "/mobile", dash, preset, chart)
 
 			cashFlow = MobileCashFlowView{
 				Available:         true,
@@ -245,6 +231,7 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 				Spending:          dash.Spending,
 				HasPrevious:       dash.HasPrevious,
 				MissingExpenses:   dash.MissingExpenses(),
+				Periods:           periodOptions("/mobile", preset, keepChart),
 			}
 		}
 

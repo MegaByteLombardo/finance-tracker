@@ -5,6 +5,16 @@
     <h2 id="cashflow-heading" class="section-title">Flujo de caja</h2>
     <span class="cashflow-period">{{ .PeriodDescription }}</span>
   </div>
+  {{/* The page's period: it sets this card and the change in the header. The
+       chart card above has its own. */}}
+  <nav class="history-periods" aria-label="Período del resumen">
+    {{ range .Periods }}
+    <a href="{{ .URL }}" class="history-period{{ if .Active }} is-active{{ end }}"
+       {{ if .Active }}aria-current="true"{{ end }}
+       hx-get="{{ .URL }}" hx-select="#mobile-analytics" hx-target="#mobile-analytics"
+       hx-swap="outerHTML" hx-push-url="true">{{ .Label }}</a>
+    {{ end }}
+  </nav>
 
   <div class="cashflow-grid">
     <div class="cashflow-cell">

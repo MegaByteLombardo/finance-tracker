@@ -37,11 +37,11 @@
       // Auto-detect responsive viewport (< 768px) on root dashboard and offer instant switch to mobile view
       if (window.location.pathname === '/' && !sessionStorage.getItem('prefer_desktop')) {
         if (window.innerWidth <= 768) {
-          window.location.replace('/mobile');
+          window.location.replace('/mobile' + window.location.search);
         }
         window.addEventListener('resize', function() {
           if (window.innerWidth <= 768 && !sessionStorage.getItem('prefer_desktop')) {
-            window.location.replace('/mobile');
+            window.location.replace('/mobile' + window.location.search);
           }
         });
       }

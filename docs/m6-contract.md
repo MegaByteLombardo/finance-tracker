@@ -208,8 +208,8 @@ decimals ("7.24").
 
 | Route | Change |
 | --- | --- |
-| `GET /?period=` | The dashboard. One `Analytics.Dashboard` call. |
-| `GET /mobile?period=` | The mobile Inicio. The same call. |
+| `GET /?period=&chart=` | The dashboard. One `Analytics.Dashboard` call for `period`; a second one for `chart` only when the chart card was moved to another preset. Absent or unknown, `chart` follows `period`. |
+| `GET /mobile?period=&chart=` | The mobile Inicio. The same calls. |
 | `GET /mobile/movimientos` | The month's summary is `Analytics.MonthToDateCashFlow`: first of the month to today, the dashboard's rules, in the base currency. |
 | `GET /settings/exchange-rates?base=&quote=&date=` | Prefills the manual-rate form. Unknown currencies and malformed dates are ignored; the POST validates as before. |
 | `POST /accounts/{id}/archive` | Sets the account inactive. Never refused for a non-zero balance. Honours a local `return_to`. |
@@ -225,6 +225,23 @@ An inline `<svg>` with a 1000 × 240 viewBox, laid out by `BuildNetWorthChart`
 from integer minor units with integer arithmetic (`big.Int` for the scaling). An
 incomplete day breaks the line; a single-day run is a dot. Labels are the
 backend's formatted totals. No charting library (TD-070).
+
+**The vertical axis always includes zero.** A scale that starts at the lowest
+total turns a 5% dip into a fall to the floor. The ends and the step are round --
+1, 2 or 5 times a power of ten, in minor units, about four bands -- computed on
+`big.Int` and labelled in whole units when every gridline is one. The area is
+filled down to zero; a negative total puts zero inside the range and draws it as
+a stronger gridline. These labels are gridline positions, not anybody's money.
+
+**The horizontal axis labels suit the range:** every day up to 8 days (weekday
+over the day of the month), Mondays up to 35, the 1st and 15th up to 100, every
+1st up to 400 (with the year in January), every quarter beyond. Up to 92 days
+there is also a small mark for every day.
+
+**The chart card has its own period** (`?chart=`), with its own selector, and
+shows the change over that period. Its selector swaps only the card
+(`#nw-history`, `#mobile-history`), and every link on the page keeps the other
+parameter, so neither selector resets the other.
 
 The tooltip is not the browser's `<title>`. `ChartView.Days` carries every day
 of the range -- its integer `x`/`y` on the canvas and its date and total already
@@ -247,8 +264,9 @@ transactions.
 
 ### Mobile
 
-The same figures: net worth with its change, the history chart with period pills,
-and the cash flow and spending card. **The weekly-budget placeholder is gone** —
+The same figures: net worth with its change, the history chart with its own
+period pills, and the cash flow and spending card, which carries the page's
+period pills. **The weekly-budget placeholder is gone** —
 budgets are not a feature of this application, and the card suggested they were.
 
 ### Archiving

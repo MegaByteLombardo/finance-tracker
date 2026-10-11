@@ -1776,6 +1776,16 @@ input[data-type="currency"] {
   font-size: 0.875rem;
 }
 
+/* The chart card: its own period selector and the change over that period. */
+.nw-card-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.nw-card-title { display: flex; flex-direction: column; gap: 2px; }
+.nw-card-range { font-size: 0.8125rem; }
+.nw-periods { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.nw-card-change { margin: 0 0 var(--space-3) 0; font-size: 0.875rem; font-weight: 600; }
+.nw-card-change .is-up { color: var(--success); }
+.nw-card-change .is-down { color: var(--danger); }
+.nw-card-change .text-muted { font-weight: 500; margin-left: var(--space-1); }
+
 /* The chart */
 .nw-chart {
   position: relative;
@@ -1817,20 +1827,32 @@ input[data-type="currency"] {
 .nw-chart-tooltip-value { font-family: var(--font-mono); font-size: 0.875rem; font-weight: 600; }
 .nw-chart-tooltip.is-gap .nw-chart-tooltip-value { font-family: var(--font-sans); font-size: 0.75rem; font-weight: 500; color: var(--warning-text); white-space: normal; }
 .nw-chart-guide[hidden], .nw-chart-marker[hidden], .nw-chart-tooltip[hidden] { display: none; }
-.nw-chart-axis { font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); }
+.nw-chart-axis { font-size: 0.6875rem; color: var(--text-muted); font-family: var(--font-mono); }
+/* Every y label sits in the same grid cell, moved down to its gridline: the
+   column is as wide as the longest label and the labels follow the plot's
+   height, whatever it is. */
 .nw-chart-axis-y {
   grid-area: y;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  text-align: right;
-  padding: 6px 0;
+  display: grid;
+  grid-template-rows: 1fr;
+  justify-items: end;
+  align-items: start;
 }
-.nw-chart-axis-x { grid-area: x; display: flex; justify-content: space-between; margin-top: var(--space-1); }
+.nw-chart-axis-y span { grid-area: 1 / 1; position: relative; transform: translateY(-50%); white-space: nowrap; line-height: 1; }
+.nw-chart-axis-x { grid-area: x; position: relative; min-height: 1.4em; margin-top: var(--space-1); }
+.nw-chart-axis-x:has(br) { min-height: 2.6em; }
+.nw-chart-axis-x span { position: absolute; top: 0; white-space: nowrap; text-align: center; line-height: 1.25; transform: translateX(-50%); }
+.nw-chart-axis-x span.is-start { text-align: left; }
+.nw-chart-axis-x span.is-end { text-align: right; }
+.nw-chart-axis-x span.is-start { transform: none; }
+.nw-chart-axis-x span.is-end { transform: translateX(-100%); }
+.nw-chart-grid { stroke: var(--border-subtle); stroke-width: 1; }
+.nw-chart-grid.is-zero { stroke: var(--border-strong); }
+.nw-chart-grid-x { stroke: var(--border-subtle); stroke-width: 1; stroke-dasharray: 2 4; }
+.nw-chart-day-ticks { stroke: var(--border-strong); stroke-width: 1; fill: none; }
 .nw-chart-line { fill: none; stroke: var(--accent); stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
 .nw-chart-area { fill: var(--accent-subtle); stroke: none; }
 .nw-chart-dot { fill: var(--accent); }
-.nw-chart-zero { stroke: var(--border-strong); stroke-width: 1; stroke-dasharray: 4 4; }
 .nw-chart-last { fill: var(--accent); stroke: var(--bg-surface); stroke-width: 2; }
 .nw-chart-empty {
   grid-column: 1 / -1;
@@ -1851,7 +1873,6 @@ input[data-type="currency"] {
 @media (max-width: 600px) {
   .dash-kpis { grid-template-columns: minmax(0, 1fr); }
   .dash-figures { grid-template-columns: minmax(0, 1fr); }
-  .nw-chart { grid-template-columns: minmax(0, 1fr); grid-template-areas: "svg" "x" "y"; }
-  .nw-chart-axis-y { flex-direction: row; text-align: left; padding: 0; }
+  .nw-chart { column-gap: var(--space-2); }
   .nw-chart-svg { height: 180px; }
 }

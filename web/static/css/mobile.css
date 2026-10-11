@@ -2027,6 +2027,16 @@ html, body {
   border-color: var(--m-accent);
   background-color: var(--m-accent-bg);
 }
+.history-change {
+  margin: 0 0 10px 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--m-text-muted);
+}
+.history-change .is-income { color: var(--m-positive); }
+.history-change .is-expense { color: var(--m-negative); }
+.history-change span + span { font-weight: 500; margin-left: 4px; }
+.cashflow-section .history-periods { margin-bottom: 12px; }
 .history-chart {
   background-color: var(--m-bg-card);
   border: 1px solid var(--m-border-light);

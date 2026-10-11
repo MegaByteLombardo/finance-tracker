@@ -1,6 +1,8 @@
 package web
 
 import (
+	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -49,8 +51,9 @@ type DashboardView struct {
 	// of the page still renders: recent transactions need no exchange rate.
 	NetWorthError string
 
-	// Chart is Analytics' series, laid out.
-	Chart ChartView
+	// History is the net-worth chart card. It has its own period (?chart=),
+	// so moving the chart does not change the figures around it.
+	History NetWorthHistoryView
 
 	// Periods is the selector, with the active preset marked.
 	Periods []PeriodOption
@@ -69,18 +72,122 @@ type PeriodOption struct {
 	Active bool
 }
 
-// periodOptions builds the selector for a page at path.
-func periodOptions(path string, active DashboardPreset) []PeriodOption {
+// periodOptions builds the page's period selector. chart is the ?chart= the
+// page was opened with, kept on every link so changing the period does not
+// reset a chart the user moved; empty when it was not given.
+func periodOptions(path string, active DashboardPreset, chart string) []PeriodOption {
+	options := make([]PeriodOption, 0, len(DashboardPresets()))
+	for _, preset := range DashboardPresets() {
+		url := path + "?period=" + string(preset)
+		if chart != "" {
+			url += "&chart=" + chart
+		}
+		options = append(options, PeriodOption{
+			Preset: preset,
+			Label:  preset.Label(),
+			URL:    url,
+			Active: preset == active,
+		})
+	}
+	return options
+}
+
+// chartOptions builds the chart card's own selector. Each link keeps the
+// page's period and changes only ?chart=.
+func chartOptions(path string, period, active DashboardPreset) []PeriodOption {
 	options := make([]PeriodOption, 0, len(DashboardPresets()))
 	for _, preset := range DashboardPresets() {
 		options = append(options, PeriodOption{
 			Preset: preset,
 			Label:  preset.Label(),
-			URL:    path + "?period=" + string(preset),
+			URL:    path + "?period=" + string(period) + "&chart=" + string(preset),
 			Active: preset == active,
 		})
 	}
 	return options
+}
+
+// NetWorthHistoryView is the net-worth chart card: the chart over its own
+// period, the change over that period, and what rates it is missing.
+type NetWorthHistoryView struct {
+	// Available is false when the chart's period could not be computed; the
+	// card then shows ErrorMessage instead of a chart.
+	Available    bool
+	ErrorMessage string
+
+	Preset       DashboardPreset
+	From         time.Time
+	To           time.Time
+	CurrencyCode string
+
+	Chart ChartView
+
+	// Change is the net worth at the end of the chart's period against the
+	// close of the day before it (TD-069).
+	Change Change
+
+	IncompleteDays int
+	Gaps           []RateGap
+
+	// OpeningIncomplete is the day before the period missing a rate, which
+	// is what makes Change unavailable even when the chart has no hole.
+	OpeningIncomplete bool
+	OpeningDate       time.Time
+
+	Periods []PeriodOption
+}
+
+// newHistoryView lays out the chart card from a computed dashboard.
+func newHistoryView(dash DashboardAnalytics, periods []PeriodOption) NetWorthHistoryView {
+	base := dash.NetWorth.BaseCurrencyCode
+	return NetWorthHistoryView{
+		Available:         true,
+		Preset:            dash.Preset,
+		From:              dash.PeriodFrom,
+		To:                dash.PeriodTo,
+		CurrencyCode:      base,
+		Chart:             BuildNetWorthChart(dash.Points, base, dash.NetWorth.BaseMinorUnit),
+		Change:            dash.Change,
+		IncompleteDays:    dash.IncompleteDays,
+		Gaps:              dash.Gaps,
+		OpeningIncomplete: !dash.Opening.Complete,
+		OpeningDate:       dash.Opening.Date,
+		Periods:           periods,
+	}
+}
+
+// loadHistory computes the chart card for chart. When chart is the page's own
+// period, the dashboard already computed is reused; otherwise the chart's
+// period is computed on its own, and a failure there costs only the card.
+func loadHistory(r *http.Request, logger *slog.Logger, svcs *Services, path string,
+	dash DashboardAnalytics, period, chart DashboardPreset) NetWorthHistoryView {
+	periods := chartOptions(path, period, chart)
+	if chart == period {
+		return newHistoryView(dash, periods)
+	}
+	own, err := svcs.Analytics.Dashboard(r.Context(), chart)
+	if err != nil {
+		logger.Error("computing the net worth chart", slog.String("chart", string(chart)), slog.Any("error", err))
+		return NetWorthHistoryView{
+			Preset:       chart,
+			ErrorMessage: "No se pudo calcular la evolución para este período.",
+			Periods:      periods,
+		}
+	}
+	return newHistoryView(own, periods)
+}
+
+// parseChartPreset reads ?chart=. Absent or unrecognised, the chart follows
+// the page's period. It also returns the raw value to keep on the page's
+// other links, empty when there is none worth keeping.
+func parseChartPreset(raw string, period DashboardPreset) (DashboardPreset, string) {
+	raw = strings.TrimSpace(raw)
+	for _, preset := range DashboardPresets() {
+		if strings.EqualFold(raw, string(preset)) {
+			return preset, string(preset)
+		}
+	}
+	return period, ""
 }
 
 // AccountForm holds state and validation for the new account form

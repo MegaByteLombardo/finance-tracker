@@ -435,3 +435,45 @@ func TestTheChartTooltipIsServerDataNotNativeTitles(t *testing.T) {
 		t.Errorf("chart_tooltip.js: status %d", rec.Code)
 	}
 }
+
+// TestTheChartCardHasItsOwnPeriod: ?chart= moves only the chart. The page's
+// figures keep ?period=, the chart is computed for its own preset, and every
+// link keeps the other parameter so neither selector resets the other.
+func TestTheChartCardHasItsOwnPeriod(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct{ path, base, chartSelect string }{
+		{"/?period=30D&chart=90D", "/", "#nw-history"},
+		{"/mobile?period=30D&chart=90D", "/mobile", "#mobile-history"},
+	} {
+		d := sampleAnalytics()
+		fs, fetch := analyticsRouter(t, &d, nil)
+		status, page := fetch(tc.path)
+		if status != 200 {
+			t.Fatalf("%s: status %d", tc.path, status)
+		}
+		if got := fs.Analytics.Requested; len(got) != 2 || got[0] != DashboardPreset30D || got[1] != DashboardPreset90D {
+			t.Errorf("%s asked for %v, want [30D 90D]: the page's period, then the chart's", tc.path, got)
+		}
+		for _, phrase := range []string{
+			// The chart's selector changes ?chart= and swaps only the card.
+			`href="` + tc.base + `?period=30D&chart=7D"`,
+			`hx-select="` + tc.chartSelect + `"`,
+			// The page's selector keeps the chart where the user put it.
+			`href="` + tc.base + `?period=7D&chart=90D"`,
+			"en últimos 90 días", // the chart's change, over the chart's period
+		} {
+			if !strings.Contains(page, phrase) {
+				t.Errorf("%s does not contain %q", tc.path, phrase)
+			}
+		}
+	}
+
+	// Without ?chart= the chart follows the period, from the same computation.
+	d := sampleAnalytics()
+	fs, fetch := analyticsRouter(t, &d, nil)
+	fetch("/?period=7D")
+	if got := fs.Analytics.Requested; len(got) != 1 {
+		t.Errorf("asked for %v, want one computation when the chart follows the period", got)
+	}
+}

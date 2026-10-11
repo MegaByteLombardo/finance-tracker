@@ -1,21 +1,37 @@
 {{ define "net_worth_history" }}
-{{ if .Available }}
-<section class="mobile-section history-section" aria-labelledby="history-heading">
+{{/* The chart card has its own period (?chart=): its pills swap only this
+     section, so the figures above and below it keep the page's period. */}}
+<section id="mobile-history" class="mobile-section history-section" aria-labelledby="history-heading">
   <div class="section-top-bar">
     <h2 id="history-heading" class="section-title">Evolución</h2>
-    <span class="history-currency">{{ .CurrencyCode }}</span>
+    {{ if .Available }}<span class="history-currency">{{ .CurrencyCode }}</span>{{ end }}
   </div>
-  <nav class="history-periods" aria-label="Período">
-    {{ range .Periods }}
-    <a href="{{ .URL }}" class="history-period{{ if .Active }} is-active{{ end }}"
-       {{ if .Active }}aria-current="true"{{ end }}
-       hx-get="{{ .URL }}" hx-select="#mobile-analytics" hx-target="#mobile-analytics"
-       hx-swap="outerHTML" hx-push-url="true">{{ .Label }}</a>
-    {{ end }}
-  </nav>
   <div class="history-chart">
+    <nav class="history-periods" aria-label="Período de la gráfica">
+      {{ range .Periods }}
+      <a href="{{ .URL }}" class="history-period{{ if .Active }} is-active{{ end }}"
+         {{ if .Active }}aria-current="true"{{ end }}
+         hx-get="{{ .URL }}" hx-select="#mobile-history" hx-target="#mobile-history"
+         hx-swap="outerHTML" hx-push-url="true">{{ .Label }}</a>
+      {{ end }}
+    </nav>
+    {{ if .Available }}
+    <p class="history-change">
+      {{ if .Change.Defined }}
+      <span class="{{ if .Change.IsPositive }}is-income{{ else if .Change.IsNegative }}is-expense{{ end }}">
+        {{ signedChange .Change }}{{ if .Change.Percent.Defined }} ({{ signedRatio .Change.Percent }}){{ end }}
+      </span>
+      <span>en {{ .Preset.Description }}</span>
+      {{ else }}
+      <span>{{ .Change.UnavailableMessage }}</span>
+      {{ end }}
+    </p>
     {{ template "net_worth_chart" .Chart }}
+    {{ else }}
+    <p class="net-worth-note">{{ if .ErrorMessage }}{{ .ErrorMessage }}{{ else }}No se pudo calcular la evolución.{{ end }}</p>
+    {{ end }}
   </div>
+  {{ if .Available }}
   {{ if or .IncompleteDays .Gaps }}
   <p class="net-worth-note">
     {{ if .IncompleteDays }}Faltan tasas para {{ .IncompleteDays }} {{ if eq .IncompleteDays 1 }}día{{ else }}días{{ end }}; se muestran como huecos.{{ end }}
@@ -33,6 +49,6 @@
   </ul>
   {{ end }}
   {{ end }}
+  {{ end }}
 </section>
-{{ end }}
 {{ end }}

@@ -107,29 +107,56 @@
   </div>
   {{ end }}
 
-  <!-- History -->
-  <section class="card dash-section" aria-labelledby="history-title">
-    <div class="card-header">
-      <h2 id="history-title" class="card-title" style="font-size: 1rem;">Evolución del patrimonio</h2>
-      <span class="text-muted" style="font-size: 0.8125rem;">Al cierre de cada día · {{ $base }}</span>
+  <!-- History. The card has its own period (?chart=): its selector swaps only
+       this card, so moving the chart leaves every figure around it alone. -->
+  {{ with .History }}
+  <section id="nw-history" class="card dash-section nw-card" aria-labelledby="history-title">
+    <div class="card-header nw-card-header">
+      <div class="nw-card-title">
+        <h2 id="history-title" class="card-title" style="font-size: 1rem;">Evolución del patrimonio</h2>
+        {{ if .Available }}
+        <span class="text-muted nw-card-range">
+          {{ spanishDate .From }} → {{ spanishDate .To }} · al cierre de cada día · {{ .CurrencyCode }}
+        </span>
+        {{ end }}
+      </div>
+      <nav class="nw-periods" aria-label="Período de la gráfica">
+        {{ range .Periods }}
+        <a href="{{ .URL }}" class="dash-period{{ if .Active }} is-active{{ end }}"
+           {{ if .Active }}aria-current="true"{{ end }}
+           hx-get="{{ .URL }}" hx-select="#nw-history" hx-target="#nw-history"
+           hx-swap="outerHTML" hx-push-url="true">{{ .Label }}</a>
+        {{ end }}
+      </nav>
     </div>
     <div class="card-body">
+      {{ if .Available }}
+      <p class="nw-card-change">
+        {{ if .Change.Defined }}
+        <span class="{{ if .Change.IsPositive }}is-up{{ else if .Change.IsNegative }}is-down{{ end }}">
+          {{ signedChange .Change }} {{ .CurrencyCode }}{{ if .Change.Percent.Defined }} ({{ signedRatio .Change.Percent }}){{ end }}
+        </span>
+        <span class="text-muted">en {{ .Preset.Description }}</span>
+        {{ else }}
+        <span class="text-muted">Variación en {{ .Preset.Description }}: {{ .Change.UnavailableMessage }}</span>
+        {{ end }}
+      </p>
       {{ template "net_worth_chart" .Chart }}
-      {{ if or $a.IncompleteDays $a.Gaps }}
+      {{ if or .IncompleteDays .Gaps }}
       <p class="dash-note">
         <span class="badge badge-warning">huecos</span>
-        {{ if $a.IncompleteDays }}
-        Faltan tasas históricas para {{ $a.IncompleteDays }} {{ if eq $a.IncompleteDays 1 }}día{{ else }}días{{ end }} del período;
+        {{ if .IncompleteDays }}
+        Faltan tasas históricas para {{ .IncompleteDays }} {{ if eq .IncompleteDays 1 }}día{{ else }}días{{ end }} del período;
         esos días no se dibujan en lugar de mostrar un total parcial.
         {{ end }}
-        {{ if not $a.Opening.Complete }}
-        Falta la tasa del {{ spanishDate $a.Opening.Date }}, el cierre anterior al período desde el que se mide la variación.
+        {{ if .OpeningIncomplete }}
+        Falta la tasa del {{ spanishDate .OpeningDate }}, el cierre anterior al período desde el que se mide la variación.
         {{ end }}
-        {{ if not $a.Gaps }}<a href="/settings/exchange-rates">Cargar tasas pasadas &rarr;</a>{{ end }}
+        {{ if not .Gaps }}<a href="/settings/exchange-rates">Cargar tasas pasadas &rarr;</a>{{ end }}
       </p>
-      {{ if $a.Gaps }}
+      {{ if .Gaps }}
       <ul class="dash-gaps">
-        {{ range $a.Gaps }}
+        {{ range .Gaps }}
         <li>
           <strong>{{ .PairLabel }}</strong>:
           {{ if .SingleDay }}{{ spanishDate .From }}{{ else }}del {{ spanishDate .From }} al {{ spanishDate .To }} ({{ .Days }} días){{ end }}
@@ -143,8 +170,12 @@
       </p>
       {{ end }}
       {{ end }}
+      {{ else }}
+      <p class="text-muted">{{ .ErrorMessage }}</p>
+      {{ end }}
     </div>
   </section>
+  {{ end }}
 
   {{ if not .NetWorth.Complete }}
   <div class="alert alert-warning" role="alert">

@@ -1,19 +1,25 @@
 {{ define "net_worth_chart" }}
 {{/* The net worth over a period, as an inline SVG laid out by internal/web/chart.go.
      Every coordinate is an integer computed on the server; every label is a figure
-     the backend formatted. An incomplete day is a gap, never a point. */}}
+     the backend formatted or a round gridline value. The vertical axis always
+     includes zero. An incomplete day is a gap, never a point. */}}
 <figure class="nw-chart">
   {{ if .HasData }}
   <div class="nw-chart-axis nw-chart-axis-y" aria-hidden="true">
-    <span>máx {{ .MaxLabel }}</span>
-    <span>mín {{ .MinLabel }}</span>
+    {{ range .YTicks }}<span style="top: {{ .TopPercent }}">{{ .Label }}</span>{{ end }}
   </div>
   <div class="nw-chart-plot" tabindex="0"
        aria-label="Gráfico interactivo: use las flechas izquierda y derecha para recorrer los días.">
   <svg class="nw-chart-svg" viewBox="0 0 {{ .Width }} {{ .Height }}" preserveAspectRatio="none" role="img"
        aria-label="Evolución del patrimonio neto del {{ .StartLabel }} al {{ .EndLabel }}. Máximo {{ .MaxLabel }}, mínimo {{ .MinLabel }}.">
-    {{ if .HasZeroLine }}
-    <line class="nw-chart-zero" x1="0" x2="{{ .Width }}" y1="{{ .ZeroY }}" y2="{{ .ZeroY }}" vector-effect="non-scaling-stroke"></line>
+    {{ range .YTicks }}
+    <line class="nw-chart-grid{{ if .Zero }} is-zero{{ end }}" x1="0" x2="{{ $.Width }}" y1="{{ .Y }}" y2="{{ .Y }}" vector-effect="non-scaling-stroke"></line>
+    {{ end }}
+    {{ range .XTicks }}
+    <line class="nw-chart-grid-x" x1="{{ .X }}" x2="{{ .X }}" y1="0" y2="{{ $.Height }}" vector-effect="non-scaling-stroke"></line>
+    {{ end }}
+    {{ if .DayTicks }}
+    <path class="nw-chart-day-ticks" d="{{ .DayTicks }}" vector-effect="non-scaling-stroke"></path>
     {{ end }}
     {{ range .Segments }}
       {{ if .Dot }}
@@ -37,9 +43,8 @@
     <strong class="nw-chart-tooltip-value"></strong>
   </div>
   </div>
-  <figcaption class="nw-chart-axis nw-chart-axis-x">
-    <span>{{ .StartLabel }}</span>
-    <span>{{ .EndLabel }}</span>
+  <figcaption class="nw-chart-axis nw-chart-axis-x" aria-hidden="true">
+    {{ range .XTicks }}<span class="is-{{ .Align }}" style="left: {{ .LeftPercent }}">{{ .Label }}{{ if .Sub }}<br>{{ .Sub }}{{ end }}</span>{{ end }}
   </figcaption>
   {{ else }}
   <div class="nw-chart-empty">

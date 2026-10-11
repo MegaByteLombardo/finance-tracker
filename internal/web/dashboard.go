@@ -18,6 +18,7 @@ func handleDashboard(logger *slog.Logger, renderer *Renderer, svcs *Services) ht
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		preset := ParseDashboardPreset(r.URL.Query().Get("period"))
+		chart, keepChart := parseChartPreset(r.URL.Query().Get("chart"), preset)
 
 		balances, err := svcs.Ledger.ListAccountBalances(ctx, false)
 		if err != nil {
@@ -41,7 +42,7 @@ func handleDashboard(logger *slog.Logger, renderer *Renderer, svcs *Services) ht
 		}
 
 		data := DashboardView{
-			Periods:            periodOptions("/", preset),
+			Periods:            periodOptions("/", preset, keepChart),
 			RecentTransactions: txs,
 			HasAccounts:        len(balances) > 0,
 			HasCategories:      len(cats) > 0,
@@ -56,7 +57,7 @@ func handleDashboard(logger *slog.Logger, renderer *Renderer, svcs *Services) ht
 		} else {
 			data.Analytics = dash
 			data.NetWorth = dash.NetWorth
-			data.Chart = BuildNetWorthChart(dash.Points, dash.NetWorth.BaseCurrencyCode)
+			data.History = loadHistory(r, logger, svcs, "/", dash, preset, chart)
 		}
 
 		pageData := PageData{
