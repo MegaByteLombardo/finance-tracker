@@ -2230,10 +2230,12 @@ toggle: *Aluminio* (light, the default for a browser with no stored choice) and
 `mobile.css` aliases its `--m-*` names to those tokens instead of defining its
 own palette.
 
-The desktop dashboard fits one screen at 1440×900: row 1 is the net worth and
-four indicators, row 2 the history beside the composition by currency, row 3 the
-detail (accounts, cash flow and spending, recent movements). Nothing was
-removed: every warning, gap list and rate link is still rendered.
+The desktop dashboard is a grid read top to bottom: row 1 is the net worth and
+four indicators, row 2 the history beside the breakdown by account, row 3 the
+breakdown by currency beside the cash flow and spending (which takes the rest of
+the width, with figures and income on one side and spending by category on the
+other), and row 4 the recent movements as a full-width ledger table. Nothing
+was removed: every warning, gap list and rate link is still rendered.
 
 **Figures always fit their container.** A readout's value line never wraps
 (`.lcd-value`, `white-space: nowrap`) and is sized from its container's width

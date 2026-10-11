@@ -271,8 +271,9 @@ and payment methods; internal same-currency transfers.
   number. Every amount a template shows goes through `formatAmount`.
 - **Fonts are embedded** (`web/static/fonts`, OFL). No Google Fonts, no CDN, no
   request to another host from any page.
-- The desktop dashboard is **one screen** at 1440×900: summary, then evolution
-  beside composition, then detail. A new block goes into that grid, not below it.
+- The desktop dashboard is a grid: summary; evolution beside accounts;
+  currencies beside the wide cash-flow card; recent movements at full width.
+  A new block goes into that grid, not appended below it.
 
 **Not built, and not to be added opportunistically:**
 

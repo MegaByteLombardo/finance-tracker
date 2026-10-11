@@ -25,8 +25,9 @@
      only this block (htmx selects it out of the full page), so a deep link to
      ?period=90D renders exactly what a click does.
 
-     Layout (TD-071): one screen. Row 1 is the summary, row 2 the evolution beside
-     the composition, row 3 the detail. Every headline figure sits in an .lcd
+     Layout (TD-071): row 1 is the summary, row 2 the evolution beside the
+     accounts, row 3 the currencies beside the cash flow, row 4 the recent
+     movements at full width. Every headline figure sits in an .lcd
      readout whose value line never wraps; fit.js shrinks it if it would overflow. -->
 <div id="dashboard-analytics" class="dash">
   {{ if .NetWorthError }}
@@ -140,7 +141,7 @@
   </div>
   {{ end }}
 
-  <!-- Row 2: evolution beside composition -->
+  <!-- Row 2: evolution beside the accounts -->
   <div class="dash-mid">
     <!-- History. The card has its own period (?chart=): its selector swaps only
          this card, so moving the chart leaves every figure around it alone. -->
@@ -214,6 +215,42 @@
     </section>
     {{ end }}
 
+    <section class="card dash-section" aria-labelledby="by-account-title">
+      <div class="card-header">
+        <h2 id="by-account-title" class="card-title">Por cuenta</h2>
+        <a href="/accounts" class="dash-section-meta">Ver cuentas &rarr;</a>
+      </div>
+      <div class="card-body">
+        {{ if .NetWorth.Accounts }}
+        <ul class="ledger">
+          {{ range .NetWorth.Accounts }}
+          <li class="ledger-row">
+            <span class="ledger-name">{{ .AccountName }}</span>
+            <span class="ledger-figure"><span class="{{ if isNegative .BalanceMinor }}amount-expense{{ end }}">{{ formatAmount .BalanceFormatted }}</span><span class="currency-badge">{{ .CurrencyCode }}</span></span>
+            <span class="ledger-sub">
+              {{ .AccountType }}{{ if .Institution }} · {{ derefString .Institution }}{{ end }}
+              {{ if .ArchivedWithBalance }}<span class="badge badge-warning">archivada con saldo</span>{{ else if not .IsActive }}<span class="badge badge-neutral">archivada</span>{{ end }}
+            </span>
+            <span class="ledger-sub ledger-sub-right">{{ if .Valued }}{{ formatAmount .ConvertedFormatted }} {{ $base }}{{ else }}&mdash;{{ end }} · {{ ratio .Share }}</span>
+          </li>
+          {{ end }}
+        </ul>
+        {{ else }}
+        <p class="text-muted">Sin cuentas todavía.</p>
+        {{ end }}
+      </div>
+    </section>
+  </div>
+
+  {{ if .NetWorth.FutureMovementCount }}
+  <p class="dash-note">
+    <span class="badge badge-neutral">{{ .NetWorth.FutureMovementCount }} {{ if eq .NetWorth.FutureMovementCount 1 }}movimiento futuro{{ else }}movimientos futuros{{ end }}</span>
+    Tienen fecha posterior a hoy: existen en el ledger, pero aún no forman parte de ningún saldo.
+  </p>
+  {{ end }}
+
+  <!-- Row 3: currencies beside the cash flow -->
+  <div class="dash-detail">
     <section class="card dash-section" aria-labelledby="by-currency-title">
       <div class="card-header">
         <h2 id="by-currency-title" class="card-title">Por moneda</h2>
@@ -255,49 +292,14 @@
         {{ end }}
       </div>
     </section>
-  </div>
 
-  {{ if .NetWorth.FutureMovementCount }}
-  <p class="dash-note">
-    <span class="badge badge-neutral">{{ .NetWorth.FutureMovementCount }} {{ if eq .NetWorth.FutureMovementCount 1 }}movimiento futuro{{ else }}movimientos futuros{{ end }}</span>
-    Tienen fecha posterior a hoy: existen en el ledger, pero aún no forman parte de ningún saldo.
-  </p>
-  {{ end }}
-
-  <!-- Row 3: detail -->
-  <div class="dash-detail">
-    <section class="card dash-section" aria-labelledby="by-account-title">
-      <div class="card-header">
-        <h2 id="by-account-title" class="card-title">Por cuenta</h2>
-        <a href="/accounts" class="dash-section-meta">Ver cuentas &rarr;</a>
-      </div>
-      <div class="card-body">
-        {{ if .NetWorth.Accounts }}
-        <ul class="ledger">
-          {{ range .NetWorth.Accounts }}
-          <li class="ledger-row">
-            <span class="ledger-name">{{ .AccountName }}</span>
-            <span class="ledger-figure"><span class="{{ if isNegative .BalanceMinor }}amount-expense{{ end }}">{{ formatAmount .BalanceFormatted }}</span><span class="currency-badge">{{ .CurrencyCode }}</span></span>
-            <span class="ledger-sub">
-              {{ .AccountType }}{{ if .Institution }} · {{ derefString .Institution }}{{ end }}
-              {{ if .ArchivedWithBalance }}<span class="badge badge-warning">archivada con saldo</span>{{ else if not .IsActive }}<span class="badge badge-neutral">archivada</span>{{ end }}
-            </span>
-            <span class="ledger-sub ledger-sub-right">{{ if .Valued }}{{ formatAmount .ConvertedFormatted }} {{ $base }}{{ else }}&mdash;{{ end }} · {{ ratio .Share }}</span>
-          </li>
-          {{ end }}
-        </ul>
-        {{ else }}
-        <p class="text-muted">Sin cuentas todavía.</p>
-        {{ end }}
-      </div>
-    </section>
-
-    <section class="card dash-section" aria-labelledby="cash-flow-title">
+    <section class="card dash-section dash-flow-card" aria-labelledby="cash-flow-title">
       <div class="card-header">
         <h2 id="cash-flow-title" class="card-title">Flujo de caja · Gasto</h2>
         <span class="dash-section-meta">{{ $a.Preset.Description }}</span>
       </div>
-      <div class="card-body">
+      <div class="card-body dash-flow">
+        <div class="dash-flow-col">
         <dl class="dash-figures">
           <div class="lcd"><dt>Gasto total</dt><dd><span class="lcd-value" data-fit>{{ formatAmount $a.Spending.TotalFormatted }}<span class="lcd-unit">{{ $base }}</span></span></dd></div>
           <div class="lcd"><dt>Promedio diario</dt><dd><span class="lcd-value" data-fit>{{ formatAmount $a.Spending.DailyAverageFormatted }}<span class="lcd-unit">{{ $base }}</span></span></dd></div>
@@ -328,6 +330,20 @@
         {{ end }}
         {{ end }}
 
+        {{ if $a.CashFlow.IncomeCategories }}
+        <h3 class="dash-subtitle">Ingresos por categoría</h3>
+        <ul class="ledger">
+          {{ range $a.CashFlow.IncomeCategories }}
+          <li class="ledger-row"><span class="ledger-name">{{ .CategoryName }}</span><span class="ledger-figure amount-income">{{ formatAmount .AmountFormatted }}</span></li>
+          {{ end }}
+        </ul>
+        {{ end }}
+        <p class="dash-note text-muted">
+          Las transferencias entre cuentas propias y los cambios de divisa no son ingresos ni egresos y no aparecen aquí.
+          Cada movimiento se valora con la tasa de referencia de su propia fecha.
+        </p>
+        </div>
+        <div class="dash-flow-col">
         <h3 class="dash-subtitle">Egresos por categoría</h3>
         {{ if $a.Spending.Categories }}
         <ul class="ledger">
@@ -344,79 +360,102 @@
         {{ else }}
         <p class="text-muted">Sin egresos en el período.</p>
         {{ end }}
-
-        {{ if $a.CashFlow.IncomeCategories }}
-        <h3 class="dash-subtitle">Ingresos por categoría</h3>
-        <ul class="ledger">
-          {{ range $a.CashFlow.IncomeCategories }}
-          <li class="ledger-row"><span class="ledger-name">{{ .CategoryName }}</span><span class="ledger-figure amount-income">{{ formatAmount .AmountFormatted }}</span></li>
-          {{ end }}
-        </ul>
-        {{ end }}
-        <p class="dash-note text-muted">
-          Las transferencias entre cuentas propias y los cambios de divisa no son ingresos ni egresos y no aparecen aquí.
-          Cada movimiento se valora con la tasa de referencia de su propia fecha.
-        </p>
-      </div>
-    </section>
-
-    <!-- Recent movements. Every type is named; none falls through to another's
-         rendering (TD-045). -->
-    <section class="card dash-section" aria-labelledby="recent-title">
-      <div class="card-header">
-        <h2 id="recent-title" class="card-title">Recent Transactions</h2>
-        {{ if $.HasTransactions }}<a href="/transactions" class="dash-section-meta">View all &rarr;</a>{{ end }}
-      </div>
-      <div class="card-body">
-        {{ if not $.HasTransactions }}
-        <p class="text-muted">Movements will appear here once income, expenses, or opening balances are recorded.</p>
-        {{ else }}
-        <ul class="ledger">
-          {{ range $.RecentTransactions }}
-          <li class="ledger-row">
-            <span class="ledger-name">
-              {{ if .Description }}
-                {{ derefString .Description }}
-              {{ else }}
-                <span class="text-muted" style="font-style: italic; font-weight: 500;">
-                  {{ if eq .Type "OPENING_BALANCE" }}Initial balance{{ else if eq .Type "TRANSFER" }}Internal transfer{{ else if eq .Type "FX_EXCHANGE" }}{{ exchangeLabel .Exchange }}{{ else }}No description{{ end }}
-                </span>
-              {{ end }}
-            </span>
-            {{ if and (eq .Type "FX_EXCHANGE") .Exchange }}
-            <span class="ledger-figure ledger-stack amount-transfer">
-              <span>-{{ formatAmount .Exchange.SourceAmountFormatted }} {{ .Exchange.SourceCurrencyCode }}</span>
-              <span>+{{ formatAmount .Exchange.DestinationAmountFormatted }} {{ .Exchange.DestinationCurrencyCode }}</span>
-            </span>
-            {{ else }}
-            <span class="ledger-figure {{ if eq .Type "INCOME" }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else if eq .Type "TRANSFER" }}amount-transfer{{ else }}amount-opening{{ end }}">{{ formatSignedAmount . }} {{ .CurrencyCode }}</span>
-            {{ end }}
-            <span class="ledger-sub ledger-wide">
-              {{ if eq .Type "OPENING_BALANCE" }}<span class="badge badge-opening">Opening balance</span>
-              {{ else if eq .Type "INCOME" }}<span class="badge badge-income">Income</span>
-              {{ else if eq .Type "EXPENSE" }}<span class="badge badge-expense">Expense</span>
-              {{ else if eq .Type "TRANSFER" }}<span class="badge badge-transfer">Transfer</span>
-              {{ else if eq .Type "FX_EXCHANGE" }}<span class="badge badge-transfer">Exchange</span>
-              {{ else }}<span class="badge badge-neutral">{{ .Type }}</span>
-              {{ end }}
-              <span class="cell-mono">{{ formatDate .EffectiveDate }}</span> ·
-              {{ if and (eq .Type "TRANSFER") .Transfer }}
-                {{ .Transfer.SourceAccountName }} &rarr; {{ .Transfer.DestinationAccountName }}
-              {{ else if and (eq .Type "FX_EXCHANGE") .Exchange }}
-                {{ .Exchange.SourceAccountName }} &rarr; {{ .Exchange.DestinationAccountName }} · {{ executionRateLabel .Exchange.ExecutionRate }}
-              {{ else if or (eq .Type "INCOME") (eq .Type "EXPENSE") }}
-                {{ .AccountName }}{{ if .CategoryName }} · {{ derefString .CategoryName }}{{ end }} · {{ paymentMethodLabel .PaymentMethodName }}
-              {{ else }}
-                {{ .AccountName }}
-              {{ end }}
-            </span>
-          </li>
-          {{ end }}
-        </ul>
-        {{ end }}
+        </div>
       </div>
     </section>
   </div>
+
+  <!-- Recent movements: full width, below the analysis. Every type is named;
+       none falls through to another's rendering (TD-045). -->
+  <section class="card dash-section dash-recent" aria-labelledby="recent-title">
+    <div class="card-header">
+      <h2 id="recent-title" class="card-title">Recent Transactions</h2>
+      {{ if $.HasTransactions }}<a href="/transactions" class="dash-section-meta">View all &rarr;</a>{{ end }}
+    </div>
+    <div class="card-body">
+      {{ if not $.HasTransactions }}
+      <p class="text-muted">Movements will appear here once income, expenses, or opening balances are recorded.</p>
+      {{ else }}
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Description</th>
+              <th>Category</th>
+              <th>Account</th>
+              <th>Channel / Method</th>
+              <th class="cell-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ range $.RecentTransactions }}
+            <tr>
+              <td class="cell-mono">{{ formatDate .EffectiveDate }}</td>
+              <td>
+                <div style="font-weight: 600;">
+                  {{ if .Description }}
+                    {{ derefString .Description }}
+                  {{ else }}
+                    <span class="text-muted" style="font-style: italic; font-weight: 500;">
+                      {{ if eq .Type "OPENING_BALANCE" }}Initial balance{{ else if eq .Type "TRANSFER" }}Internal transfer{{ else if eq .Type "FX_EXCHANGE" }}{{ exchangeLabel .Exchange }}{{ else }}No description{{ end }}
+                    </span>
+                  {{ end }}
+                </div>
+                <div>
+                  {{ if eq .Type "OPENING_BALANCE" }}<span class="badge badge-opening">Opening balance</span>
+                  {{ else if eq .Type "INCOME" }}<span class="badge badge-income">Income</span>
+                  {{ else if eq .Type "EXPENSE" }}<span class="badge badge-expense">Expense</span>
+                  {{ else if eq .Type "TRANSFER" }}<span class="badge badge-transfer">Transfer</span>
+                  {{ else if eq .Type "FX_EXCHANGE" }}<span class="badge badge-transfer">Exchange</span>
+                  {{ else }}<span class="badge badge-neutral">{{ .Type }}</span>
+                  {{ end }}
+                </div>
+              </td>
+              <td>
+                {{ if or (eq .Type "INCOME") (eq .Type "EXPENSE") }}
+                  {{ if .CategoryName }}{{ derefString .CategoryName }}{{ else }}<span class="text-muted">&mdash;</span>{{ end }}
+                {{ else }}
+                  <span class="text-muted">&mdash;</span>
+                {{ end }}
+              </td>
+              <td>
+                {{ if and (eq .Type "TRANSFER") .Transfer }}
+                  <div style="font-weight: 600;">{{ .Transfer.SourceAccountName }} &rarr; {{ .Transfer.DestinationAccountName }}</div>
+                  <div class="text-muted" style="font-size: 0.75rem;">Internal transfer</div>
+                {{ else if and (eq .Type "FX_EXCHANGE") .Exchange }}
+                  <div style="font-weight: 600;">{{ .Exchange.SourceAccountName }} &rarr; {{ .Exchange.DestinationAccountName }}</div>
+                  <div class="text-muted cell-mono" style="font-size: 0.75rem;">{{ executionRateLabel .Exchange.ExecutionRate }}</div>
+                {{ else }}
+                  <div style="font-weight: 600;">{{ .AccountName }}</div>
+                  <div class="text-muted" style="font-size: 0.75rem;">
+                    {{ if .Institution }}{{ derefString .Institution }} · {{ end }}{{ .AccountType }}{{ if .AccountSubtype }} ({{ derefSubtype .AccountSubtype }}){{ end }}
+                  </div>
+                {{ end }}
+              </td>
+              <td>
+                {{ if or (eq .Type "INCOME") (eq .Type "EXPENSE") }}
+                  {{ paymentMethodLabel .PaymentMethodName }}
+                {{ else }}
+                  <span class="text-muted">&mdash;</span>
+                {{ end }}
+              </td>
+              <td class="cell-right cell-mono">
+                {{ if and (eq .Type "FX_EXCHANGE") .Exchange }}
+                <span class="amount-transfer">-{{ formatAmount .Exchange.SourceAmountFormatted }} {{ .Exchange.SourceCurrencyCode }}</span><br>
+                <span class="amount-transfer">+{{ formatAmount .Exchange.DestinationAmountFormatted }} {{ .Exchange.DestinationCurrencyCode }}</span>
+                {{ else }}
+                <span class="{{ if eq .Type "INCOME" }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else if eq .Type "TRANSFER" }}amount-transfer{{ else }}amount-opening{{ end }}">{{ formatSignedAmount . }} {{ .CurrencyCode }}</span>
+                {{ end }}
+              </td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+      </div>
+      {{ end }}
+    </div>
+  </section>
   {{ end }}
 </div>
 

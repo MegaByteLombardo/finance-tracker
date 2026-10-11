@@ -1520,7 +1520,8 @@ input[data-type="currency"] {
 .dash-chip.is-up { color: var(--success); }
 .dash-chip.is-down { color: var(--danger); }
 
-/* Row 2: chart beside composition; Row 3: three detail panels */
+/* Row 2: chart beside the accounts; Row 3: currencies beside the cash flow,
+   which takes the rest of the width; Row 4: recent movements, full width. */
 .dash-mid {
   display: grid;
   grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
@@ -1529,10 +1530,25 @@ input[data-type="currency"] {
 }
 .dash-detail {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
   gap: var(--space-4);
   align-items: start;
 }
+
+/* The cash-flow card is wide: figures and income on the left, spending by
+   category on the right. */
+.dash-flow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+.dash-flow-col { min-width: 0; }
+.dash-flow-col > .dash-subtitle:first-child { margin-top: 0; }
+
+.dash-recent .card-body { padding: var(--space-4); }
+.dash-recent .table-container { box-shadow: var(--shadow-xs); }
+.dash-recent .data-table td.cell-right { white-space: nowrap; }
 
 .dash-section .card-body { padding: var(--space-4); }
 .dash-section .card-header { padding: var(--space-3) var(--space-4); }
@@ -1718,11 +1734,10 @@ input[data-type="currency"] {
 @media (max-width: 1200px) {
   .dash-top { grid-template-columns: minmax(0, 1fr); }
   .dash-mid { grid-template-columns: minmax(0, 1fr); }
-  .dash-detail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .dash-detail > :last-child { grid-column: 1 / -1; }
 }
 @media (max-width: 840px) {
   .dash-detail { grid-template-columns: minmax(0, 1fr); }
+  .dash-flow { grid-template-columns: minmax(0, 1fr); }
   .header-container { padding: var(--space-2) var(--space-4); }
   .main-content { padding: var(--space-5) var(--space-4) var(--space-8); }
 }
