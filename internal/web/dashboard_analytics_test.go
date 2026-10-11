@@ -400,3 +400,38 @@ func TestAnUnavailableSpendingChangeSaysWhichExpensesLackARate(t *testing.T) {
 		}
 	}
 }
+
+// TestTheChartTooltipIsServerDataNotNativeTitles: every day travels to the page
+// with its figure already formatted, the browser's own tooltips are gone, and
+// the script that places the card is served on both layouts.
+func TestTheChartTooltipIsServerDataNotNativeTitles(t *testing.T) {
+	t.Parallel()
+
+	d := sampleAnalytics()
+	_, fetch := analyticsRouter(t, &d, nil)
+	for _, path := range []string{"/", "/mobile"} {
+		status, page := fetch(path)
+		if status != 200 {
+			t.Fatalf("%s: status %d", path, status)
+		}
+		for _, phrase := range []string{
+			`class="nw-chart-data">[{"x":0,`,
+			`"d":"6 sep 2026","v":"11,610.12 USD","ok":true`,
+			`"d":"11 sep 2026","ok":false`, // a gap day: listed, never valued
+			`class="nw-chart-tooltip"`,
+			`/static/js/chart_tooltip.js`,
+		} {
+			if !strings.Contains(page, phrase) {
+				t.Errorf("%s does not contain %q", path, phrase)
+			}
+		}
+		if strings.Contains(page, "<title>6 sep") || strings.Contains(page, "nw-chart-hit") {
+			t.Errorf("%s still renders native tooltips", path)
+		}
+	}
+
+	router := NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)), NewFakeServices().BuildServices(), DefaultConfig())
+	if rec := get(t, router, "/static/js/chart_tooltip.js"); rec.Code != 200 {
+		t.Errorf("chart_tooltip.js: status %d", rec.Code)
+	}
+}

@@ -226,6 +226,15 @@ from integer minor units with integer arithmetic (`big.Int` for the scaling). An
 incomplete day breaks the line; a single-day run is a dot. Labels are the
 backend's formatted totals. No charting library (TD-070).
 
+The tooltip is not the browser's `<title>`. `ChartView.Days` carries every day
+of the range -- its integer `x`/`y` on the canvas and its date and total already
+formatted, or `ok: false` for a day that could not be valued -- embedded in the
+page as JSON. `web/static/js/chart_tooltip.js` finds the day nearest the pointer
+(or moves with the arrow keys when the plot has focus) and places a guide, a dot
+and a card. It computes no figure. A gap day gets the card, saying it could not
+be valued, and no dot. Listeners are delegated, so a chart htmx swaps in works
+without re-initialising.
+
 ### Desktop
 
 Period selector; KPIs (net worth with change and percentage, income, expenses,

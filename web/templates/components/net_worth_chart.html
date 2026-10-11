@@ -8,6 +8,8 @@
     <span>máx {{ .MaxLabel }}</span>
     <span>mín {{ .MinLabel }}</span>
   </div>
+  <div class="nw-chart-plot" tabindex="0"
+       aria-label="Gráfico interactivo: use las flechas izquierda y derecha para recorrer los días.">
   <svg class="nw-chart-svg" viewBox="0 0 {{ .Width }} {{ .Height }}" preserveAspectRatio="none" role="img"
        aria-label="Evolución del patrimonio neto del {{ .StartLabel }} al {{ .EndLabel }}. Máximo {{ .MaxLabel }}, mínimo {{ .MinLabel }}.">
     {{ if .HasZeroLine }}
@@ -21,13 +23,20 @@
       <path class="nw-chart-line" d="{{ .Line }}" vector-effect="non-scaling-stroke"></path>
       {{ end }}
     {{ end }}
-    {{ range .Markers }}
-    <circle class="nw-chart-hit" cx="{{ .X }}" cy="{{ .Y }}" r="10"><title>{{ .Label }}</title></circle>
-    {{ end }}
     {{ if .HasLast }}
-    <circle class="nw-chart-last" cx="{{ .Last.X }}" cy="{{ .Last.Y }}" r="5"><title>{{ .Last.Label }}</title></circle>
+    <circle class="nw-chart-last" cx="{{ .Last.X }}" cy="{{ .Last.Y }}" r="5"></circle>
     {{ end }}
   </svg>
+  {{/* The tooltip's data: every day's position and its already-formatted
+       figure. chart_tooltip.js only places these; it computes nothing. */}}
+  <script type="application/json" class="nw-chart-data">{{ .Days }}</script>
+  <div class="nw-chart-guide" hidden></div>
+  <div class="nw-chart-marker" hidden></div>
+  <div class="nw-chart-tooltip" role="status" aria-live="polite" hidden>
+    <span class="nw-chart-tooltip-date"></span>
+    <strong class="nw-chart-tooltip-value"></strong>
+  </div>
+  </div>
   <figcaption class="nw-chart-axis nw-chart-axis-x">
     <span>{{ .StartLabel }}</span>
     <span>{{ .EndLabel }}</span>

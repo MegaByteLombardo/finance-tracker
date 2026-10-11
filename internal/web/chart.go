@@ -21,10 +21,6 @@ const (
 	chartHeight  = 240
 	chartPadTop  = 16
 	chartPadBase = 16
-
-	// chartMaxMarkers bounds the hover targets. A five-year series has 1,800
-	// points; one invisible circle per point would be markup nobody can aim at.
-	chartMaxMarkers = 120
 )
 
 // ChartView is a drawn series, ready for a template.
@@ -36,8 +32,10 @@ type ChartView struct {
 	// incomplete is a GAP between segments, never a point (TD-067).
 	Segments []ChartSegment
 
-	// Markers are hover targets, each carrying its date and figure as text.
-	Markers []ChartMarker
+	// Days is every day of the range, in order, for the tooltip: where it
+	// sits and what it says. It is embedded in the page as JSON and read by
+	// chart_tooltip.js, which positions things and never computes a figure.
+	Days []ChartDay
 
 	// Last is the most recent complete point, emphasised on the chart.
 	Last    ChartMarker
@@ -74,7 +72,18 @@ type ChartSegment struct {
 	DotY int
 }
 
-// ChartMarker is one point a pointer can land on.
+// ChartDay is one day as the tooltip shows it. An incomplete day has no Y and
+// no Value: the tooltip says it could not be valued, exactly as the chart
+// leaves a gap there.
+type ChartDay struct {
+	X        int    `json:"x"`
+	Y        int    `json:"y"`
+	Date     string `json:"d"`
+	Value    string `json:"v,omitempty"`
+	Complete bool   `json:"ok"`
+}
+
+// ChartMarker is one emphasised point.
 type ChartMarker struct {
 	X     int
 	Y     int
@@ -128,11 +137,6 @@ func BuildNetWorthChart(points []NetWorthPoint, currencyCode string) ChartView {
 		view.ZeroY = y(0)
 	}
 
-	step := 1
-	if len(points) > chartMaxMarkers {
-		step = (len(points) + chartMaxMarkers - 1) / chartMaxMarkers
-	}
-
 	var run []int
 	flush := func() {
 		if len(run) == 0 {
@@ -142,22 +146,23 @@ func BuildNetWorthChart(points []NetWorthPoint, currencyCode string) ChartView {
 		run = run[:0]
 	}
 
+	view.Days = make([]ChartDay, 0, len(points))
 	for i, p := range points {
+		day := ChartDay{X: x(i), Date: shortSpanishDate(p.Date)}
 		if !p.Complete {
+			view.Days = append(view.Days, day)
 			flush()
 			continue
 		}
 		run = append(run, i)
 
-		marker := ChartMarker{
-			X:     x(i),
-			Y:     y(p.TotalMinor),
-			Label: shortSpanishDate(p.Date) + " · " + formatAmountString(p.TotalFormatted) + " " + currencyCode,
-		}
-		view.Last, view.HasLast = marker, true
-		if i%step == 0 || i == len(points)-1 {
-			view.Markers = append(view.Markers, marker)
-		}
+		day.Y = y(p.TotalMinor)
+		day.Value = formatAmountString(p.TotalFormatted) + " " + currencyCode
+		day.Complete = true
+		view.Days = append(view.Days, day)
+
+		view.Last = ChartMarker{X: day.X, Y: day.Y, Label: day.Date + " · " + day.Value}
+		view.HasLast = true
 	}
 	flush()
 	return view

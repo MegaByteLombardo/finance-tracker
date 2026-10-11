@@ -52,18 +52,18 @@ func TestTheChartGeometryStaysOnTheCanvas(t *testing.T) {
 		point(3, 922337203685477580, "9223372036854775.80", true), // near int64's limit
 	}, "USD")
 
-	for _, m := range chart.Markers {
-		if m.X < 0 || m.X > chartWidth || m.Y < 0 || m.Y > chartHeight {
-			t.Errorf("marker %+v is off the %dx%d canvas", m, chartWidth, chartHeight)
+	for _, d := range chart.Days {
+		if d.X < 0 || d.X > chartWidth || d.Y < 0 || d.Y > chartHeight {
+			t.Errorf("day %+v is off the %dx%d canvas", d, chartWidth, chartHeight)
 		}
 	}
-	if chart.Markers[0].X != 0 || chart.Markers[2].X != chartWidth {
-		t.Errorf("x = %d..%d, want the full width", chart.Markers[0].X, chart.Markers[2].X)
+	if chart.Days[0].X != 0 || chart.Days[2].X != chartWidth {
+		t.Errorf("x = %d..%d, want the full width", chart.Days[0].X, chart.Days[2].X)
 	}
 	// Highest at the top, lowest at the bottom.
-	if chart.Markers[2].Y != chartPadTop || chart.Markers[0].Y != chartHeight-chartPadBase {
+	if chart.Days[2].Y != chartPadTop || chart.Days[0].Y != chartHeight-chartPadBase {
 		t.Errorf("y = %d (max) and %d (min), want %d and %d",
-			chart.Markers[2].Y, chart.Markers[0].Y, chartPadTop, chartHeight-chartPadBase)
+			chart.Days[2].Y, chart.Days[0].Y, chartPadTop, chartHeight-chartPadBase)
 	}
 	if !chart.HasZeroLine {
 		t.Error("a range crossing zero has no zero line")
@@ -77,9 +77,9 @@ func TestAFlatSeriesIsDrawnAcrossTheMiddle(t *testing.T) {
 	t.Parallel()
 
 	chart := BuildNetWorthChart([]NetWorthPoint{point(1, 0, "0.00", true), point(2, 0, "0.00", true)}, "USD")
-	for _, m := range chart.Markers {
-		if m.Y != chartHeight/2 {
-			t.Errorf("a flat series point is at y=%d, want %d", m.Y, chartHeight/2)
+	for _, d := range chart.Days {
+		if d.Y != chartHeight/2 {
+			t.Errorf("a flat series point is at y=%d, want %d", d.Y, chartHeight/2)
 		}
 	}
 }
@@ -96,20 +96,26 @@ func TestAChartWithNoValuableDayHasNoData(t *testing.T) {
 	}
 }
 
-func TestALongSeriesHasBoundedHoverTargets(t *testing.T) {
+// TestTheTooltipHasEveryDayIncludingGaps: one entry per day, in order. A gap
+// day is listed, so the tooltip can say it could not be valued, but it carries
+// no value and no height -- it is never drawn as a point.
+func TestTheTooltipHasEveryDayIncludingGaps(t *testing.T) {
 	t.Parallel()
 
-	points := make([]NetWorthPoint, 0, 1826)
-	start := day(1)
-	for i := 0; i < 1826; i++ {
-		points = append(points, NetWorthPoint{Date: start.AddDate(0, 0, i), TotalMinor: int64(i), TotalFormatted: "x", Complete: true})
+	chart := BuildNetWorthChart([]NetWorthPoint{
+		point(1, 10000, "100.00", true),
+		point(2, 0, "0.00", false),
+		point(3, 20000, "200.00", true),
+	}, "USD")
+
+	if len(chart.Days) != 3 {
+		t.Fatalf("%d days, want 3", len(chart.Days))
 	}
-	chart := BuildNetWorthChart(points, "USD")
-	if len(chart.Markers) > chartMaxMarkers+1 {
-		t.Errorf("%d markers for five years, want at most %d", len(chart.Markers), chartMaxMarkers+1)
+	if d := chart.Days[0]; !d.Complete || d.Value != "100.00 USD" || d.Date != "1 sep 2026" {
+		t.Errorf("day 1 = %+v, want complete, 100.00 USD on 1 sep 2026", d)
 	}
-	if last := chart.Markers[len(chart.Markers)-1]; last.X != chartWidth {
-		t.Errorf("the last day is not a marker: %+v", last)
+	if d := chart.Days[1]; d.Complete || d.Value != "" || d.Y != 0 || d.X != chartWidth/2 {
+		t.Errorf("day 2 = %+v, want an incomplete day at mid-width with no value", d)
 	}
 }
 
