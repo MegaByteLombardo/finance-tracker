@@ -549,16 +549,55 @@ the transaction that caused it.
 
 ### How balances are derived
 
+**Every balance is "as of" a date** (TD-063, M6). The current balance is the one
+as of today on the Venezuelan calendar:
+
 ```sql
-SELECT a.id, COALESCE(SUM(m.amount_minor), 0)
+SELECT a.id, COALESCE(b.balance_minor, 0), COALESCE(b.future_count, 0)
   FROM accounts a
-  LEFT JOIN account_movements m ON m.account_id = a.id
- GROUP BY a.id;
+  LEFT JOIN (
+        SELECT m.account_id,
+               SUM(CASE WHEN t.effective_date <= :today THEN m.amount_minor ELSE 0 END) AS balance_minor,
+               SUM(CASE WHEN t.effective_date >  :today THEN 1 ELSE 0 END)              AS future_count
+          FROM account_movements m
+          JOIN transactions t ON t.id = m.transaction_id
+         GROUP BY m.account_id
+       ) b ON b.account_id = a.id;
 ```
 
-`LEFT JOIN` with `COALESCE` is what gives an account with no movements a balance
-of zero rather than dropping it from the result — a newly opened account must
-appear on the dashboard.
+A movement dated after today exists and is listed, but is not part of the
+balance; it is counted instead. Until M6 the balance summed every movement, which
+quietly included future-dated ones (allowed since TD-028).
+
+The `LEFT JOIN` back to `accounts` with `COALESCE` is what gives an account with
+no movements -- or with only future ones -- a balance of zero rather than
+dropping it from the result. A newly opened account must appear on the dashboard.
+
+### How history is derived *(M6)*
+
+A historical net worth reads the ledger once, as daily nets:
+
+```sql
+SELECT m.account_id, t.effective_date, SUM(m.amount_minor), count(*)
+  FROM account_movements m
+  JOIN transactions t ON t.id = m.transaction_id
+ GROUP BY t.effective_date, m.account_id
+ ORDER BY t.effective_date, m.account_id;
+```
+
+and walks the calendar in memory, adding each day's deltas to running balances.
+A balance as of D is the sum of the deltas dated on or before D -- the same rule as
+above. Nothing is snapshotted (TD-065). The cash flow reads
+`transaction_type IN ('INCOME', 'EXPENSE')` per day, category and currency
+between two dates, ranging on `idx_transactions_effective_date` (TD-068).
+
+**No index was added for either.** The deltas read covers the whole ledger --
+future-dated rows included, because they are the "movimientos futuros" count --
+and for a whole-table read a scan is the optimal plan; an index would only add a
+lookup per row. The flows read is a range on `effective_date`, which the existing
+`(effective_date, id)` index serves; adding `transaction_type` to a key would pay
+off only if transfers and exchanges were most of the rows. The rates read
+(`is_active = 1 AND effective_date <= ?`) covers a table of a few thousand rows.
 
 `SUM` over an `INTEGER` column returns an integer, and SQLite raises
 `integer overflow` rather than silently switching to floating point if the total

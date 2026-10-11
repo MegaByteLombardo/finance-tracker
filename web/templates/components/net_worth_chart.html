@@ -1,0 +1,55 @@
+{{ define "net_worth_chart" }}
+{{/* The net worth over a period, as an inline SVG laid out by internal/web/chart.go.
+     Every coordinate is an integer computed on the server; every label is a figure
+     the backend formatted or a round gridline value. The vertical axis always
+     includes zero. An incomplete day is a gap, never a point. */}}
+<figure class="nw-chart">
+  {{ if .HasData }}
+  <div class="nw-chart-axis nw-chart-axis-y" aria-hidden="true">
+    {{ range .YTicks }}<span style="top: {{ .TopPercent }}">{{ .Label }}</span>{{ end }}
+  </div>
+  <div class="nw-chart-plot" tabindex="0"
+       aria-label="Gráfico interactivo: use las flechas izquierda y derecha para recorrer los días.">
+  <svg class="nw-chart-svg" viewBox="0 0 {{ .Width }} {{ .Height }}" preserveAspectRatio="none" role="img"
+       aria-label="Evolución del patrimonio neto del {{ .StartLabel }} al {{ .EndLabel }}. Máximo {{ .MaxLabel }}, mínimo {{ .MinLabel }}.">
+    {{ range .YTicks }}
+    <line class="nw-chart-grid{{ if .Zero }} is-zero{{ end }}" x1="0" x2="{{ $.Width }}" y1="{{ .Y }}" y2="{{ .Y }}" vector-effect="non-scaling-stroke"></line>
+    {{ end }}
+    {{ range .XTicks }}
+    <line class="nw-chart-grid-x" x1="{{ .X }}" x2="{{ .X }}" y1="0" y2="{{ $.Height }}" vector-effect="non-scaling-stroke"></line>
+    {{ end }}
+    {{ if .DayTicks }}
+    <path class="nw-chart-day-ticks" d="{{ .DayTicks }}" vector-effect="non-scaling-stroke"></path>
+    {{ end }}
+    {{ range .Segments }}
+      {{ if .Dot }}
+      <circle class="nw-chart-dot" cx="{{ .DotX }}" cy="{{ .DotY }}" r="4" vector-effect="non-scaling-stroke"></circle>
+      {{ else }}
+      <path class="nw-chart-area" d="{{ .Area }}"></path>
+      <path class="nw-chart-line" d="{{ .Line }}" vector-effect="non-scaling-stroke"></path>
+      {{ end }}
+    {{ end }}
+    {{ if .HasLast }}
+    <circle class="nw-chart-last" cx="{{ .Last.X }}" cy="{{ .Last.Y }}" r="5"></circle>
+    {{ end }}
+  </svg>
+  {{/* The tooltip's data: every day's position and its already-formatted
+       figure. chart_tooltip.js only places these; it computes nothing. */}}
+  <script type="application/json" class="nw-chart-data">{{ .Days }}</script>
+  <div class="nw-chart-guide" hidden></div>
+  <div class="nw-chart-marker" hidden></div>
+  <div class="nw-chart-tooltip" role="status" aria-live="polite" hidden>
+    <span class="nw-chart-tooltip-date"></span>
+    <strong class="nw-chart-tooltip-value"></strong>
+  </div>
+  </div>
+  <figcaption class="nw-chart-axis nw-chart-axis-x" aria-hidden="true">
+    {{ range .XTicks }}<span class="is-{{ .Align }}" style="left: {{ .LeftPercent }}">{{ .Label }}{{ if .Sub }}<br>{{ .Sub }}{{ end }}</span>{{ end }}
+  </figcaption>
+  {{ else }}
+  <div class="nw-chart-empty">
+    No hay ningún día del período que se pueda valorar: faltan tasas de cambio para todas las fechas.
+  </div>
+  {{ end }}
+</figure>
+{{ end }}

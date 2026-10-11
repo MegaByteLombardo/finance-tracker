@@ -12,6 +12,22 @@
       {{ range .CurrencyGroups }}
         {{ template "accounts_currency_group" . }}
       {{ end }}
+
+      {{ if .Archived }}
+      <section class="mobile-section accounts-currency-group" aria-labelledby="archived-accounts-heading">
+        <div class="currency-group-header">
+          <div class="currency-group-badge-wrap">
+            <span id="archived-accounts-heading" class="currency-group-name">Archivadas</span>
+          </div>
+        </div>
+        <p class="net-worth-note">Ocultas para nuevos movimientos. Su saldo, si tienen, sigue contando en el patrimonio.</p>
+        <div class="accounts-group-cards" role="list">
+          {{ range .Archived }}
+            {{ template "account_card" . }}
+          {{ end }}
+        </div>
+      </section>
+      {{ end }}
     </main>
 
     <!-- Botón flotante para nueva operación -->

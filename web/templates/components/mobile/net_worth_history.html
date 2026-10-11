@@ -1,0 +1,54 @@
+{{ define "net_worth_history" }}
+{{/* The chart card has its own period (?chart=): its pills swap only this
+     section, so the figures above and below it keep the page's period. */}}
+<section id="mobile-history" class="mobile-section history-section" aria-labelledby="history-heading">
+  <div class="section-top-bar">
+    <h2 id="history-heading" class="section-title">Evolución</h2>
+    {{ if .Available }}<span class="history-currency">{{ .CurrencyCode }}</span>{{ end }}
+  </div>
+  <div class="history-chart">
+    <nav class="history-periods" aria-label="Período de la gráfica">
+      {{ range .Periods }}
+      <a href="{{ .URL }}" class="history-period{{ if .Active }} is-active{{ end }}"
+         {{ if .Active }}aria-current="true"{{ end }}
+         hx-get="{{ .URL }}" hx-select="#mobile-history" hx-target="#mobile-history"
+         hx-swap="outerHTML" hx-push-url="true">{{ .Label }}</a>
+      {{ end }}
+    </nav>
+    {{ if .Available }}
+    <p class="history-change">
+      {{ if .Change.Defined }}
+      <span class="{{ if .Change.IsPositive }}is-income{{ else if .Change.IsNegative }}is-expense{{ end }}">
+        {{ signedChange .Change }}{{ if .Change.Percent.Defined }} ({{ signedRatio .Change.Percent }}){{ end }}
+      </span>
+      <span>en {{ .Preset.Description }}</span>
+      {{ else }}
+      <span>{{ .Change.UnavailableMessage }}</span>
+      {{ end }}
+    </p>
+    <div class="lcd">{{ template "net_worth_chart" .Chart }}</div>
+    {{ else }}
+    <p class="net-worth-note">{{ if .ErrorMessage }}{{ .ErrorMessage }}{{ else }}No se pudo calcular la evolución.{{ end }}</p>
+    {{ end }}
+  </div>
+  {{ if .Available }}
+  {{ if or .IncompleteDays .Gaps }}
+  <p class="net-worth-note">
+    {{ if .IncompleteDays }}Faltan tasas para {{ .IncompleteDays }} {{ if eq .IncompleteDays 1 }}día{{ else }}días{{ end }}; se muestran como huecos.{{ end }}
+    {{ if .OpeningIncomplete }}Falta la tasa del día anterior al período, base de la variación.{{ end }}
+    {{ if not .Gaps }}<a href="/mobile/tasas">Cargar tasas</a>{{ end }}
+  </p>
+  {{ if .Gaps }}
+  <ul class="net-worth-gaps">
+    {{ range .Gaps }}
+    <li>
+      {{ .PairLabel }}: {{ if .SingleDay }}{{ spanishDate .From }}{{ else }}{{ spanishDate .From }} – {{ spanishDate .To }}{{ end }}
+      · <a href="{{ .FormURL }}">Cargar</a>
+    </li>
+    {{ end }}
+  </ul>
+  {{ end }}
+  {{ end }}
+  {{ end }}
+</section>
+{{ end }}

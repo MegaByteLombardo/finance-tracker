@@ -29,12 +29,16 @@ import (
 type Service struct {
 	db   *sql.DB
 	repo *Repository
+
+	// now is the clock behind "today" in every current balance. It is a field
+	// so that a test can state the date instead of depending on the day it runs.
+	now func() time.Time
 }
 
 // NewService builds the service over a pool. It keeps the *sql.DB so that every
 // write can open its own transaction.
 func NewService(db *sql.DB) *Service {
-	return &Service{db: db, repo: NewRepository(db)}
+	return &Service{db: db, repo: NewRepository(db), now: time.Now}
 }
 
 // RecordIncome records money arriving in an account.
@@ -130,24 +134,47 @@ func (s *Service) ListTransactions(ctx context.Context, in ListTransactionsInput
 	return s.repo.ListViews(ctx, in.limit())
 }
 
-// GetAccountBalance returns one account's balance, derived from its movements.
+// today is the as-of date of every CURRENT balance: today on the Venezuelan
+// calendar (TD-051), read from the injected clock.
+func (s *Service) today() time.Time { return database.TodayAt(s.now()) }
+
+// GetAccountBalance returns one account's CURRENT balance: its movements dated
+// on or before today (TD-063). A future-dated movement is counted in
+// FutureMovementCount and not in the balance.
 func (s *Service) GetAccountBalance(ctx context.Context, accountID int64) (AccountBalance, error) {
-	return s.repo.GetBalance(ctx, accountID)
+	return s.repo.GetBalance(ctx, accountID, s.today())
 }
 
-// ListAccountBalances returns every account with its balance, ordered by
-// currency code, then name.
+// ListAccountBalances returns every account with its current balance, ordered
+// by currency code, then name.
 func (s *Service) ListAccountBalances(ctx context.Context, includeInactive bool) ([]AccountBalance, error) {
-	return s.repo.ListBalances(ctx, includeInactive)
+	return s.repo.ListBalances(ctx, includeInactive, s.today())
 }
 
-// ListCurrencyTotals returns the total held in each currency.
+// ListCurrencyTotals returns the total currently held in each currency.
 //
 // One row per currency that has at least one account. Currencies are never
-// converted into one another; a single consolidated figure needs exchange rates
-// and belongs to the FX milestone.
+// converted into one another here; a consolidated figure is internal/valuation's
+// job.
 func (s *Service) ListCurrencyTotals(ctx context.Context, includeInactive bool) ([]CurrencyTotal, error) {
-	return s.repo.ListCurrencyTotals(ctx, includeInactive)
+	return s.repo.ListCurrencyTotals(ctx, includeInactive, s.today())
+}
+
+// ListDailyAccountDeltas returns the net of every account's movements per
+// effective date, across the whole ledger. See Repository.ListDailyAccountDeltas.
+func (s *Service) ListDailyAccountDeltas(ctx context.Context) ([]DailyDelta, error) {
+	return s.repo.ListDailyAccountDeltas(ctx)
+}
+
+// ListFlows returns income and expenses between two dates inclusive, per day,
+// category and currency. Transfers, exchanges and opening balances are not
+// flows. See Repository.ListFlows.
+func (s *Service) ListFlows(ctx context.Context, from, to time.Time) ([]Flow, error) {
+	if to.Before(from) {
+		return nil, fmt.Errorf("%w: the range ends on %s, before it starts on %s",
+			ErrInvalidInput, database.FormatDate(to), database.FormatDate(from))
+	}
+	return s.repo.ListFlows(ctx, from, to)
 }
 
 // recordRequest is the shared shape behind the three use cases. It is

@@ -4,80 +4,44 @@
    CSS Custom Properties & Device Tokens
    ========================================================================== */
 :root {
-  --mobile-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
-  --mobile-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  /* The mobile view uses the same skeuomorphic tokens as app.css (TD-071):
+     every --m-* name is an alias, so both finishes follow the theme toggle. */
+  --mobile-font-sans: var(--font-sans);
+  --mobile-font-mono: var(--font-mono);
 
-  /* Surfaces & Backgrounds */
-  --m-bg-page: #0b1329;
-  --m-bg-card: #1e293b;
-  --m-bg-subtle: #141d2e;
-  --m-bg-muted: #26354a;
+  --m-bg-page: var(--bg-app);
+  --m-bg-card: var(--bg-surface);
+  --m-bg-subtle: var(--bg-surface-subtle);
+  --m-bg-muted: var(--bg-surface-hover);
 
-  /* Dividers & Borders */
-  --m-border-subtle: rgba(255, 255, 255, 0.08);
-  --m-border-light: rgba(255, 255, 255, 0.12);
-  --m-border-line: rgba(255, 255, 255, 0.06);
+  --m-border-subtle: var(--paper-rule);
+  --m-border-light: var(--border-strong);
+  --m-border-line: var(--border-subtle);
 
-  /* Text Typography */
-  --m-text-primary: #f8fafc;
-  --m-text-secondary: #cbd5e1;
-  --m-text-muted: #94a3b8;
-  --m-text-subtle: #64748b;
+  --m-text-primary: var(--text-main);
+  --m-text-secondary: var(--text-body);
+  --m-text-muted: var(--text-muted);
+  --m-text-subtle: var(--text-subtle);
 
-  /* Semantic Financial Accents & Primary */
-  --m-positive: #34d399;
-  --m-positive-bg: rgba(16, 185, 129, 0.16);
-  --m-positive-border: rgba(52, 211, 153, 0.35);
+  --m-positive: var(--success);
+  --m-positive-bg: var(--success-bg);
+  --m-positive-border: var(--success-border);
 
-  --m-negative: #fb7185;
-  --m-negative-bg: rgba(244, 63, 94, 0.16);
-  --m-negative-border: rgba(251, 113, 133, 0.35);
+  --m-negative: var(--danger);
+  --m-negative-bg: var(--danger-bg);
+  --m-negative-border: var(--danger-border);
 
-  --m-warning: #fbbf24;
-  --m-warning-bg: rgba(245, 158, 11, 0.16);
+  --m-warning: var(--warning);
+  --m-warning-bg: var(--warning-bg);
 
-  --m-primary-btn: #10b981;
-  --m-primary-btn-hover: #059669;
-  --m-accent: #10b981;
-  --m-accent-bg: rgba(16, 185, 129, 0.14);
+  --m-primary-btn: var(--primary);
+  --m-primary-btn-hover: var(--primary-hover);
+  --m-accent: var(--accent);
+  --m-accent-bg: var(--accent-subtle);
 
   /* Dimensions */
   --bottom-nav-height: 62px;
   --fab-size: 54px;
-}
-
-:root[data-theme="light"],
-:root[data-theme="cupcake"],
-:root[data-theme="cream"] {
-  --m-bg-page: #faf7f5;
-  --m-bg-card: #ffffff;
-  --m-bg-subtle: #f3eee8;
-  --m-bg-muted: #ede6de;
-
-  --m-border-subtle: #f0eae1;
-  --m-border-light: #e8e0d5;
-  --m-border-line: #ede5da;
-
-  --m-text-primary: #291e1d;
-  --m-text-secondary: #4a3e37;
-  --m-text-muted: #786c63;
-  --m-text-subtle: #a3978d;
-
-  --m-positive: #059669;
-  --m-positive-bg: #e8f7ee;
-  --m-positive-border: #b7e6c9;
-
-  --m-negative: #e11d48;
-  --m-negative-bg: #fdeef1;
-  --m-negative-border: #fbcad2;
-
-  --m-warning: #d97706;
-  --m-warning-bg: #fef7e6;
-
-  --m-primary-btn: #059669;
-  --m-primary-btn-hover: #047857;
-  --m-accent: #059669;
-  --m-accent-bg: #e8f7ee;
 }
 
 /* ==========================================================================
@@ -481,105 +445,6 @@ html, body {
   color: var(--m-text-primary);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
-}
-
-/* ==========================================================================
-   3. Presupuesto Semanal (Weekly Budget)
-   ========================================================================== */
-.budget-days-pill {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--m-text-muted);
-  background-color: var(--m-bg-muted);
-  padding: 3px 9px;
-  border-radius: 9999px;
-}
-
-.budget-content-card {
-  background-color: var(--m-bg-card);
-  border: 1px solid var(--m-border-light);
-  border-radius: 12px;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.budget-amounts-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-
-.budget-spent-group {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-}
-
-.budget-fraction-main {
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--m-text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
-.budget-fraction-sep {
-  font-size: 0.875rem;
-  color: var(--m-text-subtle);
-}
-
-.budget-fraction-total {
-  font-size: 0.875rem;
-  color: var(--m-text-muted);
-  font-variant-numeric: tabular-nums;
-  font-weight: 500;
-}
-
-.budget-available-group {
-  text-align: right;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-}
-
-.budget-avail-num {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--m-positive);
-  font-variant-numeric: tabular-nums;
-}
-
-.budget-avail-label {
-  font-size: 0.6875rem;
-  font-weight: 500;
-  color: var(--m-text-muted);
-  text-transform: lowercase;
-  margin-top: -1px;
-}
-
-.budget-progress-track {
-  width: 100%;
-  height: 7px;
-  background-color: var(--m-bg-muted);
-  border-radius: 9999px;
-  overflow: hidden;
-  position: relative;
-}
-
-.budget-progress-fill {
-  height: 100%;
-  border-radius: 9999px;
-  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  background-color: var(--m-primary-btn);
-}
-
-.budget-progress-fill.status-warning {
-  background-color: var(--m-warning);
-}
-
-.budget-progress-fill.status-danger {
-  background-color: var(--m-negative);
 }
 
 /* ==========================================================================
@@ -2068,4 +1933,578 @@ html, body {
   color: inherit;
   text-decoration: underline;
   white-space: nowrap;
+}
+
+/* ==========================================================================
+   M6 — Net-worth change, history and cash flow on the mobile Inicio.
+   Same figures as the desktop dashboard, from the same service; only the
+   layout differs. The chart itself is styled in app.css (.nw-chart).
+   ========================================================================== */
+.net-worth-change {
+  margin: 4px 0 8px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--m-text-secondary);
+}
+.net-worth-change.is-up { color: var(--m-positive); }
+.net-worth-change.is-down { color: var(--m-negative); }
+.net-worth-change-period { font-weight: 500; color: var(--m-text-muted); }
+.net-worth-change-na { font-weight: 500; color: var(--m-text-muted); }
+.net-worth-note {
+  margin: 8px 0 0 0;
+  font-size: 0.75rem;
+  color: var(--m-text-muted);
+}
+.net-worth-note a { color: inherit; font-weight: 600; }
+.net-worth-gaps { margin: 6px 0 0 0; padding-left: 18px; font-size: 0.75rem; line-height: 1.6; color: var(--m-text-muted); }
+.net-worth-gaps a { color: inherit; font-weight: 600; }
+
+.history-currency,
+.cashflow-period {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--m-text-muted);
+}
+.history-periods {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 10px 0;
+  overflow-x: auto;
+}
+.history-period {
+  flex: 1 0 auto;
+  text-align: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--m-border-light);
+  background-color: var(--m-bg-card);
+  color: var(--m-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.history-period.is-active {
+  color: var(--m-accent);
+  border-color: var(--m-accent);
+  background-color: var(--m-accent-bg);
+}
+.history-change {
+  margin: 0 0 10px 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--m-text-muted);
+}
+.history-change .is-income { color: var(--m-positive); }
+.history-change .is-expense { color: var(--m-negative); }
+.history-change span + span { font-weight: 500; margin-left: 4px; }
+.cashflow-section .history-periods { margin-bottom: 12px; }
+.history-chart {
+  background-color: var(--m-bg-card);
+  border: 1px solid var(--m-border-light);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.cashflow-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background-color: var(--m-border-light);
+  border: 1px solid var(--m-border-light);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.cashflow-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  background-color: var(--m-bg-card);
+}
+.cashflow-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--m-text-muted);
+}
+.cashflow-value {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--m-text-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.cashflow-value.is-income, .spending-meta .is-income { color: var(--m-positive); }
+.cashflow-value.is-expense, .spending-meta .is-expense { color: var(--m-negative); }
+.cashflow-footnote {
+  margin: 8px 0 0 0;
+  font-size: 0.75rem;
+  color: var(--m-text-muted);
+}
+
+.spending-block {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background-color: var(--m-bg-card);
+  border: 1px solid var(--m-border-light);
+  border-radius: 12px;
+}
+.spending-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.spending-total {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--m-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.spending-meta {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--m-text-muted);
+}
+.spending-list { list-style: none; margin: 10px 0 0 0; padding: 0; }
+.spending-row {
+  padding: 8px 0;
+  border-top: 1px solid var(--m-border-subtle);
+}
+.spending-row-top, .spending-row-bottom {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.spending-name { font-size: 0.875rem; font-weight: 600; color: var(--m-text-primary); }
+.spending-name.is-other { color: var(--m-text-muted); }
+.spending-amount { font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.spending-row-bottom { margin-top: 2px; font-size: 0.6875rem; color: var(--m-text-muted); }
+
+/* Archive / restore on an account card. Archiving is visibility only (TD-064). */
+.account-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--m-border-subtle);
+}
+.account-card-actions form { margin: 0; }
+.account-action-note { font-size: 0.75rem; color: var(--m-text-muted); margin-right: auto; }
+.account-action-btn {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--m-border-light);
+  background-color: transparent;
+  color: var(--m-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.account-action-btn.is-primary {
+  color: var(--m-accent);
+  border-color: var(--m-accent);
+}
+
+/* ==========================================================================
+   Skeuomorphic layer (TD-071). The same instrument as the desktop: a brushed
+   chassis, physical keys, LCD readouts for figures and ledger paper for
+   lists. These rules come last so they win over the flat styles above.
+   ========================================================================== */
+.mobile-body {
+  background:
+    repeating-linear-gradient(90deg, var(--chassis-hi) 0 1px, var(--chassis-lo) 1px 3px),
+    var(--bg-app);
+  background-color: var(--bg-app);
+}
+
+.desktop-preview-bar,
+:root[data-theme="light"] .desktop-preview-bar,
+:root[data-theme="cupcake"] .desktop-preview-bar,
+:root[data-theme="cream"] .desktop-preview-bar {
+  background: var(--plate-bg);
+  color: var(--plate-fg);
+  border-color: var(--panel-edge);
+  box-shadow: var(--shadow-md);
+}
+.preview-badge { color: var(--plate-accent); }
+.preview-link { color: var(--plate-fg); opacity: 0.8; }
+.preview-link:hover { color: var(--plate-fg); opacity: 1; background-color: rgba(255, 255, 255, 0.12); }
+
+/* The device is one tall panel of the chassis. */
+.mobile-device-container,
+.mobile-safe-top,
+.mobile-header {
+  background:
+    repeating-linear-gradient(90deg, var(--chassis-hi) 0 1px, var(--chassis-lo) 1px 3px),
+    linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+  background-color: var(--panel-bottom);
+}
+.mobile-device-container {
+  border-left: 1px solid var(--panel-edge);
+  border-right: 1px solid var(--panel-edge);
+  box-shadow: inset 0 1px 0 var(--panel-bevel-hi), var(--shadow-lg);
+}
+.mobile-header {
+  border-bottom: 1px solid var(--panel-bevel-lo);
+  box-shadow: 0 1px 0 var(--panel-bevel-hi);
+}
+.mobile-greeting {
+  font-stretch: 85%;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  text-shadow: var(--engrave);
+}
+
+/* Header buttons are keys. */
+.mobile-theme-btn,
+.mobile-avatar-btn,
+.mobile-header-add-btn {
+  background: linear-gradient(180deg, var(--key-top), var(--key-bottom));
+  border: 1px solid var(--key-edge);
+  color: var(--key-text);
+  box-shadow: inset 0 1px 0 var(--key-hi), 0 2px 0 var(--key-base), 0 3px 4px rgba(0, 0, 0, 0.25);
+}
+.mobile-theme-btn:hover,
+.mobile-avatar-btn:hover,
+.mobile-header-add-btn:hover {
+  background: linear-gradient(180deg, var(--key-top), var(--key-bottom));
+  color: var(--key-text);
+  filter: brightness(1.04);
+}
+.mobile-theme-btn:active,
+.mobile-avatar-btn:active,
+.mobile-header-add-btn:active {
+  transform: translateY(2px);
+  box-shadow: inset 0 1px 0 var(--key-hi), 0 0 0 var(--key-base);
+}
+.mobile-avatar-initials { color: var(--key-text); font-weight: 750; }
+
+/* Labels are engraved. */
+.section-eyebrow,
+.section-title,
+.cashflow-label,
+.amount-hero-label,
+.op-field-label,
+.mobile-form-label,
+.currency-group-label,
+.tx-date-title {
+  font-stretch: 85%;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  text-shadow: var(--engrave);
+}
+.section-title { font-size: 0.8rem; }
+.section-link { color: var(--accent); }
+
+/* Net worth: the figure sits in the big readout. */
+.net-worth-main.lcd { margin: 6px 0 10px; padding: 0.8rem 0.9rem; }
+.net-worth-amount {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: clamp(1.8rem, 13cqi, 2.75rem);
+  letter-spacing: -0.02em;
+  color: var(--lcd-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-shadow: var(--lcd-glow);
+}
+.net-worth-change > span:not(.net-worth-change-period) {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--well-bg);
+  box-shadow: var(--well-shadow);
+}
+.net-worth-incomplete {
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  box-shadow: var(--badge-hi);
+}
+
+/* Period selectors: a recessed track of keys, the active one pressed and lit. */
+.history-periods {
+  gap: 5px;
+  padding: 5px 5px 7px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-subtle);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3), 0 1px 0 var(--panel-bevel-hi);
+}
+.history-period,
+.filter-chip,
+.op-type-tab,
+.account-action-btn,
+.empty-filter-reset-btn,
+.sheet-cancel-btn,
+.mobile-btn-secondary {
+  background: linear-gradient(180deg, var(--key-top), var(--key-bottom));
+  color: var(--key-text);
+  border: 1px solid var(--key-edge);
+  box-shadow: inset 0 1px 0 var(--key-hi), 0 2px 0 var(--key-base), 0 3px 4px rgba(0, 0, 0, 0.22);
+}
+.history-period { border-radius: var(--radius-sm); }
+.history-period.is-active,
+.filter-chip.is-active,
+.op-type-tab.is-active {
+  transform: translateY(2px);
+  background: linear-gradient(180deg, var(--key-bottom), var(--key-top));
+  color: var(--key-text);
+  border-color: var(--key-edge);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.28);
+}
+.history-period.is-active::before,
+.filter-chip.is-active::before,
+.op-type-tab.is-active::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--led-on);
+  box-shadow: 0 0 6px var(--led-on);
+  vertical-align: 1px;
+}
+.op-type-tab.is-active.type-expense::before { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+.op-type-tab.is-active.type-income::before { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.op-type-tab.is-active.type-transfer::before { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.op-type-tab.is-active.type-exchange::before { background: var(--violet-text); box-shadow: 0 0 6px var(--violet-text); }
+.op-type-tab.is-active.type-expense,
+.op-type-tab.is-active.type-income,
+.op-type-tab.is-active.type-transfer,
+.op-type-tab.is-active.type-exchange { color: var(--key-text); }
+.op-type-segmented-control {
+  background: var(--bg-surface-subtle);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3), 0 1px 0 var(--panel-bevel-hi);
+  padding: 5px 5px 7px;
+}
+.account-action-btn.is-primary { color: var(--primary); border-color: var(--key-edge); }
+
+/* Panels inside the device */
+.history-chart,
+.spending-block,
+.balances-container,
+.transactions-summary-card,
+.mobile-account-card,
+.mobile-list,
+.amount-hero-display,
+.op-button {
+  background:
+    repeating-linear-gradient(90deg, var(--chassis-hi) 0 1px, var(--chassis-lo) 1px 3px),
+    linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+  border: 1px solid var(--panel-edge);
+  box-shadow: inset 0 1px 0 var(--panel-bevel-hi), inset 0 -1px 0 var(--panel-bevel-lo), var(--panel-shadow);
+}
+.mobile-account-card:hover { border-color: var(--panel-edge); box-shadow: inset 0 1px 0 var(--panel-bevel-hi), var(--panel-shadow); }
+.history-chart .lcd { padding: 10px 10px 6px; }
+.history-change .is-income { color: var(--success); }
+.history-change .is-expense { color: var(--danger); }
+
+/* Cash flow: four readouts in a 2x2 panel. */
+.cashflow-grid {
+  gap: 8px;
+  background: transparent;
+  border: 0;
+  overflow: visible;
+}
+.cashflow-cell.lcd { padding: 8px 10px; gap: 4px; }
+.cashflow-cell.lcd .cashflow-label { color: var(--lcd-muted); text-shadow: none; }
+.cashflow-value {
+  display: block;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: clamp(1rem, 12cqi, 1.35rem);
+  color: var(--lcd-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  overflow-wrap: normal;
+  text-shadow: var(--lcd-glow);
+}
+.cashflow-value.is-income { color: var(--lcd-up); }
+.cashflow-value.is-expense { color: var(--lcd-down); }
+.spending-meta .is-income { color: var(--success); }
+.spending-meta .is-expense { color: var(--danger); }
+
+/* Figures outside the readouts: mono, tabular, never wrapped. */
+.spending-total,
+.spending-amount,
+.currency-amount,
+.currency-group-amount,
+.account-balance-amount,
+.tx-amount-badge,
+.summary-metric-value,
+.mobile-list-amount,
+.tx-date-subtotal {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  white-space: nowrap;
+  letter-spacing: -0.02em;
+}
+.tx-amount-badge.is-expense { color: var(--text-main); }
+.tx-amount-badge.is-income { color: var(--success); }
+
+/* Lists are ledger paper. */
+.spending-list,
+.transactions-container,
+.tx-date-items {
+  background:
+    linear-gradient(90deg, transparent 14px, var(--paper-margin) 14px 15px, transparent 15px),
+    var(--paper);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-xs);
+  padding: 0 12px 0 24px;
+  color: var(--paper-ink);
+}
+.spending-row { border-top-color: var(--paper-rule); }
+.spending-row:first-child { border-top: 0; }
+.tx-item-card { border-bottom-color: var(--paper-rule); }
+.balances-container .currency-row { border-bottom-color: var(--panel-bevel-lo); }
+.currency-pill {
+  background: var(--well-bg);
+  box-shadow: var(--well-shadow);
+  color: var(--text-main);
+}
+
+/* Category and account glyphs: small enamel discs in the semantic families. */
+.tx-icon-box,
+.account-icon-wrap {
+  background: var(--bg-surface-subtle);
+  color: var(--text-muted);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--badge-hi);
+}
+.cat-icon-cart, .cat-icon-briefcase, .account-icon-wrap.type-cash { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
+.cat-icon-coffee { background: var(--warning-bg); color: var(--warning-text); border-color: var(--warning-border); }
+.cat-icon-pill, .account-icon-wrap.type-bank { background: var(--info-bg); color: var(--info-text); border-color: var(--info-border); }
+.cat-icon-entertainment, .cat-icon-exchange, .account-icon-wrap.type-wallet { background: var(--violet-bg); color: var(--violet-text); border-color: var(--violet-border); }
+.exchange-pill { background: var(--violet-bg); color: var(--violet-text); }
+
+/* The new-operation key and the tab bar. */
+.fab-action-btn {
+  background: linear-gradient(180deg, var(--key-primary-top), var(--key-primary-bottom));
+  color: var(--key-primary-text);
+  border: 1px solid var(--key-primary-edge);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 3px 0 var(--key-primary-base), 0 6px 12px rgba(0, 0, 0, 0.35);
+}
+.fab-action-btn:hover {
+  background: linear-gradient(180deg, var(--key-primary-top), var(--key-primary-bottom));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 3px 0 var(--key-primary-base), 0 6px 12px rgba(0, 0, 0, 0.35);
+  filter: brightness(1.05);
+  transform: none;
+}
+.fab-action-btn:active {
+  transform: translateY(3px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 var(--key-primary-base);
+}
+
+.bottom-nav-bar,
+:root[data-theme="light"] .bottom-nav-bar,
+:root[data-theme="cupcake"] .bottom-nav-bar,
+:root[data-theme="cream"] .bottom-nav-bar {
+  background:
+    repeating-linear-gradient(90deg, var(--chassis-hi) 0 1px, var(--chassis-lo) 1px 3px),
+    linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-top: 1px solid var(--panel-edge);
+  box-shadow: inset 0 1px 0 var(--panel-bevel-hi), 0 -4px 10px -4px rgba(0, 0, 0, 0.35);
+}
+.nav-tab { color: var(--text-muted); text-shadow: var(--engrave); }
+.nav-tab:hover { color: var(--text-main); }
+.nav-tab-active { color: var(--text-main); }
+.nav-tab-active .nav-tab-icon-wrap { position: relative; }
+.nav-tab-active .nav-tab-icon-wrap::after {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: var(--led-on);
+  box-shadow: 0 0 6px var(--led-on);
+}
+
+/* Bottom sheet */
+.sheet-backdrop { background-color: rgba(0, 0, 0, 0.45); }
+.sheet-container {
+  background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+  border-top: 1px solid var(--panel-edge);
+  box-shadow: inset 0 1px 0 var(--panel-bevel-hi), 0 -8px 30px rgba(0, 0, 0, 0.35);
+}
+.op-button:hover {
+  background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+  border-color: var(--panel-edge);
+  filter: brightness(1.03);
+}
+
+/* Forms: recessed wells and keys */
+.search-input-field,
+.op-native-input,
+.op-select-wrap .op-native-select,
+.mobile-form-input,
+.mobile-form-select,
+.amount-currency-pill {
+  background-color: var(--well-bg);
+  border: 1px solid var(--border-strong);
+  color: var(--text-main);
+  box-shadow: var(--well-shadow), 0 1px 0 var(--panel-bevel-hi);
+}
+.search-input-field:focus,
+.op-native-input:focus,
+.mobile-form-input:focus {
+  background-color: var(--well-bg);
+  border-color: var(--border-focus);
+  box-shadow: var(--well-shadow), 0 0 0 3px var(--focus-ring);
+}
+.amount-hero-number-input { font-family: var(--font-mono); font-weight: 500; color: var(--text-main); }
+
+.op-cat-chip { background: var(--paper); border-color: var(--border-subtle); }
+.op-cat-chip:hover { background: var(--paper-hover); border-color: var(--border-strong); }
+.op-cat-chip.is-selected {
+  background: var(--well-bg);
+  border-color: var(--primary);
+  box-shadow: var(--well-shadow), 0 0 0 1.5px var(--primary);
+}
+
+.op-submit-btn,
+.mobile-btn-primary {
+  background: linear-gradient(180deg, var(--key-primary-top), var(--key-primary-bottom));
+  color: var(--key-primary-text);
+  border: 1px solid var(--key-primary-edge);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 3px 0 var(--key-primary-base), 0 5px 8px rgba(0, 0, 0, 0.25);
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.3);
+}
+.op-submit-btn.btn-expense,
+.op-submit-btn.btn-income,
+.op-submit-btn.btn-transfer,
+.op-submit-btn.btn-exchange {
+  background: linear-gradient(180deg, var(--key-primary-top), var(--key-primary-bottom));
+}
+.op-submit-btn:hover { opacity: 1; filter: brightness(1.05); }
+.op-submit-btn:active,
+.mobile-btn-primary:active {
+  transform: translateY(3px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 var(--key-primary-base);
+}
+.mobile-btn-secondary:active {
+  transform: translateY(2px);
+  box-shadow: inset 0 1px 0 var(--key-hi), 0 0 0 var(--key-base);
 }

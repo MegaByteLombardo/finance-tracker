@@ -237,7 +237,7 @@ func TestMobileTransactions(t *testing.T) {
 		}
 
 		// 2. Summary
-		if !strings.Contains(bodyStr, "Ingresos del periodo") || !strings.Contains(bodyStr, "Gastos del periodo") {
+		if !strings.Contains(bodyStr, "Ingresos del mes") || !strings.Contains(bodyStr, "Gastos del mes") {
 			t.Errorf("path %s: expected period summary card", path)
 		}
 

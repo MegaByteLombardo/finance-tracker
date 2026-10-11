@@ -281,19 +281,38 @@ func (d Decimal) Equal(o Decimal) bool { return d.Cmp(o) == 0 }
 // is not a rate, and accepting one would silently annihilate or invert a
 // balance.
 func ConvertMinor(amountMinor int64, fromMinorUnit, toMinorUnit int, rate *big.Rat) (int64, error) {
+	exact, err := ConvertMinorExact(amountMinor, fromMinorUnit, toMinorUnit, rate)
+	if err != nil {
+		return 0, err
+	}
+	rounded, err := RoundHalfEven(exact)
+	if err != nil {
+		return 0, fmt.Errorf("converting %d minor units: %w", amountMinor, err)
+	}
+	return rounded, nil
+}
+
+// ConvertMinorExact is ConvertMinor without the rounding: the converted amount
+// in the destination's minor units, as an exact rational.
+//
+// It exists for the callers that must add several conversions together BEFORE
+// rounding -- a month of expenses, each converted at the rate of its own day --
+// so that the sum is rounded once rather than once per term. ConvertMinor is
+// RoundHalfEven of this, and nothing else.
+func ConvertMinorExact(amountMinor int64, fromMinorUnit, toMinorUnit int, rate *big.Rat) (*big.Rat, error) {
 	if fromMinorUnit < MinMinorUnit || fromMinorUnit > MaxMinorUnit {
-		return 0, fmt.Errorf("%w: source minor unit %d is outside the supported range %d-%d",
+		return nil, fmt.Errorf("%w: source minor unit %d is outside the supported range %d-%d",
 			ErrInvalidAmount, fromMinorUnit, MinMinorUnit, MaxMinorUnit)
 	}
 	if toMinorUnit < MinMinorUnit || toMinorUnit > MaxMinorUnit {
-		return 0, fmt.Errorf("%w: destination minor unit %d is outside the supported range %d-%d",
+		return nil, fmt.Errorf("%w: destination minor unit %d is outside the supported range %d-%d",
 			ErrInvalidAmount, toMinorUnit, MinMinorUnit, MaxMinorUnit)
 	}
 	if rate == nil {
-		return 0, fmt.Errorf("%w: a rate is required", ErrInvalidDecimal)
+		return nil, fmt.Errorf("%w: a rate is required", ErrInvalidDecimal)
 	}
 	if rate.Sign() <= 0 {
-		return 0, fmt.Errorf("%w: a rate must be greater than zero, got %s",
+		return nil, fmt.Errorf("%w: a rate must be greater than zero, got %s",
 			ErrInvalidDecimal, rate.RatString())
 	}
 
@@ -312,12 +331,7 @@ func ConvertMinor(amountMinor int64, fromMinorUnit, toMinorUnit int, rate *big.R
 		den.Mul(den, pow10(-shift))
 	}
 
-	rounded := roundHalfEven(num, den)
-	if !rounded.IsInt64() {
-		return 0, fmt.Errorf("%w: converting %d minor units produces a value outside int64",
-			ErrOverflow, amountMinor)
-	}
-	return rounded.Int64(), nil
+	return new(big.Rat).SetFrac(num, den), nil
 }
 
 // roundHalfEven divides num by den and rounds a tie to the even neighbour.

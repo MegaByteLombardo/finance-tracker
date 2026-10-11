@@ -144,4 +144,8 @@ type Services struct {
 	Rates     ExchangeRateService
 	Settings  SettingsService
 	Valuation ValuationService
+
+	// Analytics is the M6 dashboard: the net worth's history and the period's
+	// cash flow and spending.
+	Analytics AnalyticsService
 }

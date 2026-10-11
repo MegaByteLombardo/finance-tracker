@@ -19,6 +19,9 @@ func toNetWorthView(worth NetWorth) NetWorthView {
 		CurrencyCode:    worth.BaseCurrencyCode,
 		CurrencyLabel:   worth.BaseCurrencyCode + " · moneda base",
 		Complete:        worth.Complete,
+
+		FutureMovementCount: worth.FutureMovementCount,
+		ArchivedWithBalance: worth.ArchivedWithBalance,
 	}
 
 	if !worth.RatesAsOf.IsZero() {

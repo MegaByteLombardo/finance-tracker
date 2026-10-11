@@ -130,8 +130,38 @@ func NewRenderer(templateFS fs.FS) *Renderer {
 			return "1 " + rate.BaseCurrencyCode + " = " + approximately +
 				formatAmountString(rate.RateFormatted) + " " + rate.QuoteCurrencyCode
 		},
-		"lower": strings.ToLower,
-		"upper": strings.ToUpper,
+		// signedChange and signedRatio put a sign in front of a figure the
+		// backend already computed and formatted. They are formatting, not
+		// arithmetic: the "+" is the only thing they add.
+		"signedChange": func(c Change) string {
+			if !c.Defined {
+				return "—"
+			}
+			prefix := ""
+			if c.IsPositive() {
+				prefix = "+"
+			}
+			return prefix + formatAmountString(c.AmountFormatted)
+		},
+		"signedRatio": func(r Ratio) string {
+			if !r.Defined {
+				return "—"
+			}
+			prefix := ""
+			if r.IsPositive() {
+				prefix = "+"
+			}
+			return prefix + r.Formatted + "%"
+		},
+		"ratio": func(r Ratio) string {
+			if !r.Defined {
+				return "—"
+			}
+			return r.Formatted + "%"
+		},
+		"spanishDate": shortSpanishDate,
+		"lower":       strings.ToLower,
+		"upper":       strings.ToUpper,
 		"seq": func(a, b any) bool {
 			return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 		},
@@ -176,6 +206,7 @@ func (rn *Renderer) RenderPage(w http.ResponseWriter, r *http.Request, status in
 		"components/nav.html",
 		"components/alerts.html",
 		"components/empty_state.html",
+		"components/net_worth_chart.html",
 		cleanPage,
 	)
 	if err != nil {
@@ -207,7 +238,9 @@ func (rn *Renderer) RenderMobilePage(w http.ResponseWriter, r *http.Request, sta
 		"components/mobile/mobile_header.html",
 		"components/mobile/net_worth_summary.html",
 		"components/mobile/currency_balances.html",
-		"components/mobile/weekly_budget.html",
+		"components/net_worth_chart.html",
+		"components/mobile/net_worth_history.html",
+		"components/mobile/cash_flow_summary.html",
 		"components/mobile/recent_transactions.html",
 		"components/mobile/transaction_item.html",
 		"components/mobile/floating_action_button.html",

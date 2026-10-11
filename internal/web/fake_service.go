@@ -19,6 +19,10 @@ type FakeServices struct {
 	// about those screens.
 	Rates *FakeRateStore
 
+	// Analytics is the M6 dashboard stand-in. It reads Rates and the fake
+	// ledger at call time, so a test may replace Rates after construction.
+	Analytics *FakeAnalytics
+
 	mu           sync.RWMutex
 	currencies   map[string]Currency
 	accounts     map[int64]Account
@@ -1177,6 +1181,32 @@ func movementInto(tx TransactionView, accountID int64) int64 {
 	return 0
 }
 
+// fakeToday is the fake ledger's "today": the Venezuelan calendar date, as the
+// real ledger's current balances use (TD-051, TD-063).
+func fakeToday() time.Time {
+	now := time.Now().In(economicLocation)
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// currentBalanceOf mirrors the real ledger's rule for a CURRENT balance: the
+// movements dated on or before today are summed, and the ones after it are only
+// counted (TD-063). The caller holds the lock.
+func (fs *FakeServices) currentBalanceOf(accountID int64) (sum int64, future int) {
+	today := fakeToday()
+	for _, tx := range fs.transactions {
+		effect := movementInto(tx, accountID)
+		touches := effect != 0 || tx.AccountID == accountID
+		if tx.EffectiveDate.After(today) {
+			if touches {
+				future++
+			}
+			continue
+		}
+		sum += effect
+	}
+	return sum, future
+}
+
 func (fs *FakeServices) GetAccountBalance(ctx context.Context, accountID int64) (AccountBalance, error) {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
@@ -1187,10 +1217,7 @@ func (fs *FakeServices) GetAccountBalance(ctx context.Context, accountID int64) 
 	}
 	curr := fs.currencies[acct.CurrencyCode]
 
-	var sum int64
-	for _, tx := range fs.transactions {
-		sum += movementInto(tx, accountID)
-	}
+	sum, future := fs.currentBalanceOf(accountID)
 
 	return AccountBalance{
 		AccountID:        acct.ID,
@@ -1204,6 +1231,8 @@ func (fs *FakeServices) GetAccountBalance(ctx context.Context, accountID int64) 
 		MinorUnit:        curr.MinorUnit,
 		BalanceMinor:     sum,
 		BalanceFormatted: formatAmount(sum, curr.MinorUnit),
+
+		FutureMovementCount: future,
 	}, nil
 }
 
@@ -1218,10 +1247,7 @@ func (fs *FakeServices) ListAccountBalances(ctx context.Context, includeInactive
 		}
 		curr := fs.currencies[acct.CurrencyCode]
 
-		var sum int64
-		for _, tx := range fs.transactions {
-			sum += movementInto(tx, acct.ID)
-		}
+		sum, future := fs.currentBalanceOf(acct.ID)
 
 		result = append(result, AccountBalance{
 			AccountID:        acct.ID,
@@ -1235,6 +1261,8 @@ func (fs *FakeServices) ListAccountBalances(ctx context.Context, includeInactive
 			MinorUnit:        curr.MinorUnit,
 			BalanceMinor:     sum,
 			BalanceFormatted: formatAmount(sum, curr.MinorUnit),
+
+			FutureMovementCount: future,
 		})
 	}
 
@@ -1271,9 +1299,8 @@ func (fs *FakeServices) ListCurrencyTotals(ctx context.Context, includeInactive 
 		}
 		byCurr[acct.CurrencyCode].count++
 
-		for _, tx := range fs.transactions {
-			byCurr[acct.CurrencyCode].sum += movementInto(tx, acct.ID)
-		}
+		sum, _ := fs.currentBalanceOf(acct.ID)
+		byCurr[acct.CurrencyCode].sum += sum
 	}
 
 	var result []CurrencyTotal
@@ -1310,7 +1337,7 @@ func (fs *FakeServices) OpenAccount(ctx context.Context, in OpenAccountInput) (O
 	if in.OpeningBalance != nil && strings.TrimSpace(*in.OpeningBalance) != "" {
 		date := in.OpeningBalanceDate
 		if date == "" {
-			date = time.Now().UTC().Format("2006-01-02")
+			date = TodayDate()
 		}
 
 		ob, err := fs.RecordOpeningBalance(ctx, RecordOpeningBalanceInput{
@@ -1399,7 +1426,16 @@ func (fs *FakeServices) BuildServices() *Services {
 		Rates:     fs.Rates,
 		Settings:  fakeSettingsService{fs.Rates},
 		Valuation: fs.Rates,
+		Analytics: fs.analytics(),
 	}
+}
+
+// analytics returns the dashboard stand-in, creating it on first use.
+func (fs *FakeServices) analytics() *FakeAnalytics {
+	if fs.Analytics == nil {
+		fs.Analytics = &FakeAnalytics{services: fs}
+	}
+	return fs.Analytics
 }
 
 // Reset clears all data except seeded currencies
@@ -1442,7 +1478,7 @@ func (fs *FakeServices) SeedSampleData(ctx context.Context) error {
 	inst := "Mercantil"
 	subChecking := AccountSubtypeChecking
 	bal := "1000.00"
-	today := time.Now().UTC().Format("2006-01-02")
+	today := TodayDate()
 
 	res, err := fs.OpenAccount(ctx, OpenAccountInput{
 		Account: CreateAccountInput{

@@ -7,11 +7,11 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/account"
 	"github.com/MegaByteLombardo/finance-tracker/internal/backup"
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
+	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/dbtest"
 	"github.com/MegaByteLombardo/finance-tracker/internal/fx"
 	"github.com/MegaByteLombardo/finance-tracker/internal/web"
@@ -290,7 +290,10 @@ func TestEndToEndFlowOnRealDB(t *testing.T) {
 	inst := "Mercantil"
 	subtype := web.AccountSubtypeChecking
 	initialBal := "1000.00"
-	today := time.Now().UTC().Format("2006-01-02")
+	// Today on the Venezuelan calendar, which is the date current balances are
+	// cut at (TD-051, TD-063). A UTC date is tomorrow in Caracas for four hours
+	// a day, and a movement dated tomorrow is not in today's balance.
+	today := database.FormatDate(database.Today())
 
 	openRes, err := svcs.Application.OpenAccount(ctx, web.OpenAccountInput{
 		Account: web.CreateAccountInput{

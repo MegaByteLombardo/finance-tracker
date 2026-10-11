@@ -5,22 +5,25 @@ import (
 	"net/http"
 )
 
-// handleDashboard serves the main dashboard (GET /).
+// handleDashboard serves the main dashboard (GET /?period=30D).
+//
+// Every financial figure comes from one call to the analytics service. The
+// handler parses the period, lays the series out as a chart -- geometry, not
+// arithmetic -- and renders. It reconstructs no balance and converts nothing.
+//
+// The period selector links back here with htmx selecting the analytics block
+// out of the full page, so a deep link and a click render the same thing on the
+// server.
 func handleDashboard(logger *slog.Logger, renderer *Renderer, svcs *Services) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		preset := ParseDashboardPreset(r.URL.Query().Get("period"))
+		chart, keepChart := parseChartPreset(r.URL.Query().Get("chart"), preset)
 
 		balances, err := svcs.Ledger.ListAccountBalances(ctx, false)
 		if err != nil {
 			logger.Error("listing account balances", slog.Any("error", err))
 			http.Error(w, "Failed to load account balances", http.StatusInternalServerError)
-			return
-		}
-
-		totals, err := svcs.Ledger.ListCurrencyTotals(ctx, false)
-		if err != nil {
-			logger.Error("listing currency totals", slog.Any("error", err))
-			http.Error(w, "Failed to load currency totals", http.StatusInternalServerError)
 			return
 		}
 
@@ -38,56 +41,23 @@ func handleDashboard(logger *slog.Logger, renderer *Renderer, svcs *Services) ht
 			return
 		}
 
-		// Group account balances by currency code
-		totalsMap := make(map[string]CurrencyTotal)
-		for _, tot := range totals {
-			totalsMap[tot.CurrencyCode] = tot
-		}
-
-		sectionsMap := make(map[string][]AccountBalance)
-		var currencyOrder []string
-
-		for _, b := range balances {
-			if _, exists := sectionsMap[b.CurrencyCode]; !exists {
-				sectionsMap[b.CurrencyCode] = make([]AccountBalance, 0)
-				currencyOrder = append(currencyOrder, b.CurrencyCode)
-			}
-			sectionsMap[b.CurrencyCode] = append(sectionsMap[b.CurrencyCode], b)
-		}
-
-		var currencySections []CurrencySection
-		for _, code := range currencyOrder {
-			tot := totalsMap[code]
-			currencySections = append(currencySections, CurrencySection{
-				CurrencyCode:   code,
-				CurrencyName:   tot.CurrencyName,
-				CurrencySymbol: tot.CurrencySymbol,
-				TotalFormatted: tot.TotalFormatted,
-				Accounts:       sectionsMap[code],
-			})
-		}
-
-		// The consolidated net worth. A failure to value must not take the
-		// dashboard down: every figure below it comes from the ledger and needs
-		// no exchange rate at all.
-		var netWorth NetWorth
-		var netWorthError string
-		if worth, verr := svcs.Valuation.GetCurrentNetWorth(ctx); verr != nil {
-			logger.Error("computing the net worth", slog.Any("error", verr))
-			netWorthError = "No se pudo calcular el patrimonio consolidado."
-		} else {
-			netWorth = worth
-		}
-
 		data := DashboardView{
-			NetWorth:           netWorth,
-			NetWorthError:      netWorthError,
-			CurrencySections:   currencySections,
-			CurrencyTotals:     totals,
+			Periods:            periodOptions("/", preset, keepChart),
 			RecentTransactions: txs,
 			HasAccounts:        len(balances) > 0,
 			HasCategories:      len(cats) > 0,
 			HasTransactions:    len(txs) > 0,
+		}
+
+		// A failure to value must not take the dashboard down: the recent
+		// activity below it needs no exchange rate at all.
+		if dash, aerr := svcs.Analytics.Dashboard(ctx, preset); aerr != nil {
+			logger.Error("computing the dashboard", slog.Any("error", aerr))
+			data.NetWorthError = "No se pudo calcular el patrimonio consolidado."
+		} else {
+			data.Analytics = dash
+			data.NetWorth = dash.NetWorth
+			data.History = loadHistory(r, logger, svcs, "/", dash, preset, chart)
 		}
 
 		pageData := PageData{

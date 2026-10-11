@@ -3,13 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#0b1329">
+  <meta name="theme-color" content="#dcd8cf">
   <title>{{ if .Title }}{{ .Title }} · {{ end }}Finance Tracker</title>
+  <link rel="preload" href="/static/fonts/archivo-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/static/fonts/dm-mono-latin-500.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/css/app.css">
   <script src="/static/js/theme.js"></script>
   <script src="/static/vendor/htmx.min.js"></script>
   <script src="/static/js/app.js"></script>
   <script src="/static/js/ui-controls.js"></script>
+  <script src="/static/js/chart_tooltip.js" defer></script>
+  <script src="/static/js/fit.js" defer></script>
 </head>
 <body>
   <header class="app-header">
@@ -36,11 +40,11 @@
       // Auto-detect responsive viewport (< 768px) on root dashboard and offer instant switch to mobile view
       if (window.location.pathname === '/' && !sessionStorage.getItem('prefer_desktop')) {
         if (window.innerWidth <= 768) {
-          window.location.replace('/mobile');
+          window.location.replace('/mobile' + window.location.search);
         }
         window.addEventListener('resize', function() {
           if (window.innerWidth <= 768 && !sessionStorage.getItem('prefer_desktop')) {
-            window.location.replace('/mobile');
+            window.location.replace('/mobile' + window.location.search);
           }
         });
       }

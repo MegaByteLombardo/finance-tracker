@@ -260,8 +260,13 @@ type NetWorthComponent struct {
 	// application can price it.
 	Valued bool
 
-	// Resolution is nil exactly when Valued is false.
+	// Resolution is nil when Valued is false, and may be nil for a zero
+	// balance, which is worth zero at any rate and needs none (TD-067).
 	Resolution *RateResolutionView
+
+	// Share is this currency's part of the total, when the total is complete
+	// and positive.
+	Share Ratio
 }
 
 // MissingRateView names a conversion that could not be resolved, so a screen can
@@ -306,6 +311,19 @@ type NetWorth struct {
 	// screen can say "rates as of ...". It is the zero time when nothing needed
 	// a rate.
 	RatesAsOf time.Time
+
+	// Accounts is the breakdown by account: every active account, and every
+	// archived one still holding money (TD-064). Their converted figures add up
+	// to their currency's.
+	Accounts []NetWorthAccount
+
+	// ArchivedWithBalance counts archived accounts that still hold money. They
+	// ARE in the total; a screen says so.
+	ArchivedWithBalance int
+
+	// FutureMovementCount is how many movements are dated after ValuationDate
+	// and are therefore not in the figure yet (TD-063).
+	FutureMovementCount int
 }
 
 // Errors M5 adds. The M2, M3 and M4 sentinels remain in force.

@@ -292,6 +292,11 @@ func handleEditAccountForm(logger *slog.Logger, renderer *Renderer, svcs *Servic
 			CurrencyCode: acct.CurrencyCode,
 			Errors:       make(map[string]string),
 		}
+		if err := fillAccountStatus(ctx, svcs, &form, acct.IsActive); err != nil {
+			logger.Error("reading the balance for the edit form", slog.Any("error", err))
+			http.Error(w, "Failed to load account", http.StatusInternalServerError)
+			return
+		}
 
 		pageData := PageData{
 			Title:     "Edit Account",
@@ -345,6 +350,11 @@ func handleUpdateAccount(logger *slog.Logger, renderer *Renderer, svcs *Services
 			Institution:  institution,
 			CurrencyCode: existing.CurrencyCode,
 			Errors:       make(map[string]string),
+		}
+		if err := fillAccountStatus(ctx, svcs, &form, existing.IsActive); err != nil {
+			logger.Error("reading the balance for the edit form", slog.Any("error", err))
+			http.Error(w, "Failed to load account", http.StatusInternalServerError)
+			return
 		}
 
 		if name == "" {

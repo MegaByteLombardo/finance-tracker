@@ -48,7 +48,7 @@
   <div class="account-card-bottom">
     <div class="account-balance-display">
       <span class="account-balance-amount {{ if .IsNegative }}is-negative{{ end }}">
-        {{ .BalanceFormatted }}
+        {{ formatAmount .BalanceFormatted }}
       </span>
       <span class="account-currency-code">{{ .CurrencyCode }}</span>
     </div>
@@ -57,5 +57,24 @@
       <span class="account-status-badge badge-archived">Archivada</span>
     {{ end }}
   </div>
+  <div class="account-card-actions">
+    {{ if .IsActive }}
+    <form action="/accounts/{{ .AccountID }}/archive" method="POST">
+      <input type="hidden" name="return_to" value="/mobile/cuentas">
+      <button type="submit" class="account-action-btn">Archivar</button>
+    </form>
+    {{ else }}
+      {{ if .HasBalance }}<span class="account-action-note">Con saldo · sigue contando</span>{{ end }}
+    <form action="/accounts/{{ .AccountID }}/restore" method="POST">
+      <input type="hidden" name="return_to" value="/mobile/cuentas">
+      <button type="submit" class="account-action-btn is-primary">Restaurar</button>
+    </form>
+    {{ end }}
+  </div>
+  {{ if .FutureMovementCount }}
+  <p class="net-worth-note">
+    {{ .FutureMovementCount }} {{ if eq .FutureMovementCount 1 }}movimiento futuro aún no incluido{{ else }}movimientos futuros aún no incluidos{{ end }} en el saldo.
+  </p>
+  {{ end }}
 </div>
 {{ end }}

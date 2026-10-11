@@ -1,13 +1,24 @@
 {{ define "transactions_summary" }}
-<div class="transactions-summary-card" aria-label="Resumen financiero del periodo">
+{{/* The month's income and expenses, computed by internal/analytics with the
+     dashboard's rules: first of the month to today, INCOME and EXPENSE only,
+     each at the rate of its own day, in the valuation base. Nothing is added up
+     here or in the handler. */}}
+{{ if .Available }}
+<div class="transactions-summary-card" aria-label="Resumen financiero del mes">
   <div class="summary-metric-col">
-    <span class="summary-metric-label">Ingresos del periodo</span>
-    <span class="summary-metric-value text-positive">{{ .TotalIncomeFormatted }}</span>
+    <span class="summary-metric-label">Ingresos del mes</span>
+    <span class="summary-metric-value text-positive">+ {{ formatAmount .IncomeFormatted }} {{ .CurrencyCode }}</span>
   </div>
   <div class="summary-metric-divider" aria-hidden="true"></div>
   <div class="summary-metric-col">
-    <span class="summary-metric-label">Gastos del periodo</span>
-    <span class="summary-metric-value text-negative">{{ .TotalExpenseFormatted }}</span>
+    <span class="summary-metric-label">Gastos del mes</span>
+    <span class="summary-metric-value text-negative">- {{ formatAmount .ExpenseFormatted }} {{ .CurrencyCode }}</span>
   </div>
 </div>
+{{ if not .Complete }}
+<p class="net-worth-incomplete" role="status">{{ .MissingMessage }} <a href="/mobile/tasas">Agregar tasa</a></p>
+{{ end }}
+{{ else if .ErrorMessage }}
+<p class="net-worth-incomplete" role="status">{{ .ErrorMessage }}</p>
+{{ end }}
 {{ end }}

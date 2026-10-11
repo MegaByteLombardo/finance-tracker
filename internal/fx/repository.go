@@ -153,75 +153,30 @@ func (r *Repository) GetObservation(
 	return rate, nil
 }
 
-// LookupOn returns the observation that applies to a pair on a date: the most
-// recent one whose effective_date is on or before it, and among those the one
-// from the preferred source.
+// ListActiveThrough returns every active observation whose effective_date is on
+// or before the given date, oldest first.
 //
-// The two rules in that order are the whole lookup policy, and both halves
-// matter:
-//
-//   - effective_date <= the valuation date, never = it. A publication holds until
-//     the next one, so a Sunday is valued with Friday's rate and no row has to be
-//     invented for the weekend.
-//
-//   - effective_date <= the valuation date, never > it. An observation whose
-//     Fecha Valor is still in the future has not taken effect, and using it would
-//     value today with tomorrow's rate -- look-ahead bias, which would make every
-//     historical figure this application ever produces subtly wrong.
+// It is the only read the resolver needs (TD-066). Which observation applies to
+// which pair on which day is decided in Go, by Book, so that a single date and a
+// five-year series are resolved by the same code. The predicate is still the
+// lookup policy's first half: an observation dated after the date has not taken
+// effect, and is not even read.
 //
 // Archived observations are excluded, which is how archiving a manual override
 // restores the official rate underneath it.
-func (r *Repository) LookupOn(ctx context.Context, base, quote string, on time.Time) (Rate, error) {
-	row := r.db.QueryRowContext(ctx, `
-		SELECT `+rateColumns+`
-		  FROM exchange_rates
-		 WHERE base_currency_code = ? AND quote_currency_code = ?
-		   AND is_active = 1
-		   AND effective_date <= ?
-		 ORDER BY effective_date DESC, `+precedenceOrder+`
-		 LIMIT 1`,
-		base, quote, database.FormatDate(on))
-
-	rate, err := scanRate(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Rate{}, fmt.Errorf("%s/%s on %s: %w",
-			base, quote, database.FormatDate(on), ErrNotFound)
-	}
-	if err != nil {
-		return Rate{}, fmt.Errorf("looking up %s/%s on %s: %w",
-			base, quote, database.FormatDate(on), err)
-	}
-	return rate, nil
-}
-
-// ListApplicableFor returns the winning observation for every pair that involves
-// the given currency on the given date, in either orientation.
 //
-// It is what a cross rate is built from: to convert X into Y through a pivot,
-// both halves of the chain have to be found, and neither is known in advance.
-//
-// It reads the candidate rows and picks the winner per pair in Go rather than
-// with a window function. The predicate and the ordering are identical to
-// LookupOn -- effective_date <= the date, archived excluded, most recent first,
-// then source precedence -- so the two cannot disagree about which observation
-// applies. At the scale of this application the candidate set is one row per day
-// per pair per source, which a decade of daily publications makes a few thousand
-// rows at most; the clarity is worth more than the query plan.
-func (r *Repository) ListApplicableFor(
-	ctx context.Context, code string, on time.Time,
-) (_ []Rate, err error) {
+// At the scale of this application -- one row per day per pair per source -- a
+// decade of daily publications is a few thousand rows, read in one statement.
+func (r *Repository) ListActiveThrough(ctx context.Context, on time.Time) (_ []Rate, err error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT `+rateColumns+`
 		  FROM exchange_rates
 		 WHERE is_active = 1
 		   AND effective_date <= ?
-		   AND (base_currency_code = ? OR quote_currency_code = ?)
-		 ORDER BY base_currency_code, quote_currency_code,
-		          effective_date DESC, `+precedenceOrder,
-		database.FormatDate(on), code, code)
+		 ORDER BY effective_date, id`,
+		database.FormatDate(on))
 	if err != nil {
-		return nil, fmt.Errorf("listing the rates that apply to %s on %s: %w",
-			code, database.FormatDate(on), err)
+		return nil, fmt.Errorf("listing the rates in effect on %s: %w", database.FormatDate(on), err)
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
@@ -229,25 +184,18 @@ func (r *Repository) ListApplicableFor(
 		}
 	}()
 
-	applicable := make([]Rate, 0)
-	seen := make(map[string]struct{})
+	rates := make([]Rate, 0)
 	for rows.Next() {
 		rate, serr := scanRate(rows)
 		if serr != nil {
 			return nil, fmt.Errorf("reading a rate row: %w", serr)
 		}
-		// The ORDER BY put the winner of each pair first, so every later row
-		// for the same pair is an older or less preferred observation.
-		if _, already := seen[rate.Pair()]; already {
-			continue
-		}
-		seen[rate.Pair()] = struct{}{}
-		applicable = append(applicable, rate)
+		rates = append(rates, rate)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterating rates: %w", err)
 	}
-	return applicable, nil
+	return rates, nil
 }
 
 // List returns observations, newest effective date first.

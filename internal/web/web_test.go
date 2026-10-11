@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 // testRouter sets up a router using embedded templates
@@ -80,7 +79,7 @@ func TestDashboardWithAccounts(t *testing.T) {
 			Institution:  &inst,
 		},
 		OpeningBalance:     &bal,
-		OpeningBalanceDate: time.Now().UTC().Format("2006-01-02"),
+		OpeningBalanceDate: TodayDate(),
 	})
 	if err != nil {
 		t.Fatalf("opening banesco account: %v", err)
@@ -650,11 +649,13 @@ func TestSmokeEndToEndFlow(t *testing.T) {
 	if !strings.Contains(dash2, "10,000.00") {
 		t.Errorf("dashboard must show VES 10,000.00")
 	}
-	if !strings.Contains(dash2, "Total USD:") {
-		t.Errorf("dashboard must show Total USD section")
+	// Each currency is its own line of the breakdown, in its own currency:
+	// balances are never summed across currencies, only valued.
+	if !strings.Contains(dash2, "Por moneda") {
+		t.Errorf("dashboard must show the breakdown by currency")
 	}
-	if !strings.Contains(dash2, "Total VES:") {
-		t.Errorf("dashboard must show Total VES section")
+	if !strings.Contains(dash2, "<strong>USD</strong>") || !strings.Contains(dash2, "<strong>VES</strong>") {
+		t.Errorf("dashboard must list USD and VES as separate currencies")
 	}
 }
 
