@@ -167,3 +167,115 @@ func toWebSpending(s analytics.Spending) web.Spending {
 	}
 	return out
 }
+
+func (a *analyticsAdapter) Recap(ctx context.Context, req web.RecapRequest) (web.Recap, error) {
+	g, ok := analytics.ParseGranularity(string(req.Granularity))
+	if !ok {
+		return web.Recap{}, fmt.Errorf("%w: unknown recap period %q", web.ErrInvalidInput, req.Granularity)
+	}
+
+	r, err := a.svc.Recap(ctx, analytics.RecapRequest{Granularity: g, Anchor: req.Anchor, HasAnchor: req.HasAnchor})
+	if err != nil {
+		return web.Recap{}, TranslateValuationError(err)
+	}
+
+	out := web.Recap{
+		Granularity:   web.RecapGranularity(r.Granularity),
+		Today:         r.Today,
+		PeriodFrom:    r.Period.From,
+		PeriodTo:      r.Period.To,
+		FullTo:        r.FullPeriod.To,
+		PreviousFrom:  r.PreviousPeriod.From,
+		PreviousTo:    r.PreviousPeriod.To,
+		InProgress:    r.InProgress,
+		HasPrevious:   r.HasPrevious,
+		EarlierAnchor: r.EarlierAnchor,
+		HasEarlier:    r.HasEarlier,
+		LaterAnchor:   r.LaterAnchor,
+		HasLater:      r.HasLater,
+
+		BaseCurrencyCode: r.BaseCurrencyCode,
+		Opening:          toWebNetWorth(r.Opening),
+		Closing:          toWebNetWorth(r.Closing),
+		Change:           toWebChange(r.Change),
+		PreviousChange:   toWebChange(r.PreviousChange),
+
+		CashFlow:          toWebCashFlow(r.CashFlow),
+		PreviousCashFlow:  toWebCashFlow(r.PreviousCashFlow),
+		IncomeChange:      toWebChange(r.IncomeChange),
+		NetCashFlowChange: toWebChange(r.NetCashFlowChange),
+		SavingsRateChange: toWebRatio(r.SavingsRateChange),
+
+		ExpenseChange:                        toWebChange(r.ExpenseChange),
+		ExpenseDailyAverageFormatted:         r.ExpenseDailyAverageFormatted,
+		PreviousExpenseDailyAverageFormatted: r.PreviousExpenseDailyAverageFormatted,
+		ExpenseDailyAverageChange:            toWebChange(r.ExpenseDailyAverageChange),
+
+		ExpenseCategories:    toWebRecapCategories(r.ExpenseCategories),
+		IncomeCategories:     toWebRecapCategories(r.IncomeCategories),
+		UnvaluedExpenseCount: r.UnvaluedExpenseCount,
+
+		Summary: web.IndicatorSummary{
+			Improved: r.Summary.Improved, Worsened: r.Summary.Worsened,
+			Unchanged: r.Summary.Unchanged, Unavailable: r.Summary.Unavailable, Total: r.Summary.Total,
+		},
+	}
+	for _, e := range r.TopExpenses {
+		out.TopExpenses = append(out.TopExpenses, web.RecapExpense{
+			TransactionID:   e.TransactionID,
+			Date:            e.Date,
+			Description:     e.Description,
+			CategoryName:    e.CategoryName,
+			AccountName:     e.AccountName,
+			CurrencyCode:    e.CurrencyCode,
+			AmountMinor:     e.AmountMinor,
+			AmountFormatted: e.AmountFormatted,
+			BaseMinor:       e.BaseMinor,
+			BaseFormatted:   e.BaseFormatted,
+		})
+	}
+	for _, acc := range r.Accounts {
+		out.Accounts = append(out.Accounts, web.RecapAccount{
+			AccountID:        acc.AccountID,
+			AccountName:      acc.AccountName,
+			AccountType:      acc.AccountType,
+			IsActive:         acc.IsActive,
+			CurrencyCode:     acc.CurrencyCode,
+			OpeningMinor:     acc.OpeningMinor,
+			OpeningFormatted: acc.OpeningFormatted,
+			ClosingMinor:     acc.ClosingMinor,
+			ClosingFormatted: acc.ClosingFormatted,
+			DeltaMinor:       acc.DeltaMinor,
+			DeltaFormatted:   acc.DeltaFormatted,
+			BaseChange:       toWebChange(acc.BaseChange),
+		})
+	}
+	for _, i := range r.Indicators {
+		out.Indicators = append(out.Indicators, web.Indicator{
+			Key:     web.IndicatorKey(i.Key),
+			Verdict: web.Verdict(i.Verdict),
+			Change:  toWebChange(i.Change),
+			Points:  toWebRatio(i.Points),
+		})
+	}
+	return out, nil
+}
+
+func toWebRecapCategories(lines []analytics.CategoryChange) []web.RecapCategory {
+	out := make([]web.RecapCategory, 0, len(lines))
+	for _, c := range lines {
+		out = append(out, web.RecapCategory{
+			CategoryID:        c.CategoryID,
+			CategoryName:      c.CategoryName,
+			CurrentMinor:      c.CurrentMinor,
+			CurrentFormatted:  c.CurrentFormatted,
+			PreviousMinor:     c.PreviousMinor,
+			PreviousFormatted: c.PreviousFormatted,
+			Change:            toWebChange(c.Change),
+			Direction:         web.CategoryDirection(c.Direction),
+			Share:             toWebRatio(c.Share),
+			Count:             c.Count,
+		})
+	}
+	return out
+}

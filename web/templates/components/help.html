@@ -1,0 +1,6 @@
+{{/* A "?" key that explains a term. Its dot is a RecapHelp (or anything with
+     ID, Title and Text). The plate is a native popover: it opens in the top
+     layer, so a card's overflow never clips it, it closes on Escape or a tap
+     elsewhere, and no script is involved. It explains words; it shows no
+     figure. An empty Text renders nothing. */}}
+{{ define "help" }}{{ if .Text }}<button type="button" class="help-key" popovertarget="{{ .ID }}" aria-label="¿Qué es {{ .Title }}?">?</button><span id="{{ .ID }}" class="help-plate" popover><strong class="help-plate-title">{{ .Title }}</strong> {{ .Text }}</span>{{ end }}{{ end }}

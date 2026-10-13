@@ -3,6 +3,7 @@ package adapter_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/dbtest"
@@ -91,5 +92,65 @@ func TestTheDashboardEndToEndOnARealDatabase(t *testing.T) {
 
 	if _, err := svcs.Analytics.Dashboard(ctx, web.DashboardPreset("FOREVER")); !errors.Is(err, web.ErrInvalidInput) {
 		t.Errorf("an unknown preset returned %v, want ErrInvalidInput", err)
+	}
+}
+
+// TestTheRecapEndToEndOnARealDatabase drives the M6.5 read path as the
+// composition root wires it, on the real clock: the default recap is last
+// month, against the month before.
+func TestTheRecapEndToEndOnARealDatabase(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	svcs := newTestServices(t, dbtest.New(t))
+
+	food, err := svcs.Categories.Create(ctx, web.CreateCategoryInput{Name: "Comida", Type: web.CategoryTypeExpense})
+	if err != nil {
+		t.Fatalf("creating a category: %v", err)
+	}
+
+	today := database.Today()
+	thisMonth := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC)
+	lastMonth := thisMonth.AddDate(0, -1, 0)
+
+	opening := "1000.00"
+	opened, err := svcs.Application.OpenAccount(ctx, web.OpenAccountInput{
+		Account:            web.CreateAccountInput{Name: "Efectivo", Type: web.AccountTypeCash, CurrencyCode: "USD"},
+		OpeningBalance:     &opening,
+		OpeningBalanceDate: database.FormatDate(lastMonth.AddDate(0, -1, 0)),
+	})
+	if err != nil {
+		t.Fatalf("opening an account: %v", err)
+	}
+	if _, err := svcs.Ledger.RecordExpense(ctx, web.RecordExpenseInput{
+		AccountID: opened.Account.ID, CategoryID: food.ID, Amount: "125.00",
+		PaymentMethodID: 3, EffectiveDate: database.FormatDate(lastMonth.AddDate(0, 0, 2)),
+	}); err != nil {
+		t.Fatalf("recording an expense: %v", err)
+	}
+
+	r, err := svcs.Analytics.Recap(ctx, web.RecapRequest{Granularity: web.RecapMonth})
+	if err != nil {
+		t.Fatalf("Recap: %v", err)
+	}
+	if !r.PeriodFrom.Equal(lastMonth) || r.InProgress || !r.HasPrevious {
+		t.Errorf("recap of %s (in progress %v, previous %v), want last month, closed, with a previous one",
+			database.FormatDate(r.PeriodFrom), r.InProgress, r.HasPrevious)
+	}
+	if r.Closing.TotalFormatted != "875.00" || r.Change.AmountFormatted != "-125.00" {
+		t.Errorf("net worth %s, change %s; want 875.00 and -125.00", r.Closing.TotalFormatted, r.Change.AmountFormatted)
+	}
+	if len(r.ExpenseCategories) != 1 || r.ExpenseCategories[0].Direction != web.DirectionNew {
+		t.Errorf("expense categories = %+v, want Comida as new", r.ExpenseCategories)
+	}
+	if len(r.TopExpenses) != 1 || r.TopExpenses[0].BaseFormatted != "125.00" || r.TopExpenses[0].TransactionID == 0 {
+		t.Errorf("top expenses = %+v", r.TopExpenses)
+	}
+	if len(r.Indicators) != 4 || r.Summary.Total != 4 {
+		t.Errorf("indicators = %+v", r.Indicators)
+	}
+
+	if _, err := svcs.Analytics.Recap(ctx, web.RecapRequest{Granularity: "YEAR"}); !errors.Is(err, web.ErrInvalidInput) {
+		t.Errorf("an unknown granularity returned %v, want ErrInvalidInput", err)
 	}
 }

@@ -1,0 +1,373 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Recap</h1>
+    <p class="page-subtitle">Tu semana o tu mes frente al anterior: patrimonio, flujo de caja, categorías y cuentas</p>
+  </div>
+  <div class="page-actions">
+    <a href="/" class="btn btn-secondary">Dashboard</a>
+  </div>
+</div>
+
+<!-- Everything in this block is computed by internal/analytics on every request
+     (docs/m6.5-contract.md). Nothing is stored, and nothing here compares or adds
+     anything: the directions and verdicts arrive decided. The selector and the
+     arrows swap only this block (htmx selects it out of the full page), so a deep
+     link renders exactly what a click does. -->
+<div id="recap" class="dash recap">
+  {{ if not .Available }}
+  <div class="alert alert-warning" role="alert">{{ .Error }}</div>
+  {{ else }}
+  {{ $r := .Recap }}
+  {{ $base := $r.BaseCurrencyCode }}
+  {{ $noun := $r.Granularity.Noun }}
+
+  <nav class="recap-nav" aria-label="Período del recap">
+    <span class="dash-period-keys">
+      {{ range .Nav.Granularities }}
+      <a href="{{ .URL }}" class="dash-period{{ if .Active }} is-active{{ end }}"
+         {{ if .Active }}aria-current="true"{{ end }}
+         hx-get="{{ .URL }}" hx-select="#recap" hx-target="#recap" hx-swap="outerHTML" hx-push-url="true">{{ .Label }}</a>
+      {{ end }}
+    </span>
+    <span class="dash-period-keys recap-steps">
+      {{ if .Nav.EarlierURL }}
+      <a href="{{ .Nav.EarlierURL }}" class="dash-period" aria-label="Período anterior"
+         hx-get="{{ .Nav.EarlierURL }}" hx-select="#recap" hx-target="#recap" hx-swap="outerHTML" hx-push-url="true">&larr;</a>
+      {{ else }}<span class="dash-period is-disabled" aria-hidden="true">&larr;</span>{{ end }}
+      {{ if .Nav.LaterURL }}
+      <a href="{{ .Nav.LaterURL }}" class="dash-period" aria-label="Período siguiente"
+         hx-get="{{ .Nav.LaterURL }}" hx-select="#recap" hx-target="#recap" hx-swap="outerHTML" hx-push-url="true">&rarr;</a>
+      {{ else }}<span class="dash-period is-disabled" aria-hidden="true">&rarr;</span>{{ end }}
+      {{ if not $r.InProgress }}
+      <a href="{{ .Nav.LatestURL }}" class="dash-period"
+         hx-get="{{ .Nav.LatestURL }}" hx-select="#recap" hx-target="#recap" hx-swap="outerHTML" hx-push-url="true">En curso</a>
+      {{ end }}
+    </span>
+  </nav>
+
+  <header class="recap-head">
+    <h2 class="recap-title">
+      {{ $r.Title }}
+      {{ if $r.InProgress }}<span class="badge badge-warning">en curso · parcial</span>{{ end }}
+    </h2>
+    <p class="dash-period-range">
+      {{ spanishDate $r.PeriodFrom }} → {{ spanishDate $r.PeriodTo }}
+      {{ if $r.HasPrevious }}· comparado con {{ spanishDate $r.PreviousFrom }} → {{ spanishDate $r.PreviousTo }}{{ end }}
+      {{ if $r.InProgress }}· el período anterior se corta en los mismos días, para comparar igual con igual{{ end }}
+    </p>
+  </header>
+
+  <!-- Row 1: where the net worth stands, and the four indicators -->
+  <section class="dash-top" aria-label="Resumen">
+    <article class="card dash-kpi dash-kpi-main" aria-labelledby="recap-nw-title">
+      <h3 id="recap-nw-title" class="dash-kpi-label">
+        Patrimonio neto al {{ spanishDate $r.PeriodTo }}{{ template "help" ($r.Help "net-worth") }}
+        {{ if not $r.Closing.Complete }}<span class="badge badge-warning">incompleto</span>{{ end }}
+      </h3>
+      <div class="lcd">
+        <span class="lcd-value lcd-value-xl" data-fit>{{ formatAmount $r.Closing.TotalFormatted }}<span class="lcd-unit">{{ $base }}</span></span>
+        {{ if not $r.Closing.Complete }}<span class="lcd-caption">(parcial)</span>{{ end }}
+      </div>
+      {{ if $r.Change.Defined }}
+      <p class="dash-kpi-change">
+        <span class="dash-chip {{ if $r.Change.IsPositive }}is-up{{ else if $r.Change.IsNegative }}is-down{{ end }}">{{ signedChange $r.Change }} {{ $base }}</span>
+        <span class="dash-chip {{ if $r.Change.IsPositive }}is-up{{ else if $r.Change.IsNegative }}is-down{{ end }}">{{ signedRatio $r.Change.Percent }}</span>
+        <span class="text-muted">en {{ if eq $noun "mes" }}el mes{{ else }}la semana{{ end }}</span>
+      </p>
+      {{ else }}
+      <p class="dash-kpi-change text-muted">{{ $r.Change.UnavailableMessage }}</p>
+      {{ end }}
+      <p class="dash-kpi-meta">
+        Al cierre del {{ spanishDate $r.Opening.ValuationDate }}: <strong>{{ formatAmount $r.Opening.TotalFormatted }} {{ $base }}</strong>{{ if not $r.Opening.Complete }} (parcial){{ end }}
+        {{ if $r.HasPrevious }}
+        <br>Período anterior:
+        {{ if $r.PreviousChange.Defined }}<span class="{{ if $r.PreviousChange.IsPositive }}amount-income{{ else if $r.PreviousChange.IsNegative }}amount-expense{{ end }}">{{ signedChange $r.PreviousChange }} {{ $base }}</span>
+        {{ else }}{{ $r.PreviousChange.UnavailableMessage }}{{ end }}
+        {{ end }}
+      </p>
+    </article>
+
+    <article class="card dash-section recap-verdict" aria-labelledby="recap-verdict-title">
+      <div class="card-header">
+        <h3 id="recap-verdict-title" class="card-title">
+          {{ if $r.HasPrevious }}{{ $r.Summary.Improved }} de {{ $r.Summary.Total }} indicadores mejoraron{{ else }}Indicadores{{ end }}{{ template "help" ($r.Help "indicators") }}
+        </h3>
+        <span class="dash-section-meta">vs. {{ if eq $noun "mes" }}el mes anterior{{ else }}la semana anterior{{ end }}</span>
+      </div>
+      <div class="card-body">
+        <ul class="ledger">
+          {{ range $r.Indicators }}
+          <li class="ledger-row">
+            <span class="ledger-name">{{ .Label }}{{ template "help" ($r.IndicatorHelp .) }}</span>
+            <span class="ledger-figure">
+              <span class="recap-verdict-chip{{ if .Improved }} is-improved{{ else if .Worsened }} is-worsened{{ end }}">{{ .VerdictLabel }}</span>
+            </span>
+            <span class="ledger-sub">{{ .Rule }}</span>
+            <span class="ledger-sub ledger-sub-right">
+              {{ if .IsPoints }}
+                {{ if .Points.Defined }}{{ if .Points.IsPositive }}+{{ end }}{{ .Points.Formatted }} pts{{ else }}&mdash;{{ end }}
+              {{ else if .Change.Defined }}{{ signedChange .Change }} {{ $base }}{{ else }}&mdash;{{ end }}
+            </span>
+          </li>
+          {{ end }}
+        </ul>
+        {{ if not $r.HasPrevious }}
+        <p class="dash-note text-muted">Es el primer período con movimientos: no hay uno anterior con el que comparar.</p>
+        {{ end }}
+      </div>
+    </article>
+  </section>
+
+  {{ with $r.MissingRates }}
+  <div class="alert alert-warning" role="alert">
+    <div>
+      <strong>El patrimonio no se pudo valorar completo en uno de los extremos:</strong>
+      <ul class="dash-gaps">
+        {{ range . }}
+        <li><strong>{{ .PairLabel }}</strong>: {{ formatAmount .BalanceFormatted }} {{ .CurrencyCode }} sin tasa al {{ spanishDate .On }}
+          &middot; <a href="{{ .FormURL }}">Cargar tasa del {{ spanishDate .On }} &rarr;</a></li>
+        {{ end }}
+      </ul>
+    </div>
+  </div>
+  {{ end }}
+
+  {{ with $r.MissingExpenses }}
+  <div class="alert alert-warning" role="alert">
+    <div>
+      <strong>Hay gastos sin tasa en su fecha:</strong> el gasto no se puede comparar hasta cargarlas.
+      <ul class="dash-gaps">
+        {{ range . }}
+        <li>
+          <strong>{{ .PairLabel }}</strong>: {{ formatAmount .AmountFormatted }} {{ .CurrencyCode }}
+          {{ if .Previous }}del período anterior{{ else }}de este período{{ end }},
+          {{ if .SingleDay }}el {{ spanishDate .From }}{{ else }}entre el {{ spanishDate .From }} y el {{ spanishDate .To }}{{ end }}
+          &middot; <a href="{{ .FormURL }}">Cargar tasa del {{ spanishDate .From }} &rarr;</a>
+        </li>
+        {{ end }}
+      </ul>
+    </div>
+  </div>
+  {{ end }}
+
+  <!-- Row 2: the cash flow against the previous period, beside the accounts -->
+  <div class="dash-mid recap-mid">
+    <section class="card dash-section" aria-labelledby="recap-flow-title">
+      <div class="card-header">
+        <h3 id="recap-flow-title" class="card-title">Flujo de caja{{ template "help" ($r.Help "cash-flow") }}</h3>
+        <span class="dash-section-meta">en {{ $base }} · cada movimiento a la tasa de su fecha</span>
+      </div>
+      <div class="card-body">
+        <div class="table-container">
+          <table class="data-table recap-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th class="cell-right">Este período</th>
+                {{ if $r.HasPrevious }}<th class="cell-right">Anterior</th><th class="cell-right">Variación</th>{{ end }}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Ingresos{{ template "help" ($r.Help "income") }}</th>
+                <td class="cell-right cell-mono amount-income">{{ formatAmount $r.CashFlow.IncomeFormatted }}</td>
+                {{ if $r.HasPrevious }}
+                <td class="cell-right cell-mono">{{ formatAmount $r.PreviousCashFlow.IncomeFormatted }}</td>
+                <td class="cell-right cell-mono {{ if $r.IncomeChange.IsPositive }}amount-income{{ else if $r.IncomeChange.IsNegative }}amount-expense{{ end }}">{{ signedChange $r.IncomeChange }}{{ if $r.IncomeChange.Percent.Defined }} ({{ signedRatio $r.IncomeChange.Percent }}){{ end }}</td>
+                {{ end }}
+              </tr>
+              <tr>
+                <th scope="row">Egresos{{ template "help" ($r.Help "expenses") }}</th>
+                <td class="cell-right cell-mono amount-expense">{{ formatAmount $r.CashFlow.ExpenseFormatted }}</td>
+                {{ if $r.HasPrevious }}
+                <td class="cell-right cell-mono">{{ formatAmount $r.PreviousCashFlow.ExpenseFormatted }}</td>
+                <td class="cell-right cell-mono {{ if $r.ExpenseChange.IsPositive }}amount-expense{{ else if $r.ExpenseChange.IsNegative }}amount-income{{ end }}">{{ signedChange $r.ExpenseChange }}{{ if $r.ExpenseChange.Percent.Defined }} ({{ signedRatio $r.ExpenseChange.Percent }}){{ end }}</td>
+                {{ end }}
+              </tr>
+              <tr>
+                <th scope="row">Flujo neto{{ template "help" ($r.Help "net-cash-flow") }}</th>
+                <td class="cell-right cell-mono {{ if isNegative $r.CashFlow.NetMinor }}amount-expense{{ else }}amount-income{{ end }}">{{ formatAmount $r.CashFlow.NetFormatted }}</td>
+                {{ if $r.HasPrevious }}
+                <td class="cell-right cell-mono">{{ formatAmount $r.PreviousCashFlow.NetFormatted }}</td>
+                <td class="cell-right cell-mono {{ if $r.NetCashFlowChange.IsPositive }}amount-income{{ else if $r.NetCashFlowChange.IsNegative }}amount-expense{{ end }}">{{ signedChange $r.NetCashFlowChange }}</td>
+                {{ end }}
+              </tr>
+              <tr>
+                <th scope="row">Tasa de ahorro{{ template "help" ($r.Help "savings-rate") }}</th>
+                <td class="cell-right cell-mono">{{ ratio $r.CashFlow.SavingsRate }}</td>
+                {{ if $r.HasPrevious }}
+                <td class="cell-right cell-mono">{{ ratio $r.PreviousCashFlow.SavingsRate }}</td>
+                <td class="cell-right cell-mono {{ if $r.SavingsRateChange.IsPositive }}amount-income{{ else if $r.SavingsRateChange.IsNegative }}amount-expense{{ end }}">{{ if $r.SavingsRateChange.Defined }}{{ if $r.SavingsRateChange.IsPositive }}+{{ end }}{{ $r.SavingsRateChange.Formatted }} pts{{ else }}&mdash;{{ end }}</td>
+                {{ end }}
+              </tr>
+              <tr>
+                <th scope="row">Gasto diario promedio{{ template "help" ($r.Help "daily-expense") }}</th>
+                <td class="cell-right cell-mono">{{ formatAmount $r.ExpenseDailyAverageFormatted }}</td>
+                {{ if $r.HasPrevious }}
+                <td class="cell-right cell-mono">{{ formatAmount $r.PreviousExpenseDailyAverageFormatted }}</td>
+                <td class="cell-right cell-mono {{ if $r.ExpenseDailyAverageChange.IsPositive }}amount-expense{{ else if $r.ExpenseDailyAverageChange.IsNegative }}amount-income{{ end }}">{{ signedChange $r.ExpenseDailyAverageChange }}{{ if $r.ExpenseDailyAverageChange.Percent.Defined }} ({{ signedRatio $r.ExpenseDailyAverageChange.Percent }}){{ end }}</td>
+                {{ end }}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="dash-note text-muted">
+          {{ $r.CashFlow.TransactionCount }} ingresos y egresos en el período.
+          Las transferencias entre cuentas propias y los cambios de divisa no son ingresos ni egresos.
+          {{ if not $r.CashFlow.Complete }}<strong>Flujo incompleto:</strong> hay movimientos sin tasa en su fecha y no están en los totales.{{ end }}
+        </p>
+      </div>
+    </section>
+
+    <section class="card dash-section" aria-labelledby="recap-accounts-title">
+      <div class="card-header">
+        <h3 id="recap-accounts-title" class="card-title">Cuentas{{ template "help" ($r.Help "accounts") }}</h3>
+        <span class="dash-section-meta">cambio en el período</span>
+      </div>
+      <div class="card-body">
+        {{ if $r.Accounts }}
+        <ul class="ledger">
+          {{ range $r.Accounts }}
+          <li class="ledger-row">
+            <span class="ledger-name">{{ .AccountName }}{{ if not .IsActive }} <span class="badge badge-neutral">archivada</span>{{ end }}</span>
+            <span class="ledger-figure"><span class="{{ if isNegative .DeltaMinor }}amount-expense{{ else if .DeltaMinor }}amount-income{{ end }}">{{ signedChange .DeltaChange }}</span><span class="currency-badge">{{ .CurrencyCode }}</span></span>
+            <span class="ledger-sub">{{ formatAmount .OpeningFormatted }} → {{ formatAmount .ClosingFormatted }}</span>
+            <span class="ledger-sub ledger-sub-right">{{ if .BaseChange.Defined }}{{ signedChange .BaseChange }} {{ $base }}{{ else }}sin tasa{{ end }}</span>
+          </li>
+          {{ end }}
+        </ul>
+        {{ else }}
+        <p class="text-muted">Sin cuentas todavía.</p>
+        {{ end }}
+      </div>
+    </section>
+  </div>
+
+  <!-- Row 3: which categories moved, each way -->
+  <div class="recap-split">
+    <section class="card dash-section" aria-labelledby="recap-up-title">
+      <div class="card-header">
+        <h3 id="recap-up-title" class="card-title">Gastos que subieron{{ template "help" ($r.Help "expenses-up") }}</h3>
+        <span class="dash-section-meta">por categoría</span>
+      </div>
+      <div class="card-body">
+        {{ with $r.ExpensesUp }}
+        <ul class="ledger">
+          {{ range . }}
+          <li class="ledger-row">
+            <span class="ledger-name">{{ .CategoryName }}{{ if .IsNew }} <span class="badge badge-info">nueva</span>{{ end }}</span>
+            <span class="ledger-figure amount-expense">{{ signedChange .Change }}</span>
+            <span class="ledger-sub">{{ formatAmount .PreviousFormatted }} → {{ formatAmount .CurrentFormatted }}</span>
+            <span class="ledger-sub ledger-sub-right">{{ signedRatio .Change.Percent }}</span>
+          </li>
+          {{ end }}
+        </ul>
+        {{ else }}
+        <p class="text-muted">{{ if $r.CategoriesComparable }}Ninguna categoría de gasto subió.{{ else }}Sin comparación disponible.{{ end }}</p>
+        {{ end }}
+      </div>
+    </section>
+
+    <section class="card dash-section" aria-labelledby="recap-down-title">
+      <div class="card-header">
+        <h3 id="recap-down-title" class="card-title">Gastos que bajaron{{ template "help" ($r.Help "expenses-down") }}</h3>
+        <span class="dash-section-meta">por categoría</span>
+      </div>
+      <div class="card-body">
+        {{ with $r.ExpensesDown }}
+        <ul class="ledger">
+          {{ range . }}
+          <li class="ledger-row">
+            <span class="ledger-name">{{ .CategoryName }}{{ if .IsGone }} <span class="badge badge-neutral">sin gasto</span>{{ end }}</span>
+            <span class="ledger-figure amount-income">{{ signedChange .Change }}</span>
+            <span class="ledger-sub">{{ formatAmount .PreviousFormatted }} → {{ formatAmount .CurrentFormatted }}</span>
+            <span class="ledger-sub ledger-sub-right">{{ signedRatio .Change.Percent }}</span>
+          </li>
+          {{ end }}
+        </ul>
+        {{ else }}
+        <p class="text-muted">{{ if $r.CategoriesComparable }}Ninguna categoría de gasto bajó.{{ else }}Sin comparación disponible.{{ end }}</p>
+        {{ end }}
+      </div>
+    </section>
+
+    <section class="card dash-section" aria-labelledby="recap-income-title">
+      <div class="card-header">
+        <h3 id="recap-income-title" class="card-title">Ingresos por categoría{{ template "help" ($r.Help "income-categories") }}</h3>
+        <span class="dash-section-meta">en {{ $base }}</span>
+      </div>
+      <div class="card-body">
+        {{ if $r.IncomeCategories }}
+        <ul class="ledger">
+          {{ range $r.IncomeCategories }}
+          <li class="ledger-row">
+            <span class="ledger-name">{{ .CategoryName }}{{ if .IsNew }} <span class="badge badge-info">nueva</span>{{ else if .IsGone }} <span class="badge badge-neutral">sin ingreso</span>{{ end }}</span>
+            <span class="ledger-figure amount-income">{{ formatAmount .CurrentFormatted }}</span>
+            <span class="ledger-sub">{{ if $r.HasPrevious }}anterior <span class="cell-mono">{{ formatAmount .PreviousFormatted }}</span>{{ end }}</span>
+            <span class="ledger-sub ledger-sub-right">{{ if $r.HasPrevious }}{{ signedChange .Change }}{{ end }}</span>
+          </li>
+          {{ end }}
+        </ul>
+        {{ else }}
+        <p class="text-muted">Sin ingresos en ninguno de los dos períodos.</p>
+        {{ end }}
+      </div>
+    </section>
+  </div>
+
+  <!-- Row 4: the largest expenses, full width -->
+  <section class="card dash-section dash-recent" aria-labelledby="recap-top-title">
+    <div class="card-header">
+      <h3 id="recap-top-title" class="card-title">Mayores gastos del período{{ template "help" ($r.Help "top-expenses") }}</h3>
+      <span class="dash-section-meta">valorados en {{ $base }} a la tasa de su fecha</span>
+    </div>
+    <div class="card-body">
+      {{ if $r.TopExpenses }}
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Descripción</th>
+              <th>Categoría</th>
+              <th>Cuenta</th>
+              <th class="cell-right">Monto</th>
+              <th class="cell-right">En {{ $base }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{ range $r.TopExpenses }}
+            <tr>
+              <td class="cell-mono">{{ formatDate .Date }}</td>
+              <td><a href="{{ .EditURL }}">{{ if .Description }}{{ derefString .Description }}{{ else }}<span class="text-muted">Sin descripción</span>{{ end }}</a></td>
+              <td>{{ .CategoryName }}</td>
+              <td>{{ .AccountName }}</td>
+              <td class="cell-right cell-mono amount-expense">{{ formatAmount .AmountFormatted }} {{ .CurrencyCode }}</td>
+              <td class="cell-right cell-mono">{{ formatAmount .BaseFormatted }}</td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+      </div>
+      {{ else }}
+      <p class="text-muted">Sin egresos en el período.</p>
+      {{ end }}
+      {{ if $r.UnvaluedExpenseCount }}
+      <p class="dash-note">
+        <span class="badge badge-warning">{{ $r.UnvaluedExpenseCount }} sin tasa</span>
+        {{ if eq $r.UnvaluedExpenseCount 1 }}Un gasto no tiene tasa en su fecha y no se puede ubicar en este ranking.{{ else }}Hay gastos sin tasa en su fecha que no se pueden ubicar en este ranking.{{ end }}
+      </p>
+      {{ end }}
+    </div>
+  </section>
+  {{ end }}
+</div>
+
+<div class="notice-box">
+  <strong>Cómo se calcula:</strong> la semana va de lunes a domingo y el mes del día 1 al último.
+  Un período cerrado se compara con el anterior completo; uno en curso, con los mismos días del anterior.
+  El patrimonio se mide del cierre del día previo al cierre del último día, con las tasas vigentes en cada fecha.
+  Los indicadores aplican una regla fija y no son una recomendación. Nada de esto se guarda.
+</div>
+{{ end }}

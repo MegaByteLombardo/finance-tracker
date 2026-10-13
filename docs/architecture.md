@@ -418,6 +418,12 @@ One dashboard request costs a constant number of queries whatever its period:
 the snapshot's five plus one for the flows of the current and previous period
 together. No query is issued per day, per account or per currency.
 
+**The recap** *(M6.5)* lives here too: `Recap` reads the same snapshot for a
+calendar week or month and the one before it (`calendar.go`, TD-072), compares
+every category, ranks the period's largest expenses from `ledger.ListExpenses`
+(TD-074) and reports four fixed-rule indicators (TD-073). Seven queries whatever
+the period: the snapshot's five, the flows, and the expenses.
+
 ### `internal/application`
 
 Cross-domain workflows, and nothing else. One today: `OpenAccount`, which creates
@@ -554,6 +560,15 @@ inline SVG whose integer geometry `internal/web/chart.go` computes from the seri
 (TD-070). No handler, template or script performs financial arithmetic; the
 template functions `signedChange`, `signedRatio` and `ratio` only prefix a sign or
 a `%` to strings the backend already formatted.
+
+### The recap *(M6.5)*
+
+`GET /recap?period=week|month&start=YYYY-MM-DD` (desktop) and `GET /mobile/recap`
+make one call to `Analytics.Recap`. Without `start` the recap is of the last
+closed period; anything malformed falls back to the default. The granularity
+selector and the arrows are links enhanced with `hx-select`, exactly like the
+dashboard's period selector. Directions and verdicts arrive decided; templates
+only choose a class from them.
 
 ### Presentation *(design overhaul)*
 

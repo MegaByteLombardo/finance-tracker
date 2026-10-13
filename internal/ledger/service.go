@@ -177,6 +177,16 @@ func (s *Service) ListFlows(ctx context.Context, from, to time.Time) ([]Flow, er
 	return s.repo.ListFlows(ctx, from, to)
 }
 
+// ListExpenses returns every expense between two dates inclusive, one per
+// transaction, in its own currency. See Repository.ListExpenses.
+func (s *Service) ListExpenses(ctx context.Context, from, to time.Time) ([]ExpenseItem, error) {
+	if to.Before(from) {
+		return nil, fmt.Errorf("%w: the range ends on %s, before it starts on %s",
+			ErrInvalidInput, database.FormatDate(to), database.FormatDate(from))
+	}
+	return s.repo.ListExpenses(ctx, from, to)
+}
+
 // recordRequest is the shared shape behind the three use cases. It is
 // unexported on purpose: the public API is one method per use case, so that
 // invalid combinations have no signature to arrive through.

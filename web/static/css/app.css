@@ -1553,6 +1553,7 @@ input[data-type="currency"] {
 .dash-section .card-body { padding: var(--space-4); }
 .dash-section .card-header { padding: var(--space-3) var(--space-4); }
 .dash-section-meta { font-size: 0.78rem; color: var(--text-muted); }
+.dash-section-meta a { color: var(--accent); font-weight: 650; }
 
 .dash-note { margin: var(--space-3) 0 0; font-size: 0.8125rem; color: var(--text-body); }
 .dash-note a, .dash-gaps a { color: var(--accent); font-weight: 650; }
@@ -1731,13 +1732,137 @@ input[data-type="currency"] {
   border-radius: var(--radius-sm);
 }
 
+/* ==========================================================================
+   M6.5 — Recap. The dashboard's instrument, laid out for one calendar period
+   against the one before. Directions and verdicts arrive decided; these rules
+   only choose a colour for them.
+   ========================================================================== */
+.recap-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+.dash-period.is-disabled { opacity: 0.4; pointer-events: none; }
+.recap-head { display: grid; gap: var(--space-1); }
+.recap-head .dash-period-range { margin: 0; }
+.recap-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: 1.35rem;
+  color: var(--text-main);
+  text-shadow: var(--engrave);
+}
+
+/* A verdict is a small LCD segment, like a change chip. */
+.recap-verdict-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--text-muted);
+  background: var(--well-bg);
+  box-shadow: var(--well-shadow);
+}
+.recap-verdict-chip.is-improved { color: var(--success); }
+.recap-verdict-chip.is-worsened { color: var(--danger); }
+
+/* Row 2 gives the comparison table more room than the dashboard's chart row. */
+.recap-mid { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+.recap-table th[scope="row"] { text-align: left; font-weight: 650; white-space: nowrap; }
+.recap-table td { white-space: nowrap; }
+
+/* Row 3: up, down, income. */
+.recap-split {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+/* Mobile */
+.recap-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  font-size: 0.65rem;
+  font-weight: 700;
+  vertical-align: middle;
+  color: var(--warning-text);
+  background: var(--warning-bg);
+}
+.recap-mobile-nav { margin-top: 8px; }
+
+/* "?" keys (components/help.html): a small round key beside a label that
+   opens a plate explaining the term. The plate is a native popover, so it
+   sits in the top layer -- no card's overflow clips it -- and it inherits
+   nothing from the engraved title it was declared in. */
+.help-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: -2px 0 0 6px;
+  padding: 0;
+  vertical-align: middle;
+  border-radius: var(--radius-full);
+  background: linear-gradient(180deg, var(--key-top), var(--key-bottom));
+  border: 1px solid var(--key-edge);
+  box-shadow: inset 0 1px 0 var(--key-hi), 0 1px 0 var(--key-base);
+  color: var(--key-text);
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+  font-weight: 800;
+  font-stretch: 100%;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  text-shadow: none;
+  cursor: pointer;
+}
+.help-key:hover { filter: brightness(1.04); }
+.help-key:active { transform: translateY(1px); box-shadow: inset 0 1px 0 var(--key-hi); }
+.help-plate {
+  width: min(320px, calc(100vw - 32px));
+  margin: auto;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--plate-bg);
+  color: var(--plate-fg);
+  box-shadow: var(--shadow-lg);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  font-stretch: 100%;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+  text-shadow: none;
+  white-space: normal;
+}
+.help-plate-title { display: block; margin-bottom: 4px; color: var(--plate-accent); font-weight: 700; }
+.help-plate::backdrop { background: rgba(0, 0, 0, 0.18); }
+
 @media (max-width: 1200px) {
   .dash-top { grid-template-columns: minmax(0, 1fr); }
   .dash-mid { grid-template-columns: minmax(0, 1fr); }
+  .recap-split { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 840px) {
   .dash-detail { grid-template-columns: minmax(0, 1fr); }
   .dash-flow { grid-template-columns: minmax(0, 1fr); }
+  .recap-split { grid-template-columns: minmax(0, 1fr); }
   .header-container { padding: var(--space-2) var(--space-4); }
   .main-content { padding: var(--space-5) var(--space-4) var(--space-8); }
 }

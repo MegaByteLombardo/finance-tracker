@@ -737,6 +737,75 @@ delete**; and audit history of edits.
 
 ---
 
+## M6.5 — Weekly & Monthly Recap · `IN PROGRESS`
+
+The dashboard answers "how am I doing over the last N days". The recap answers
+the question a person actually asks at the end of a week or a month: how did it
+go against the one before, what went up, what went down, and where do I stand
+now. It is built on M6's engine and changes none of its rules. The contract is
+[m6.5-contract.md](m6.5-contract.md).
+
+### Scope
+
+- **Calendar periods** (TD-072): Monday-to-Sunday weeks and calendar months,
+  compared with the previous calendar period; a period in progress is compared
+  like for like. The default is the last closed period, with arrows back to the
+  first movement and forward to the period in progress.
+- **Net worth then and now**: the close of the day before the period against the
+  close of its last day, and the same movement over the previous period.
+- **Cash flow against the previous period**: income, expenses, net, savings rate
+  (in percentage points) and the daily average expense.
+- **Every category compared**, with a direction — up, down, same, new, gone — and
+  none folded into "other".
+- **The five largest expenses**, ranked in the base currency (TD-074).
+- **The change of each account**, in its own currency and in the base.
+- **Four indicators** with fixed rules and a summary (TD-073).
+- `/recap` on desktop (in the main navigation and linked from the dashboard) and
+  `/mobile/recap` (linked from Inicio).
+
+### Decisions worth naming
+
+- **The recap lives in `internal/analytics`.** It is the same cross-domain read
+  over a period as the dashboard and reuses its cash-flow arithmetic and
+  `compare`; a separate package would have had to export them for nothing.
+- **A month in progress is not compared with a whole month.** October 1–12 is
+  compared with September 1–12. The alternative always shows spending falling.
+- **"Better" and "worse" are stated rules, not advice.** Each indicator names
+  its rule on the screen; nothing is weighted or recommended.
+- **The difference between the net worth's change and the net cash flow is left
+  visible, not explained.** It is the effect of valuation at moving rates.
+  Splitting it out was considered and left out: it is not a gain, a loss or a
+  fee (M5.5), and naming it invites reading it as one.
+
+### Delivered
+
+`analytics.Recap`, the calendar periods (`calendar.go`), `compareCategories`,
+`allocateShares` (extracted from the spending card); `ledger.ListExpenses`; the
+web `Recap` types, adapter, fake and handlers; `recap/index.html` and
+`mobile/recap.html`; the contract in [m6.5-contract.md](m6.5-contract.md);
+TD-072 to TD-074. Schema version unchanged: 13.
+
+### Verification
+
+- `go vet ./...` clean and `go test ./... -count=1` green. `gofmt` clean on every
+  changed file.
+- Against real SQLite: calendar boundaries (month and year ends, leap years, the
+  31st), the like-for-like cut, anchor clamping, the first period with nothing
+  before it, each category direction, the largest expenses across two
+  currencies, an archived account, every indicator, and a missing rate that
+  makes each dependent figure unavailable rather than zero.
+- The recap was rendered against a seeded ledger of four months in two
+  currencies, desktop and mobile, for a closed month and a week in progress.
+
+### Not in M6.5
+
+Budgets, goals, alerts, notifications and recommendations; a combined score; a
+decomposition of the net worth's change into cash flow and exchange-rate effect;
+custom ranges and quarterly or yearly recaps; a stored or emailed recap; caches,
+snapshot tables, background jobs and a JSON API.
+
+---
+
 ## Roadmap
 
 Everything below is **provisional**. These are the currently expected shape of
@@ -752,6 +821,7 @@ below has acceptance criteria yet, by design.
 | M5 | Multi-Currency, Exchange Rates & Current Net Worth | `IN PROGRESS` |
 | M5.5 | Currency Exchange Transactions | `CLOSED` |
 | M6 | Historical Net Worth & Analytics Dashboard | `CLOSED` |
+| M6.5 | Weekly & Monthly Recap | `IN PROGRESS` |
 | — | Production Deployment, Private Access & Continuous Backup | `POSTPONED` |
 | M7 | Credit & Debt | `PLANNED` |
 | M8 | Instalments & Calendar | `PLANNED` |

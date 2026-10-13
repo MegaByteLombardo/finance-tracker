@@ -28,6 +28,11 @@ type AnalyticsService interface {
 	// what a screen titled with the month's name shows; no handler adds up the
 	// rows it lists.
 	MonthToDateCashFlow(ctx context.Context) (CashFlow, error)
+
+	// Recap computes the recap of a calendar week or month against the one
+	// before it (docs/m6.5-contract.md). An unknown granularity is
+	// ErrInvalidInput; a handler normalises the query with ParseRecapRequest.
+	Recap(ctx context.Context, req RecapRequest) (Recap, error)
 }
 
 // DashboardPreset names a dashboard period.
@@ -265,21 +270,25 @@ func (m MissingExpense) FormURL() string {
 // MissingExpenses lists the unvalued expenses of the period and of the
 // previous one, current first.
 func (d DashboardAnalytics) MissingExpenses() []MissingExpense {
+	return missingExpenses(d.NetWorth.BaseCurrencyCode, d.CashFlow, d.PreviousCashFlow, d.HasPrevious)
+}
+
+func missingExpenses(baseCode string, current, previous CashFlow, hasPrevious bool) []MissingExpense {
 	var out []MissingExpense
-	collect := func(cf CashFlow, previous bool) {
+	collect := func(cf CashFlow, isPrevious bool) {
 		for _, m := range cf.Missing {
 			if m.ExpenseMinor == 0 {
 				continue
 			}
 			out = append(out, MissingExpense{
-				Previous: previous, CurrencyCode: m.CurrencyCode, BaseCurrencyCode: d.NetWorth.BaseCurrencyCode,
+				Previous: isPrevious, CurrencyCode: m.CurrencyCode, BaseCurrencyCode: baseCode,
 				AmountFormatted: m.ExpenseFormatted, From: m.ExpenseFrom, To: m.ExpenseTo,
 			})
 		}
 	}
-	collect(d.CashFlow, false)
-	if d.HasPrevious {
-		collect(d.PreviousCashFlow, true)
+	collect(current, false)
+	if hasPrevious {
+		collect(previous, true)
 	}
 	return out
 }

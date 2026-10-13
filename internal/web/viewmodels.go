@@ -12,6 +12,7 @@ type NavItem string
 
 const (
 	NavDashboard      NavItem = "dashboard"
+	NavRecap          NavItem = "recap"
 	NavAccounts       NavItem = "accounts"
 	NavTransactions   NavItem = "transactions"
 	NavCategories     NavItem = "categories"
