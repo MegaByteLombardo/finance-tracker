@@ -1,217 +1,236 @@
 # Finance Tracker
 
-A local, single-user web application for managing personal finances. Go +
-SQLite, server-rendered, run on your own machine with Docker Compose. No cloud,
-no accounts, no telemetry.
+A personal finance app that runs on your own computer. You record your income,
+expenses and the money you move between accounts, and it shows your balances,
+your net worth and how each week or month went.
 
-**This repository is at milestone M5.5.** It records income, expenses, transfers
-between your own accounts and **real currency exchanges** between them, across
-accounts in several currencies, derives every balance from the ledger, lets you
-correct what you entered, takes backups you can restore from, and — from M5 —
-values everything you hold in a single base currency using exchange rates it
-keeps. See [Scope](#scope) below.
+- **Local and private.** Single user, no cloud, no accounts, no telemetry.
+- **Multi-currency.** Accounts in USD, EUR and VES, valued together in one base
+  currency.
+- **Exact.** Money is stored as whole cents, never as floating point.
+- **Simple to run.** One Go binary and one SQLite file, with Docker Compose.
 
-## Requirements
+## Contents
 
-- **Go 1.27+** — to run or test locally
-- **Docker + Docker Compose v2** — to run in a container
+- [Features](#features)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Using the app](#using-the-app)
+- [How the numbers work](#how-the-numbers-work)
+- [Your data](#your-data)
+- [Backups and restore](#backups-and-restore)
+- [Development](#development)
+- [What it does not do](#what-it-does-not-do)
+- [Documentation](#documentation)
 
-Nothing else. There is no C toolchain requirement: the SQLite driver
-(`modernc.org/sqlite`) is pure Go.
+## Features
 
-## Running locally with Go
+| Area | What you get |
+| --- | --- |
+| Accounts | Bank, cash, wallet and other accounts, each in one currency. Archive them when you stop using them. |
+| Transactions | Income and expenses with a category and a payment method. Every one can be edited later. |
+| Transfers | Move money between two of your own accounts in the same currency. |
+| Currency exchanges | Record buying or selling currency between your own accounts. The rate is worked out from the two amounts. |
+| Exchange rates | Fetched daily from the Banco Central de Venezuela (BCV), or typed in by hand. |
+| Dashboard | Net worth today, its history chart, cash flow and spending by category over 7, 30, 90 or 365 days. |
+| Recap | A weekly or monthly summary against the previous period: what went up, what went down, and whether things improved. |
+| Mobile | A phone-sized version of the app at `/mobile`. |
+| Backups | Automatic snapshots of the database, plus a one-command restore. |
 
-```sh
-go run ./cmd/web
-curl http://localhost:8080/healthz     # {"status":"ok"}
-```
+## Quick start
 
-Every setting has a working default, so no environment configuration is needed.
-The database is created at `./data/finance.db` on first start, along with its
-directory. `data/` is git-ignored.
+You need **Docker with Docker Compose v2**, or **Go 1.27+** to run it without
+Docker. Nothing else is needed: the SQLite driver is pure Go.
 
-Press `Ctrl+C` to stop; the server drains in-flight requests before closing the
-database.
-
-## Running with Docker Compose
+### With Docker Compose (recommended)
 
 ```sh
 docker compose up -d --build
-curl http://localhost:8080/healthz     # {"status":"ok"}
-docker compose logs -f app
-docker compose down
 ```
 
-The container runs as a non-root user (uid 65532) on a distroless image with no
-shell and no package manager.
+Open <http://localhost:8080>.
+
+| Task | Command |
+| --- | --- |
+| See the logs | `docker compose logs -f app` |
+| Stop | `docker compose down` |
+| Update after pulling new code | `docker compose up -d --build` |
+
+### With Go
+
+```sh
+go run ./cmd/web
+```
+
+Open <http://localhost:8080>. The database is created at `./data/finance.db`
+the first time. Press `Ctrl+C` to stop.
+
+To check that the server is up: `curl http://localhost:8080/healthz` returns
+`{"status":"ok"}`.
 
 ## Configuration
 
-Configuration comes from environment variables. Copy `.env.example` to `.env` to
-change anything — Docker Compose reads `.env` on its own, so no dotenv library is
-involved. `.env` is git-ignored.
+Everything has a working default, so no configuration is needed to start. To
+change something, copy `.env.example` to `.env` and edit it. Docker Compose
+reads `.env` on its own.
 
-| Variable    | Default              | Meaning                                                     |
-| ----------- | -------------------- | ----------------------------------------------------------- |
-| `APP_ENV`   | `development`        | `development` or `production`. Selects text vs. JSON logging. |
-| `HTTP_ADDR` | `:8080`              | Listen address as `host:port`. Empty host means all interfaces. |
-| `DB_PATH`   | `./data/finance.db`  | SQLite file. Its parent directory is created on startup.     |
-| `LOG_LEVEL` | `info`               | `debug`, `info`, `warn` or `error`.                          |
-| `BACKUP_DIR` | `./backups`         | Where snapshots are written. `/backups` under Compose.       |
-| `BACKUP_RETENTION` | `10`          | Shutdown snapshots to keep. `0` keeps every one.             |
-| `HTTP_PORT` | `8080`               | Host port published by Compose. Read by `compose.yaml` only. |
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `HTTP_PORT` | `8080` | The port on your machine (Docker Compose only). |
+| `HTTP_ADDR` | `:8080` | The address the server listens on. |
+| `DB_PATH` | `./data/finance.db` | Where the database file lives. |
+| `BACKUP_DIR` | `./backups` | Where backups are written. |
+| `BACKUP_RETENTION` | `10` | How many shutdown backups to keep. `0` keeps all. |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
+| `APP_ENV` | `development` | `production` switches the logs to JSON. |
+| `FX_BCV_ENABLED` | `true` | Set to `false` to enter rates by hand only. |
+| `FX_BCV_TIMEOUT` | `15s` | How long one fetch from the BCV may take. |
+| `FX_REFRESH_EVERY` | `4h` | How often to retry the BCV. It fetches at most once a day. |
 
-An invalid value is reported by name at startup and the process exits non-zero.
-All problems are reported at once, not one per restart.
+If a value is invalid, the app names it at startup and does not start.
 
-## Using Finance Tracker
+## Using the app
 
-A complete walkthrough to get started with a fresh instance:
+### First steps
 
-1. Start application
-2. Open http://localhost:8080
-3. Create categories (e.g. Salary as INCOME, Groceries as EXPENSE)
-4. Create account
-5. Select BANK/CASH/WALLET/OTHER
-6. For BANK select CHECKING/SAVINGS
-7. Select currency (USD, EUR, VES)
-8. Enter optional initial balance
-9. Record income
-10. Record expense
-11. Move money between two of your own accounts — see below
-12. Review balances on dashboard
+1. Open <http://localhost:8080>.
+2. **Create categories**, for example *Salary* (income) and *Groceries* (expense).
+3. **Create an account**: choose its type, its currency and, optionally, the
+   balance it starts with.
+4. **Choose your base currency** in Settings. Your net worth is shown in it.
+5. **Record income and expenses** as they happen.
+6. Check the **Dashboard** and the **Recap**.
 
-### Recording a transfer between your own accounts
+### Transfers between your own accounts
 
-A **transfer** moves money you already have from one of your accounts to another.
-Use it when you withdraw cash from your bank, top up a wallet, or move money
-between two of your own accounts for any other reason.
+Use a transfer when you withdraw cash, top up a wallet, or move money between
+two of your accounts.
 
-1. Open the transfer form
-2. Choose the account the money leaves (**From**)
-3. Choose the account it arrives in (**To**) — it must be in the **same
-   currency** and cannot be the same account
-4. Enter the amount as a positive number, e.g. `250.00`
-5. Enter the date it happened
-6. Optionally describe it, e.g. "Pasar dinero a efectivo"
+- Both accounts must be active and in the **same currency**.
+- One balance goes down and the other goes up by the same amount. Your total
+  does not change, because nothing was earned or spent.
+- A transfer is not income or an expense, and it has no category.
 
-The From balance goes down, the To balance goes up, and **the total you hold in
-that currency does not change** — because none did. Nothing was earned and
-nothing was spent.
+A transfer may leave an account negative. That is allowed on purpose: it usually
+means something has not been recorded yet.
 
-Both accounts must be active. A transfer between accounts in *different*
-currencies is refused, and always will be — that operation is a **currency
-exchange**, which has its own form; see below. You can edit a transfer
-afterwards; you cannot delete it.
+### Currency exchanges
 
-A transfer may leave an account with a negative balance, and this is allowed on
-purpose. Overdrafts happen, and a cash account that goes negative usually means
-something has not been entered yet — hiding that would not make it untrue.
-
-### Exchanging currency between your own accounts
-
-A **currency exchange** records money you actually exchanged: bolívares left one
-account and dollars arrived in another.
+Use an exchange when you actually bought or sold currency, for example bolívares
+out of one account and dollars into another.
 
 ```
-Compra de USD                          Venta de USD
-
-Banesco VES                            Mercantil USD
--85,000.00 VES                         -100.00 USD
-        ↓                                      ↓
-Mercantil USD                          Banesco VES
-+100.00 USD                            +84,500.00 VES
+Banesco VES      -85,000.00 VES
+      ↓
+Mercantil USD       +100.00 USD
 ```
 
-1. Open **Exchange Currency** (mobile: **Cambiar divisas**)
-2. Choose the account the money leaves and enter **what you handed over**
-3. Choose the account it arrives in — it must be in a **different** currency —
-   and enter **what you received**
-4. Enter the date, and optionally a description
+1. Open **Exchange Currency** (on mobile, **Cambiar divisas**).
+2. Choose the account the money leaves and enter what you handed over.
+3. Choose the account it arrives in, in a **different** currency, and enter
+   what you received.
 
-You enter **both amounts**, because both are facts on your statement. The
-application does **not** ask for a rate and does not look one up: it *derives*
-the rate from the two amounts, exactly — 84,220.67 for 100.00 is 842.2067 VES per
-USD — and shows it. Nothing is stored for that rate; it is recomputed whenever
-the exchange is displayed, so correcting an amount corrects it automatically.
+You always enter **both amounts**, as they appear on your statements. The app
+works out the rate from them; you never type a rate. If the bank charged a
+commission, record it as a separate expense.
 
-Whether this was a purchase or a sale is simply which account was the
-destination. There is no "buy" and no "sell" to choose.
+### Exchange rates
 
-**If the bank charged a commission**, record it as a separate expense under a
-category such as "Bank fees". If you only know the final amounts debited and
-credited, enter those — the derived rate then already shows what the exchange
-really cost you.
+Rates are used to value what you hold in your base currency. They come from two
+places:
 
-Exchanges can be corrected, never deleted, and both amounts and both accounts can
-change.
+- **The BCV**, fetched automatically once a day. If the site is down, the app
+  keeps working and tries again later.
+- **You**, in *Settings → Exchange rates*. A manual rate wins over the BCV's for
+  the same day.
 
-### Important financial model notes
+If a rate is missing, the app says so and links to the form to add it. It never
+guesses a value.
 
-* **Balances are derived from transactions:** Accounts have no stored balance column. Every balance is calculated dynamically from ledger movements (`SUM(movements)`).
-* **Balances are never summed across currencies.** Accounts in USD, EUR and VES are shown independently, each in its own currency, exactly as before.
-* **The net worth is a *valuation*, not a balance.** From M5 the dashboard also shows one consolidated figure in your base currency. It is computed at the moment you look at it, from the ledger plus the exchange rates you have, and it is **not stored anywhere**. Every component says which rate produced it, from which source, effective on which day — and if a rate is missing, the figure says so instead of guessing.
-* **Reference FX is not execution FX.** The rates on the exchange rates screen say what a *source* — the BCV, or you — said a currency was worth on a day; they value what you hold. The rate of a **currency exchange** is what *you actually got*, derived from the two amounts you entered. Recording an exchange does not read or change any stored rate, and no transaction carries one.
-* **An exchange can move your net worth, and that is correct.** If you buy dollars above the official rate, the consolidated figure goes down, because at the official rate you now hold less. The application does **not** turn that difference into an expense, an income, a fee, a gain or a loss — there is no such entry, by design.
-* **A currency exchange is not a transfer.** A transfer moves one sum of money between two accounts in the *same* currency, and your total in that currency is unchanged. An exchange moves *two different* sums, in two currencies, and changes both totals.
-* **An Internal Transfer is not the "Bank transfer" payment method.** These are two different things and the application treats them as such:
-  * a **Transfer** moves money between **two accounts you own**. It is neither income nor an expense, has no category and no payment method, and does not change your total wealth in that currency.
-  * the payment method named **"Bank transfer"** describes the **channel** an operation with the **outside world** used — how your salary arrived, or how you paid a bill.
+### Dashboard
 
-  Paying rent by bank transfer is an *expense* whose payment method is "Bank transfer". Moving $250 from your bank to your cash is a *transfer* with no payment method at all.
-* **A transfer is one event, shown once.** Internally it is one transaction with two movements — one negative, one positive — which is why the totals always balance.
+Your net worth today, how it changed, its history chart, your income and
+expenses, and your spending by category. Choose 7, 30, 90 or 365 days, or all
+time.
 
+### Recap
 
-## Where the database lives
+A summary of one **week** (Monday to Sunday) or one **month**, compared with the
+previous one:
 
-**Locally:** `./data/finance.db` (configurable via `DB_PATH`).
+- your net worth at the start and at the end;
+- income, expenses, net cash flow, savings rate and daily average spending;
+- the categories where you spent more, and where you spent less;
+- your five largest expenses;
+- how each account's balance changed;
+- four indicators that say whether things improved or got worse.
 
-**Under Docker:** `/data/finance.db`, on a named volume called `finance_data`.
-The database is never in the container's writable layer, so:
+It opens on the last finished period. Use the arrows to see earlier ones or the
+period in progress. A period in progress is compared with the same days of the
+previous one. Each card has a **?** that explains what it shows.
 
-| Command                 | Effect on your data                                  |
-| ----------------------- | ---------------------------------------------------- |
-| `docker compose down`   | Containers removed, **volume kept**. Data survives.   |
-| `docker compose up`     | The same volume is reattached. Data is still there.   |
-| `docker compose up -d --build` | Rebuilds the image, **keeps the volume**. This is how to pick up code changes. |
-| `docker compose down -v`| **Destroys the volume and the database.** Recoverable only from a backup. |
+### Mobile
 
-`docker volume prune` and `docker system prune --volumes` will also remove the
-volume once the container is gone. Both are easy to run without meaning to.
+Open <http://localhost:8080/mobile> on your phone, on the same network. It has
+the dashboard, movements, accounts, the recap and a button to record a new
+operation.
 
-SQLite runs in WAL mode, so alongside `finance.db` you may see `finance.db-wal`
-and `finance.db-shm`. They are SQLite's own working files, not something to
-manage by hand.
+## How the numbers work
 
-## Backups
+- **Balances are calculated, never stored.** Each balance is the sum of its
+  account's movements up to today. A movement dated in the future is listed but
+  not counted yet.
+- **Currencies are never added together directly.** Each account shows its own
+  currency. Only the net worth converts everything, using exchange rates.
+- **Each amount is valued at the rate of its own date.** Old income and expenses
+  use the rate of the day they happened, not today's.
+- **A missing rate is reported, never guessed.** The figure is marked as
+  incomplete and the app tells you which rate is missing.
+- **Archived accounts still count.** Archiving hides an account. Its balance is
+  still part of your net worth.
+- **An exchange can move your net worth.** If you buy dollars above the official
+  rate, your net worth valued at that rate goes down. That is the real effect,
+  and the app does not record it as an expense.
+- **A transfer is not the "Bank transfer" payment method.** A transfer moves
+  money between your own accounts. "Bank transfer" is how you paid someone or
+  got paid.
 
-Snapshots go to **`./backups/` on your machine**, not into the Docker volume.
-That is the whole point: `docker compose down -v` destroys volumes, so a backup
-kept in one would die with the database it exists to protect.
+## Your data
 
-They are taken automatically:
+| Where | Database file |
+| --- | --- |
+| Running with Go | `./data/finance.db` |
+| Running with Docker | `/data/finance.db`, inside a Docker volume called `finance_data` |
 
-- **before migrations**, whenever a schema that already holds data is about to
-  change;
-- **on shutdown**, after requests drain and before the database closes — including
-  the shutdown that `docker compose down` performs before destroying anything;
-- **on request**, from the application.
+What Docker commands do to your data:
 
-Only shutdown snapshots are ever deleted, keeping the most recent
-`BACKUP_RETENTION` (default 10). Manual and pre-migration snapshots are kept
-indefinitely.
+| Command | Your data |
+| --- | --- |
+| `docker compose down` | Kept. |
+| `docker compose up -d --build` | Kept. |
+| `docker compose down -v` | **Deleted.** Only a backup can bring it back. |
+| `docker volume prune` | **Can delete it** once the container is gone. |
 
-Each one is a complete SQLite database taken with `VACUUM INTO` and verified with
-`PRAGMA integrity_check` before it counts. You can open one directly:
+You may see `finance.db-wal` and `finance.db-shm` next to the database. They are
+SQLite's working files; leave them alone.
 
-```sh
-sqlite3 backups/finance-20260905T183045Z-manual.db "SELECT count(*) FROM transactions"
-```
+## Backups and restore
 
-### Restoring
+Backups are written to **`./backups/` on your computer**, outside Docker, so
+deleting the Docker volume does not delete them.
 
-Restore is deliberately an **offline** operation — replacing the database while
-the server is running would pull the file out from under it:
+A backup is taken automatically:
+
+- before the database schema is upgraded;
+- every time the app shuts down;
+- whenever you ask for one, in *Settings → Data*.
+
+Only shutdown backups are cleaned up, keeping the latest 10. Each backup is a
+complete SQLite file, checked before it is kept.
+
+### Restoring a backup
+
+Stop the app, restore, and start it again:
 
 ```sh
 docker compose stop
@@ -219,15 +238,13 @@ docker compose run --rm app restore --file finance-20260905T183045Z-manual.db
 docker compose up -d
 ```
 
-It validates the snapshot first, takes a snapshot of what it is replacing so the
-restore itself can be undone, and leaves everything untouched if anything fails.
-A snapshot from an older schema is fine: the next normal start migrates it
-forward.
+The restore checks the backup first and saves a copy of the current database, so
+it can be undone. If anything fails, nothing is changed. See
+[`docs/operations.md`](docs/operations.md) for the full procedure.
 
-`docs/operations.md` has the full procedure, including how to rehearse a recovery
-on a throwaway project.
+## Development
 
-## Tests
+### Tests
 
 ```sh
 gofmt -l .            # must print nothing
@@ -235,170 +252,56 @@ go vet ./...
 go test ./... -count=1
 ```
 
-Database tests run against real SQLite in a temporary directory rather than a
-mock — they verify the PRAGMAs that are actually in effect, that foreign keys
-are genuinely enforced, and that those settings hold on every connection in the
-pool.
+Tests run against a real SQLite database in a temporary folder, not a mock.
 
-The race detector needs a C toolchain, which Windows does not have by default.
-Run it in the build container instead:
+The race detector needs a C compiler. On Windows, run it in a container:
 
 ```sh
 docker run --rm -v "${PWD}:/src" -w /src golang:1.27-trixie go test -race ./...
 ```
 
+### Project layout
+
+```
+cmd/web/                 entry point: starts the server, or restores a backup
+internal/config/         settings from environment variables
+internal/database/       opening SQLite, dates and times
+internal/migrations/     the database schema
+internal/backup/         backups and restore
+internal/money/          exact amounts and decimals
+internal/currency/       currencies
+internal/account/        accounts
+internal/category/       categories
+internal/paymentmethod/  payment methods
+internal/ledger/         transactions, movements and balances
+internal/application/    operations that touch two areas at once
+internal/fx/             exchange rates and the BCV fetcher
+internal/settings/       app settings, such as the base currency
+internal/valuation/      net worth, current and historical
+internal/analytics/      dashboard figures and the recap
+internal/httpserver/     the HTTP server
+internal/web/            pages, handlers and view models
+web/                     templates, CSS, fonts and scripts
+```
+
+It is one Go program built from these packages:
+HTTP → services → repositories → SQLite. Project rules for contributors are in
+[`CLAUDE.md`](CLAUDE.md).
+
+## What it does not do
+
+These are left out on purpose:
+
+- **No deleting.** Records are archived or corrected; a backup is the undo.
+- **No edit history** of changed records.
+- **No budgets, alerts, forecasts or recommendations.** The app reports; it does
+  not judge.
+- **No transfers between different currencies.** That is a currency exchange.
+- **No FX gains or losses** and no cost basis.
+- **No recurring transactions,** credit cards, loans, tags or subcategories.
+- **No login, no public API, no import or export, no cloud.**
+
 ## Documentation
 
-Project documentation lives in [`docs/`](docs/README.md) — functional context,
-architecture, the roadmap, persistence conventions, operations, and the record of
-technical decisions with their rationale.
-
-## Architecture
-
-A modular monolith in a single binary:
-
-```
-HTTP  →  Application / Services  →  Repository  →  SQLite
-```
-
-```
-cmd/web/                composition root; `serve` (default) and `restore`
-internal/config/        environment loading and validation
-internal/database/      SQLite: DSN, PRAGMAs, pool, time and date conventions
-internal/migrations/    schema, as embedded SQL migrations
-internal/backup/        snapshots and restore
-internal/money/         exact decimal string ↔ integer minor units
-internal/currency/      currencies
-internal/fx/            exchange rates, the BCV provider, the daily refresher
-internal/settings/      the application's own settings (the valuation base)
-internal/valuation/     the consolidated net worth, derived and never stored
-internal/account/       accounts
-internal/category/      income and expense categories
-internal/paymentmethod/ payment channels
-internal/ledger/        transactions and account movements; balances
-internal/application/   cross-domain workflows (open account + opening balance)
-internal/httpserver/    HTTP server, timeouts, /healthz
-internal/web/           handlers, templates, view models
-internal/web/adapter/   translation between the web layer and the domain
-web/                    templates and static assets
-```
-
-Domain packages hold their own model, repository and service — organised by
-feature, not by layer. No package exists before it has code in it.
-
-The domain services have no HTTP surface yet; that arrives with the htmx
-milestone.
-
-Some decisions worth knowing about, all explained in the code:
-
-- **PRAGMAs live in the DSN.** `database/sql` is a pool, so setting them once
-  after `sql.Open` would configure a single arbitrary connection and silently
-  leave the others at SQLite's defaults.
-- **`synchronous = FULL`.** In WAL mode, `NORMAL` is consistent but not durable —
-  SQLite documents that a committed transaction can roll back after a power
-  loss. That is not an acceptable trade for financial records.
-- **The pool holds one connection.** SQLite is in-process; a single connection
-  makes `SQLITE_BUSY` structurally impossible here, and connection recycling
-  advice written for network databases does not apply.
-- **Money will never be a float.** Amounts will be integer minor units. See
-  `CLAUDE.md`.
-
-## Scope
-
-### Built so far
-
-**M0 — foundation.** Environment-based configuration with validation; SQLite
-opened with WAL, `foreign_keys`, `busy_timeout` and `synchronous` verified at
-startup; `GET /healthz`; graceful shutdown on `SIGINT` / `SIGTERM`; multi-stage
-Docker build with a non-root distroless runtime and a persistent volume.
-
-**M1 — currencies and accounts.** Schema migrations embedded in the binary and
-applied at startup; a `currencies` table seeded with USD, EUR and VES; an
-`accounts` table where every account is denominated in exactly one immutable
-currency; and Go packages for both, each with validation, a repository and a
-service. Accounts and currencies are archived, never deleted.
-
-All of it is covered by tests running against real SQLite.
-
-**M2 — the ledger.** Categories, transactions and account movements, with every
-balance derived from `SUM(account_movements.amount_minor)` rather than stored.
-Amounts are exact integer minor units end to end — no float anywhere in parsing,
-storage, summation or formatting. Opening balances are ledger facts, not columns.
-Plus the server-rendered interface: dashboard, accounts, categories and
-transactions.
-
-**M3 — data safety, editing and payment methods.** Backups taken automatically
-before migrations and on shutdown, written to the host rather than the Docker
-volume, with an offline restore. Payment methods became rows you administer
-instead of four fixed values. Transactions and opening balances can be corrected,
-revalidated against exactly the same rules as a creation.
-
-**M4 — internal transfers.** Moving money between two of your own accounts, as a
-single event with two movements: one out of the source, one into the destination,
-equal and opposite. The total held in that currency is identical before and
-after, because a transfer neither creates nor destroys money. Both accounts must
-be active and share a currency. Transfers can be corrected, never deleted.
-
-**M5.5 — currency exchanges.** Buying and selling currency between your own
-accounts, as one event with two movements in two different currencies. You enter
-both amounts; the rate is derived exactly from them and stored nowhere. It has no
-category and no payment method, it is not a transfer, and the reference rates are
-left completely alone.
-
-**M5 — multi-currency valuation.** Exchange rates as dated observations, entered
-by hand or fetched from the Banco Central de Venezuela over plain HTTP; a base
-currency of valuation; and one consolidated net worth derived from the ledger,
-the rates and that setting. Rates are exact decimals with no floating point
-anywhere, inversion and cross rates are computed as exact fractions, and a missing
-rate is reported rather than assumed. The external source is a convenience: the
-application starts and works with no network at all.
-
-All of it is covered by tests running against real SQLite, and the disaster
-recovery path has been rehearsed against real Docker.
-
-### Not built yet
-
-Everything below is deliberately absent, and none of it is described anywhere in
-this README as though it existed:
-
-**No deleting.** Accounts, categories, payment methods and transactions are
-archived or corrected, never removed. Cancelling a transaction is an accounting
-decision that has not been made yet.
-
-**No history of edits.** M3 supports editing current records; it does not keep
-previous versions of them. The undo is a backup.
-
-**No FX attached to an ordinary transaction.** M5.5 records the rate of an
-*exchange between your own accounts*, and it derives it from the two amounts you
-entered. The rate a particular purchase, card payment or settlement happened at
-still does not exist in this application, no transaction carries a rate column,
-and nothing has been prepared for one.
-
-**No transfers between accounts in different currencies.** A transfer requires
-both accounts to share a currency. Moving money between currencies is a
-*currency exchange* — a different operation, with its own form, its own two
-amounts and its own rules.
-
-**No FX gains or losses, and no cost basis.** An exchange at a rate other than
-the reference one moves your valued net worth, and the difference stays exactly
-that: a difference. It is not booked anywhere, and no lot or cost basis is
-tracked.
-
-**No fee field on an exchange, and no rate-driven entry.** A commission is a
-separate expense, and you always enter both amounts rather than a rate plus one
-amount — because a rate plus one amount would make the application compute a
-figure your bank already decided.
-
-**No historical net worth.** M5 answers "what is this worth *now*". It stores no
-rate history from before its first run, and draws no chart. Asking what your net
-worth was last March is the next milestone's problem.
-
-**No exchange rate history before you start.** Rates arrive from today onward, or
-by typing them in one day at a time. Two third-party historical mirrors were
-evaluated and both rejected — one no longer exists, the other publishes fewer
-decimals than the BCV under a date field that means something else.
-
-Also absent: authentication and users, realized and unrealized FX gains, credit
-cards, loans, instalments, a financial calendar, recurring transactions, budgets,
-tags, hierarchical categories, charts and analytics, scheduled backups, Excel
-import, export, cloud deployment and CI/CD.
+[`docs/`](docs/README.md) has the details: architecture, data model,
+operations, and the reasoning behind each technical decision.
