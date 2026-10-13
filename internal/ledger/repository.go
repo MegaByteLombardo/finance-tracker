@@ -436,6 +436,76 @@ func (r *Repository) ListFlows(ctx context.Context, from, to time.Time) (_ []Flo
 	return flows, nil
 }
 
+// ListExpenses returns every expense between two dates inclusive, one row per
+// transaction, oldest first.
+//
+// The WHERE clause names what it ACCEPTS -- EXPENSE -- rather than what it
+// excludes (TD-045): a transfer, an exchange and an opening balance were never
+// spent, and a type added later must not appear among the largest expenses by
+// default.
+func (r *Repository) ListExpenses(ctx context.Context, from, to time.Time) (_ []ExpenseItem, err error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT t.id, t.effective_date, t.description, t.category_id, cat.name,
+		       a.id, a.name, a.currency_code, cur.minor_unit,
+		       SUM(m.amount_minor)
+		  FROM transactions t
+		  JOIN account_movements m ON m.transaction_id = t.id
+		  JOIN accounts a          ON a.id = m.account_id
+		  JOIN currencies cur      ON cur.code = a.currency_code
+		  LEFT JOIN categories cat ON cat.id = t.category_id
+		 WHERE t.effective_date BETWEEN ? AND ?
+		   AND t.transaction_type IN ('EXPENSE')
+		 GROUP BY t.id, t.effective_date, t.description, t.category_id, cat.name,
+		          a.id, a.name, a.currency_code, cur.minor_unit
+		 ORDER BY t.effective_date, t.id`,
+		database.FormatDate(from), database.FormatDate(to))
+	if err != nil {
+		return nil, fmt.Errorf("listing expenses: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("closing expense rows: %w", cerr))
+		}
+	}()
+
+	items := make([]ExpenseItem, 0)
+	for rows.Next() {
+		var (
+			item         ExpenseItem
+			date         string
+			description  sql.NullString
+			categoryID   sql.NullInt64
+			categoryName sql.NullString
+			signed       int64
+		)
+		if err := rows.Scan(&item.TransactionID, &date, &description, &categoryID, &categoryName,
+			&item.AccountID, &item.AccountName, &item.CurrencyCode, &item.MinorUnit, &signed); err != nil {
+			return nil, fmt.Errorf("reading expense row: %w", err)
+		}
+		if item.Date, err = database.ParseDate(date); err != nil {
+			return nil, fmt.Errorf("reading the date of expense %d: %w", item.TransactionID, err)
+		}
+		if description.Valid {
+			text := description.String
+			item.Description = &text
+		}
+		// As in ListFlows: the CHECK guarantees a category, and the NULL branch
+		// is read rather than assumed.
+		if categoryID.Valid {
+			item.CategoryID = categoryID.Int64
+		}
+		if categoryName.Valid {
+			item.CategoryName = categoryName.String
+		}
+		item.AmountMinor = -signed
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating expenses: %w", err)
+	}
+	return items, nil
+}
+
 // scanner is satisfied by both *sql.Row and *sql.Rows.
 type scanner interface {
 	Scan(dest ...any) error

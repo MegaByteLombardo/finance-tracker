@@ -258,6 +258,23 @@ and payment methods; internal same-currency transfers.
   chart is a server-rendered SVG with integer geometry** (TD-070). Templates
   only prefix a sign or a `%` to strings the backend formatted.
 
+**M6.5 (in progress): weekly & monthly recap.** Read
+[`docs/m6.5-contract.md`](docs/m6.5-contract.md).
+
+- **Calendar periods** (TD-072): Monday–Sunday weeks, calendar months, against
+  the previous calendar period. A closed period is compared with the WHOLE
+  previous one; a period in progress is cut at today and compared LIKE FOR LIKE
+  with the same elapsed days. Default: the last closed period. TD-069 still
+  governs the dashboard's rolling presets.
+- **It lives in `internal/analytics`** and reuses M6's cash flow and `compare`.
+  Seven queries whatever the period.
+- **Every category is compared**, none folded into "other", with a `Direction`
+  the backend decides; a template never compares two amounts.
+- **The largest expenses are ranked in the base currency** at each one's own
+  day's rate; an unvalued one is counted, never estimated (TD-074).
+- **Indicators are fixed-rule comparisons, not advice** (TD-073). No score, no
+  weights, no recommendation text.
+
 **Design overhaul (in progress): skeuomorphic instrument** (TD-071).
 
 - One visual system for desktop and `/mobile`: brushed chassis panels, keys for

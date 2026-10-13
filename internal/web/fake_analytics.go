@@ -21,11 +21,15 @@ type FakeAnalytics struct {
 
 	dashboard     *DashboardAnalytics
 	monthCashFlow *CashFlow
+	recap         *Recap
 	err           error
 
 	// Requested records the presets asked for, so a test can check what a
 	// handler passed through.
 	Requested []DashboardPreset
+
+	// RecapRequests records the recaps asked for.
+	RecapRequests []RecapRequest
 }
 
 // Set makes Dashboard return this value, with the requested preset filled in.
@@ -163,6 +167,47 @@ func (f *FakeAnalytics) MonthToDateCashFlow(_ context.Context) (CashFlow, error)
 	return CashFlow{
 		CurrencyCode: "USD", Complete: true,
 		IncomeFormatted: "0.00", ExpenseFormatted: "0.00", NetFormatted: "0.00",
+	}, nil
+}
+
+// SetRecap makes Recap return this value.
+func (f *FakeAnalytics) SetRecap(r Recap) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recap = &r
+}
+
+// Recap returns what a test set, or an empty month with nothing to compare. It
+// computes nothing: the recap's arithmetic is internal/analytics' and is tested
+// there against SQLite.
+func (f *FakeAnalytics) Recap(_ context.Context, req RecapRequest) (Recap, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.RecapRequests = append(f.RecapRequests, req)
+	if f.err != nil {
+		return Recap{}, f.err
+	}
+	if f.recap != nil {
+		return *f.recap, nil
+	}
+	today := time.Now().In(economicLocation)
+	from := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -1, 0)
+	empty := CashFlow{CurrencyCode: "USD", Complete: true,
+		IncomeFormatted: "0.00", ExpenseFormatted: "0.00", NetFormatted: "0.00"}
+	return Recap{
+		Granularity: req.Granularity, Today: from.AddDate(0, 1, 0),
+		PeriodFrom: from, PeriodTo: from.AddDate(0, 1, -1), FullTo: from.AddDate(0, 1, -1),
+		BaseCurrencyCode: "USD",
+		Opening:          NetWorth{BaseCurrencyCode: "USD", TotalFormatted: "0.00", Complete: true},
+		Closing:          NetWorth{BaseCurrencyCode: "USD", TotalFormatted: "0.00", Complete: true},
+		Change:           Change{Defined: true, AmountFormatted: "0.00"},
+		PreviousChange:   Change{Reason: ChangeReasonNoPreviousPeriod},
+		CashFlow:         empty, PreviousCashFlow: empty,
+		IncomeChange:                 Change{Reason: ChangeReasonNoPreviousPeriod},
+		NetCashFlowChange:            Change{Reason: ChangeReasonNoPreviousPeriod},
+		ExpenseChange:                Change{Reason: ChangeReasonNoPreviousPeriod},
+		ExpenseDailyAverageFormatted: "0.00", PreviousExpenseDailyAverageFormatted: "0.00",
+		ExpenseDailyAverageChange: Change{Reason: ChangeReasonNoPreviousPeriod},
 	}, nil
 }
 

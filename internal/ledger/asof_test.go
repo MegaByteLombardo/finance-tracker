@@ -235,6 +235,59 @@ func TestFlowsAreIncomeAndExpenseOnly(t *testing.T) {
 	}
 }
 
+// TestExpensesAreExpensesOnly: the largest expenses of a recap are ranked from
+// this list, so a transfer, an exchange or an opening balance must never be in
+// it, and the range is inclusive at both ends.
+func TestExpensesAreExpensesOnly(t *testing.T) {
+	t.Parallel()
+
+	w := newTransferWorld(t)
+	w.fund(t, w.usdAccount, "500.00")  // opening balance: not an expense
+	w.fund(t, w.banescoVES, "8500.00") // opening balance: not an expense
+
+	w.expense(t, w.usdAccount, "30.00", "2026-09-01") // on `from`: included
+	w.expense(t, w.usdAccount, "12.50", "2026-09-30") // on `to`: included
+	w.expense(t, w.usdAccount, "1.00", "2026-08-31")  // the day before: excluded
+	w.income(t, w.usdAccount, "100.00", "2026-09-10") // income: excluded
+
+	if _, err := w.ledger.RecordTransfer(t.Context(), ledger.RecordTransferInput{
+		SourceAccountID: w.usdAccount, DestinationAccountID: w.efectivoUSD,
+		Amount: "70.00", EffectiveDate: "2026-09-15",
+	}); err != nil {
+		t.Fatalf("RecordTransfer: %v", err)
+	}
+	if _, err := w.ledger.RecordExchange(t.Context(), ledger.RecordExchangeInput{
+		SourceAccountID: w.banescoVES, SourceAmount: "8500.00",
+		DestinationAccountID: w.usdAccount, DestinationAmount: "10.00",
+		EffectiveDate: "2026-09-16",
+	}); err != nil {
+		t.Fatalf("RecordExchange: %v", err)
+	}
+
+	items, err := w.ledger.ListExpenses(t.Context(), mustParse(t, "2026-09-01"), mustParse(t, "2026-09-30"))
+	if err != nil {
+		t.Fatalf("ListExpenses: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("%d expenses, want 2: %+v", len(items), items)
+	}
+	first, second := items[0], items[1]
+	if first.AmountMinor != 3000 || first.CategoryID != w.food || first.CurrencyCode != "USD" ||
+		first.MinorUnit != 2 || first.AccountID != w.usdAccount || database.FormatDate(first.Date) != "2026-09-01" {
+		t.Errorf("first expense = %+v, want 3000 USD in food on 2026-09-01", first)
+	}
+	if second.AmountMinor != 1250 || database.FormatDate(second.Date) != "2026-09-30" {
+		t.Errorf("second expense = %+v, want 1250 on 2026-09-30", second)
+	}
+	if first.TransactionID == 0 || first.TransactionID == second.TransactionID {
+		t.Errorf("transaction ids %d and %d, want two distinct ids", first.TransactionID, second.TransactionID)
+	}
+
+	if _, err := w.ledger.ListExpenses(t.Context(), mustParse(t, "2026-09-30"), mustParse(t, "2026-09-01")); !errors.Is(err, ledger.ErrInvalidInput) {
+		t.Errorf("a reversed range returned %v, want ErrInvalidInput", err)
+	}
+}
+
 func mustParse(t *testing.T, s string) time.Time {
 	t.Helper()
 	parsed, err := database.ParseDate(s)

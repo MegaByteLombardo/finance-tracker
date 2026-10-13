@@ -623,6 +623,29 @@ type Flow struct {
 	Count int
 }
 
+// ExpenseItem is one EXPENSE transaction, in its own currency.
+//
+// It is what a screen ranks "the largest expenses" from. Ranking needs every
+// expense valued in one currency, which only the valuation snapshot can do, so
+// the ledger returns them unranked and in their own currencies.
+type ExpenseItem struct {
+	TransactionID int64
+	Date          time.Time
+	Description   *string
+
+	CategoryID   int64
+	CategoryName string
+
+	AccountID    int64
+	AccountName  string
+	CurrencyCode string
+	MinorUnit    int
+
+	// AmountMinor is how much went out: POSITIVE, the magnitude of the stored
+	// negative movement.
+	AmountMinor int64
+}
+
 // RecordIncomeInput is the input to Service.RecordIncome.
 type RecordIncomeInput struct {
 	AccountID int64

@@ -2262,3 +2262,77 @@ rejected: its text contrast varies with whatever shows through the panel, and
 by construction, the opposite of the goal. Loading fonts from Google Fonts — a
 third-party request from a local, offline-capable application. A CSS framework
 — the class vocabulary already existed and only its finish changed.
+
+---
+
+## TD-072 — A recap's periods are calendar weeks and months, compared like for like while in progress
+
+**Status:** Accepted · **Milestone:** M6.5
+
+**Decision.** A recap covers a calendar week (Monday to Sunday) or a calendar
+month (the 1st to its last day), and is compared with the calendar period before
+it. A period that has ended is compared with the whole previous one, whatever
+their lengths. A period still in progress is cut at today, and the previous one
+is cut at the same number of elapsed days, never beyond its own end. Without an
+anchor the recap is of the last period that has fully ended. TD-069 is unchanged
+and still governs the dashboard's rolling presets.
+
+**Rationale.** "September" is what a person means by a monthly recap, not "the
+thirty days ending today". Comparing September's 30 days with August's 31 is the
+honest comparison of the two months, and the daily average is shown beside each
+total for the difference in length. A month in progress compared with a whole
+month would always look like spending had fallen; twelve days against twelve
+days does not.
+
+**Alternatives considered.** Rolling windows (that is the dashboard). Comparing a
+period in progress with the whole previous one, with a note — a note does not
+stop the number from being misread. Cutting every month to 28 days — it makes
+"September" mean something no one says. Weeks starting on Sunday — Monday is the
+working week in Venezuela and ISO 8601.
+
+---
+
+## TD-073 — The recap's indicators are fixed-rule comparisons, not judgments
+
+**Status:** Accepted · **Milestone:** M6.5
+
+**Decision.** The recap reports four indicators — net worth, net cash flow,
+daily average expense and savings rate — each with a verdict (`IMPROVED`,
+`WORSENED`, `UNCHANGED`, `UNAVAILABLE`) read from the sign of a change by a fixed
+rule stated in the contract and on the screen. A summary counts the verdicts.
+No indicator is weighted, no score is combined, and no text tells the user what
+to do.
+
+**Rationale.** The user asked whether things got better or worse. Each
+indicator answers it for one figure, by a rule they can read and disagree with.
+That is a report, which this application does; a recommendation or an alert is a
+judgment about the user's choices, which it does not (CLAUDE.md, "Not built").
+An undefined comparison is `UNAVAILABLE` rather than `UNCHANGED`, so a missing
+rate never reads as stability.
+
+**Alternatives considered.** A single "salud financiera" score — it hides which
+figure moved and invents weights. Advice text ("gasta menos en ocio") — a
+recommendation. Thresholds such as "worse by more than 5%" — an arbitrary number
+the user did not choose.
+
+---
+
+## TD-074 — The largest expenses are ranked in the base currency, and an unvalued one is counted, never estimated
+
+**Status:** Accepted · **Milestone:** M6.5
+
+**Decision.** `ledger.ListExpenses` returns the period's expenses one per
+transaction, unranked and in their own currencies. The recap values each at the
+reference rate of its own day, rounds it once, ranks by that figure (then date,
+then id, descending) and keeps five. An expense with no rate on its day takes no
+part in the ranking; `UnvaluedExpenseCount` says how many there were, and the
+screen says so.
+
+**Rationale.** Ranking 10,000 bolívares against 450 dollars needs one currency,
+and only the valuation snapshot can convert; SQL ordering by amount would compare
+numbers in different units. Placing an unvalued expense anywhere in the ranking
+would be a guess at its rate (TD-067).
+
+**Alternatives considered.** Ranking within each currency — it answers a
+different question and lists up to five per currency. Ranking by the latest
+rate — look-ahead bias (TD-053). A query that ranks in SQL — it cannot convert.

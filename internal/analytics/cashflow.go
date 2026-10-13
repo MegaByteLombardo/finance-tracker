@@ -285,13 +285,11 @@ func buildSpending(current, previous CashFlow, hasPrevious bool, baseMinorUnit i
 	// Shares of the period's spending, allocated so they add up to 100.00%.
 	var shares []int64
 	if current.Complete && current.ExpenseMinor > 0 {
-		parts := make([]*big.Rat, len(result.Categories))
+		amounts := make([]int64, len(result.Categories))
 		for i, c := range result.Categories {
-			parts[i] = new(big.Rat).SetFrac(
-				new(big.Int).Mul(big.NewInt(c.CurrentMinor), big.NewInt(money.BasisPointsPerUnit)),
-				big.NewInt(current.ExpenseMinor))
+			amounts[i] = c.CurrentMinor
 		}
-		if shares, err = money.Allocate(money.BasisPointsPerUnit, parts); err != nil {
+		if shares, err = allocateShares(amounts, current.ExpenseMinor); err != nil {
 			return Spending{}, fmt.Errorf("allocating spending shares: %w", err)
 		}
 	}
@@ -308,4 +306,17 @@ func buildSpending(current, previous CashFlow, hasPrevious bool, baseMinorUnit i
 		}
 	}
 	return result, nil
+}
+
+// allocateShares states each amount as a part of a positive total, in basis
+// points allocated by largest remainder so that they add up to exactly 10,000
+// when the amounts add up to the total (TD-070).
+func allocateShares(amounts []int64, total int64) ([]int64, error) {
+	parts := make([]*big.Rat, len(amounts))
+	for i, amount := range amounts {
+		parts[i] = new(big.Rat).SetFrac(
+			new(big.Int).Mul(big.NewInt(amount), big.NewInt(money.BasisPointsPerUnit)),
+			big.NewInt(total))
+	}
+	return money.Allocate(money.BasisPointsPerUnit, parts)
 }

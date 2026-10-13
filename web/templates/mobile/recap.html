@@ -1,0 +1,232 @@
+{{ define "content" }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+
+    <main class="mobile-scrollable-content" id="main-mobile-content">
+      <div style="margin-bottom: 4px;">
+        <a href="/mobile" class="section-link" aria-label="Volver a Inicio">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          <span>Inicio</span>
+        </a>
+      </div>
+
+      <!-- Computed by internal/analytics, like the desktop recap. The selector and
+           the arrows swap only this block. -->
+      <div id="mobile-recap">
+        {{ if not .Available }}
+        <p class="net-worth-incomplete" role="status">{{ .Error }}</p>
+        {{ else }}
+        {{ $r := .Recap }}
+        {{ $base := $r.BaseCurrencyCode }}
+
+        <header class="mobile-section">
+          <span class="section-eyebrow">Recap</span>
+          <h1 class="section-title">
+            {{ $r.Title }}
+            {{ if $r.InProgress }}<span class="recap-badge">en curso</span>{{ end }}
+          </h1>
+          <p class="section-note">
+            {{ spanishDate $r.PeriodFrom }} → {{ spanishDate $r.PeriodTo }}
+            {{ if $r.HasPrevious }}· vs. {{ spanishDate $r.PreviousFrom }} → {{ spanishDate $r.PreviousTo }}{{ end }}
+          </p>
+          <nav class="history-periods recap-mobile-nav" aria-label="Período del recap">
+            {{ if .Nav.EarlierURL }}
+            <a href="{{ .Nav.EarlierURL }}" class="history-period" aria-label="Período anterior"
+               hx-get="{{ .Nav.EarlierURL }}" hx-select="#mobile-recap" hx-target="#mobile-recap" hx-swap="outerHTML" hx-push-url="true">&larr;</a>
+            {{ end }}
+            {{ range .Nav.Granularities }}
+            <a href="{{ .URL }}" class="history-period{{ if .Active }} is-active{{ end }}"
+               {{ if .Active }}aria-current="true"{{ end }}
+               hx-get="{{ .URL }}" hx-select="#mobile-recap" hx-target="#mobile-recap" hx-swap="outerHTML" hx-push-url="true">{{ .Label }}</a>
+            {{ end }}
+            {{ if .Nav.LaterURL }}
+            <a href="{{ .Nav.LaterURL }}" class="history-period" aria-label="Período siguiente"
+               hx-get="{{ .Nav.LaterURL }}" hx-select="#mobile-recap" hx-target="#mobile-recap" hx-swap="outerHTML" hx-push-url="true">&rarr;</a>
+            {{ end }}
+          </nav>
+        </header>
+
+        <section class="mobile-section" aria-labelledby="recap-nw-heading">
+          <div class="section-top-bar">
+            <h2 id="recap-nw-heading" class="section-title">Patrimonio neto</h2>
+            <span class="cashflow-period">al {{ spanishDate $r.PeriodTo }}</span>
+          </div>
+          <div class="cashflow-cell lcd">
+            <span class="cashflow-label">Cierre{{ if not $r.Closing.Complete }} (parcial){{ end }}</span>
+            <span class="cashflow-value" data-fit>{{ formatAmount $r.Closing.TotalFormatted }} {{ $base }}</span>
+          </div>
+          <p class="cashflow-footnote">
+            {{ if $r.Change.Defined }}
+            <span class="{{ if $r.Change.IsPositive }}is-income{{ else if $r.Change.IsNegative }}is-expense{{ end }}">{{ signedChange $r.Change }} {{ $base }} ({{ signedRatio $r.Change.Percent }})</span>
+            desde {{ formatAmount $r.Opening.TotalFormatted }} {{ $base }}
+            {{ else }}{{ $r.Change.UnavailableMessage }}{{ end }}
+          </p>
+          {{ with $r.MissingRates }}
+          <ul class="net-worth-gaps">
+            {{ range . }}
+            <li>{{ .PairLabel }}: {{ formatAmount .BalanceFormatted }} {{ .CurrencyCode }} sin tasa al {{ spanishDate .On }} · <a href="{{ .FormURL }}">Cargar</a></li>
+            {{ end }}
+          </ul>
+          {{ end }}
+        </section>
+
+        <section class="mobile-section" aria-labelledby="recap-ind-heading">
+          <div class="section-top-bar">
+            <h2 id="recap-ind-heading" class="section-title">
+              {{ if $r.HasPrevious }}{{ $r.Summary.Improved }} de {{ $r.Summary.Total }} mejoraron{{ else }}Indicadores{{ end }}
+            </h2>
+          </div>
+          <ul class="spending-list">
+            {{ range $r.Indicators }}
+            <li class="spending-row">
+              <div class="spending-row-top">
+                <span class="spending-name">{{ .Label }}</span>
+                <span class="recap-verdict-chip{{ if .Improved }} is-improved{{ else if .Worsened }} is-worsened{{ end }}">{{ .VerdictLabel }}</span>
+              </div>
+              <div class="spending-row-bottom">
+                <span>{{ .Rule }}</span>
+                <span>
+                  {{ if .IsPoints }}
+                    {{ if .Points.Defined }}{{ if .Points.IsPositive }}+{{ end }}{{ .Points.Formatted }} pts{{ else }}—{{ end }}
+                  {{ else if .Change.Defined }}{{ signedChange .Change }} {{ $base }}{{ else }}—{{ end }}
+                </span>
+              </div>
+            </li>
+            {{ end }}
+          </ul>
+        </section>
+
+        <section class="mobile-section" aria-labelledby="recap-flow-heading">
+          <div class="section-top-bar">
+            <h2 id="recap-flow-heading" class="section-title">Flujo de caja</h2>
+            <span class="cashflow-period">en {{ $base }}</span>
+          </div>
+          <div class="cashflow-grid">
+            <div class="cashflow-cell lcd">
+              <span class="cashflow-label">Ingresos</span>
+              <span class="cashflow-value is-income" data-fit>{{ formatAmount $r.CashFlow.IncomeFormatted }}</span>
+            </div>
+            <div class="cashflow-cell lcd">
+              <span class="cashflow-label">Egresos</span>
+              <span class="cashflow-value is-expense" data-fit>{{ formatAmount $r.CashFlow.ExpenseFormatted }}</span>
+            </div>
+            <div class="cashflow-cell lcd">
+              <span class="cashflow-label">Flujo neto</span>
+              <span data-fit class="cashflow-value {{ if isNegative $r.CashFlow.NetMinor }}is-expense{{ else }}is-income{{ end }}">{{ formatAmount $r.CashFlow.NetFormatted }}</span>
+            </div>
+            <div class="cashflow-cell lcd">
+              <span class="cashflow-label">Tasa de ahorro</span>
+              <span class="cashflow-value" data-fit>{{ ratio $r.CashFlow.SavingsRate }}</span>
+            </div>
+          </div>
+          <div class="spending-meta">
+            <span>Gasto diario {{ formatAmount $r.ExpenseDailyAverageFormatted }}</span>
+            {{ if $r.ExpenseDailyAverageChange.Defined }}
+            <span class="{{ if $r.ExpenseDailyAverageChange.IsPositive }}is-expense{{ else if $r.ExpenseDailyAverageChange.IsNegative }}is-income{{ end }}">{{ signedRatio $r.ExpenseDailyAverageChange.Percent }} vs. anterior</span>
+            {{ end }}
+          </div>
+          {{ with $r.MissingExpenses }}
+          <ul class="net-worth-gaps">
+            {{ range . }}
+            <li>
+              {{ .PairLabel }}: {{ formatAmount .AmountFormatted }} {{ .CurrencyCode }}
+              ({{ if .Previous }}período anterior{{ else }}este período{{ end }}),
+              {{ if .SingleDay }}{{ spanishDate .From }}{{ else }}{{ spanishDate .From }} – {{ spanishDate .To }}{{ end }}
+              · <a href="{{ .FormURL }}">Cargar</a>
+            </li>
+            {{ end }}
+          </ul>
+          {{ end }}
+        </section>
+
+        <section class="mobile-section" aria-labelledby="recap-cat-heading">
+          <div class="section-top-bar">
+            <h2 id="recap-cat-heading" class="section-title">Categorías de gasto</h2>
+          </div>
+          {{ if $r.CategoriesComparable }}
+          <ul class="spending-list">
+            {{ range $r.ExpenseCategories }}
+            {{ if or .Rose .Fell }}
+            <li class="spending-row">
+              <div class="spending-row-top">
+                <span class="spending-name">{{ if .Rose }}▲{{ else }}▼{{ end }} {{ .CategoryName }}</span>
+                <span class="spending-amount {{ if .Rose }}is-expense{{ else }}is-income{{ end }}">{{ signedChange .Change }}</span>
+              </div>
+              <div class="spending-row-bottom">
+                <span>{{ formatAmount .PreviousFormatted }} → {{ formatAmount .CurrentFormatted }}</span>
+                <span>{{ if .IsNew }}nueva{{ else if .IsGone }}sin gasto{{ else }}{{ signedRatio .Change.Percent }}{{ end }}</span>
+              </div>
+            </li>
+            {{ end }}
+            {{ end }}
+          </ul>
+          {{ else }}
+          <p class="cashflow-footnote">Sin comparación disponible para este período.</p>
+          {{ end }}
+        </section>
+
+        {{ if $r.Accounts }}
+        <section class="mobile-section" aria-labelledby="recap-acc-heading">
+          <div class="section-top-bar">
+            <h2 id="recap-acc-heading" class="section-title">Cuentas</h2>
+          </div>
+          <ul class="spending-list">
+            {{ range $r.Accounts }}
+            <li class="spending-row">
+              <div class="spending-row-top">
+                <span class="spending-name">{{ .AccountName }}</span>
+                <span class="spending-amount {{ if isNegative .DeltaMinor }}is-expense{{ else if .DeltaMinor }}is-income{{ end }}">{{ signedChange .DeltaChange }} {{ .CurrencyCode }}</span>
+              </div>
+              <div class="spending-row-bottom">
+                <span>{{ formatAmount .OpeningFormatted }} → {{ formatAmount .ClosingFormatted }}</span>
+                <span>{{ if .BaseChange.Defined }}{{ signedChange .BaseChange }} {{ $base }}{{ else }}sin tasa{{ end }}</span>
+              </div>
+            </li>
+            {{ end }}
+          </ul>
+        </section>
+        {{ end }}
+
+        <section class="mobile-section" aria-labelledby="recap-top-heading">
+          <div class="section-top-bar">
+            <h2 id="recap-top-heading" class="section-title">Mayores gastos</h2>
+          </div>
+          {{ if $r.TopExpenses }}
+          <ul class="spending-list">
+            {{ range $r.TopExpenses }}
+            <li class="spending-row">
+              <div class="spending-row-top">
+                <a class="spending-name" href="{{ .EditURL }}">{{ if .Description }}{{ derefString .Description }}{{ else }}{{ .CategoryName }}{{ end }}</a>
+                <span class="spending-amount">{{ formatAmount .BaseFormatted }} {{ $base }}</span>
+              </div>
+              <div class="spending-row-bottom">
+                <span>{{ spanishDate .Date }} · {{ .CategoryName }}</span>
+                <span>{{ formatAmount .AmountFormatted }} {{ .CurrencyCode }}</span>
+              </div>
+            </li>
+            {{ end }}
+          </ul>
+          {{ else }}
+          <p class="cashflow-footnote">Sin egresos en el período.</p>
+          {{ end }}
+          {{ if $r.UnvaluedExpenseCount }}
+          <p class="cashflow-footnote">{{ $r.UnvaluedExpenseCount }} sin tasa en su fecha: no se pueden ubicar en el ranking.</p>
+          {{ end }}
+        </section>
+
+        <p class="cashflow-footnote">
+          Semana de lunes a domingo; mes del 1 al último día. Un período en curso se compara con los mismos días del anterior.
+          Los indicadores aplican una regla fija; no son una recomendación.
+        </p>
+        {{ end }}
+      </div>
+    </main>
+
+    {{ template "bottom_navigation" .Navigation }}
+  </div>
+</div>
+{{ end }}
