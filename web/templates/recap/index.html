@@ -62,7 +62,7 @@
   <section class="dash-top" aria-label="Resumen">
     <article class="card dash-kpi dash-kpi-main" aria-labelledby="recap-nw-title">
       <h3 id="recap-nw-title" class="dash-kpi-label">
-        Patrimonio neto al {{ spanishDate $r.PeriodTo }}
+        Patrimonio neto al {{ spanishDate $r.PeriodTo }}{{ template "help" ($r.Help "net-worth") }}
         {{ if not $r.Closing.Complete }}<span class="badge badge-warning">incompleto</span>{{ end }}
       </h3>
       <div class="lcd">
@@ -91,7 +91,7 @@
     <article class="card dash-section recap-verdict" aria-labelledby="recap-verdict-title">
       <div class="card-header">
         <h3 id="recap-verdict-title" class="card-title">
-          {{ if $r.HasPrevious }}{{ $r.Summary.Improved }} de {{ $r.Summary.Total }} indicadores mejoraron{{ else }}Indicadores{{ end }}
+          {{ if $r.HasPrevious }}{{ $r.Summary.Improved }} de {{ $r.Summary.Total }} indicadores mejoraron{{ else }}Indicadores{{ end }}{{ template "help" ($r.Help "indicators") }}
         </h3>
         <span class="dash-section-meta">vs. {{ if eq $noun "mes" }}el mes anterior{{ else }}la semana anterior{{ end }}</span>
       </div>
@@ -99,7 +99,7 @@
         <ul class="ledger">
           {{ range $r.Indicators }}
           <li class="ledger-row">
-            <span class="ledger-name">{{ .Label }}</span>
+            <span class="ledger-name">{{ .Label }}{{ template "help" ($r.IndicatorHelp .) }}</span>
             <span class="ledger-figure">
               <span class="recap-verdict-chip{{ if .Improved }} is-improved{{ else if .Worsened }} is-worsened{{ end }}">{{ .VerdictLabel }}</span>
             </span>
@@ -155,7 +155,7 @@
   <div class="dash-mid recap-mid">
     <section class="card dash-section" aria-labelledby="recap-flow-title">
       <div class="card-header">
-        <h3 id="recap-flow-title" class="card-title">Flujo de caja</h3>
+        <h3 id="recap-flow-title" class="card-title">Flujo de caja{{ template "help" ($r.Help "cash-flow") }}</h3>
         <span class="dash-section-meta">en {{ $base }} · cada movimiento a la tasa de su fecha</span>
       </div>
       <div class="card-body">
@@ -170,7 +170,7 @@
             </thead>
             <tbody>
               <tr>
-                <th scope="row">Ingresos</th>
+                <th scope="row">Ingresos{{ template "help" ($r.Help "income") }}</th>
                 <td class="cell-right cell-mono amount-income">{{ formatAmount $r.CashFlow.IncomeFormatted }}</td>
                 {{ if $r.HasPrevious }}
                 <td class="cell-right cell-mono">{{ formatAmount $r.PreviousCashFlow.IncomeFormatted }}</td>
@@ -178,7 +178,7 @@
                 {{ end }}
               </tr>
               <tr>
-                <th scope="row">Egresos</th>
+                <th scope="row">Egresos{{ template "help" ($r.Help "expenses") }}</th>
                 <td class="cell-right cell-mono amount-expense">{{ formatAmount $r.CashFlow.ExpenseFormatted }}</td>
                 {{ if $r.HasPrevious }}
                 <td class="cell-right cell-mono">{{ formatAmount $r.PreviousCashFlow.ExpenseFormatted }}</td>
@@ -186,7 +186,7 @@
                 {{ end }}
               </tr>
               <tr>
-                <th scope="row">Flujo neto</th>
+                <th scope="row">Flujo neto{{ template "help" ($r.Help "net-cash-flow") }}</th>
                 <td class="cell-right cell-mono {{ if isNegative $r.CashFlow.NetMinor }}amount-expense{{ else }}amount-income{{ end }}">{{ formatAmount $r.CashFlow.NetFormatted }}</td>
                 {{ if $r.HasPrevious }}
                 <td class="cell-right cell-mono">{{ formatAmount $r.PreviousCashFlow.NetFormatted }}</td>
@@ -194,7 +194,7 @@
                 {{ end }}
               </tr>
               <tr>
-                <th scope="row">Tasa de ahorro</th>
+                <th scope="row">Tasa de ahorro{{ template "help" ($r.Help "savings-rate") }}</th>
                 <td class="cell-right cell-mono">{{ ratio $r.CashFlow.SavingsRate }}</td>
                 {{ if $r.HasPrevious }}
                 <td class="cell-right cell-mono">{{ ratio $r.PreviousCashFlow.SavingsRate }}</td>
@@ -202,7 +202,7 @@
                 {{ end }}
               </tr>
               <tr>
-                <th scope="row">Gasto diario promedio</th>
+                <th scope="row">Gasto diario promedio{{ template "help" ($r.Help "daily-expense") }}</th>
                 <td class="cell-right cell-mono">{{ formatAmount $r.ExpenseDailyAverageFormatted }}</td>
                 {{ if $r.HasPrevious }}
                 <td class="cell-right cell-mono">{{ formatAmount $r.PreviousExpenseDailyAverageFormatted }}</td>
@@ -222,7 +222,7 @@
 
     <section class="card dash-section" aria-labelledby="recap-accounts-title">
       <div class="card-header">
-        <h3 id="recap-accounts-title" class="card-title">Cuentas</h3>
+        <h3 id="recap-accounts-title" class="card-title">Cuentas{{ template "help" ($r.Help "accounts") }}</h3>
         <span class="dash-section-meta">cambio en el período</span>
       </div>
       <div class="card-body">
@@ -248,7 +248,7 @@
   <div class="recap-split">
     <section class="card dash-section" aria-labelledby="recap-up-title">
       <div class="card-header">
-        <h3 id="recap-up-title" class="card-title">Gastos que subieron</h3>
+        <h3 id="recap-up-title" class="card-title">Gastos que subieron{{ template "help" ($r.Help "expenses-up") }}</h3>
         <span class="dash-section-meta">por categoría</span>
       </div>
       <div class="card-body">
@@ -271,7 +271,7 @@
 
     <section class="card dash-section" aria-labelledby="recap-down-title">
       <div class="card-header">
-        <h3 id="recap-down-title" class="card-title">Gastos que bajaron</h3>
+        <h3 id="recap-down-title" class="card-title">Gastos que bajaron{{ template "help" ($r.Help "expenses-down") }}</h3>
         <span class="dash-section-meta">por categoría</span>
       </div>
       <div class="card-body">
@@ -294,7 +294,7 @@
 
     <section class="card dash-section" aria-labelledby="recap-income-title">
       <div class="card-header">
-        <h3 id="recap-income-title" class="card-title">Ingresos por categoría</h3>
+        <h3 id="recap-income-title" class="card-title">Ingresos por categoría{{ template "help" ($r.Help "income-categories") }}</h3>
         <span class="dash-section-meta">en {{ $base }}</span>
       </div>
       <div class="card-body">
@@ -319,7 +319,7 @@
   <!-- Row 4: the largest expenses, full width -->
   <section class="card dash-section dash-recent" aria-labelledby="recap-top-title">
     <div class="card-header">
-      <h3 id="recap-top-title" class="card-title">Mayores gastos del período</h3>
+      <h3 id="recap-top-title" class="card-title">Mayores gastos del período{{ template "help" ($r.Help "top-expenses") }}</h3>
       <span class="dash-section-meta">valorados en {{ $base }} a la tasa de su fecha</span>
     </div>
     <div class="card-body">

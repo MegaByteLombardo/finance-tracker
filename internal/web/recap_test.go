@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -274,5 +275,44 @@ func TestTheRecapIsInTheNavigation(t *testing.T) {
 	_, mobile := fetch("/mobile")
 	if !strings.Contains(mobile, `href="/mobile/recap"`) {
 		t.Error("the mobile Inicio does not link to the recap")
+	}
+}
+
+func TestEveryRecapCardExplainsItsTerms(t *testing.T) {
+	t.Parallel()
+
+	r := sampleRecap()
+	_, fetch := recapRouter(t, &r, nil)
+	target := regexp.MustCompile(`popovertarget="([^"]+)"`)
+
+	for path, want := range map[string]int{"/recap": 17, "/mobile/recap": 15} {
+		_, page := fetch(path)
+		keys := target.FindAllStringSubmatch(page, -1)
+		if len(keys) != want {
+			t.Errorf("%s has %d help keys, want %d", path, len(keys), want)
+		}
+		for _, k := range keys {
+			if n := strings.Count(page, `id="`+k[1]+`"`); n != 1 {
+				t.Errorf("%s: help %q has %d plates, want exactly one", path, k[1], n)
+			}
+		}
+		for _, phrase := range []string{
+			"Ingresos menos egresos",       // net cash flow
+			"flujo neto ÷ ingresos",        // savings rate
+			"divididos entre sus días",     // daily average
+			"convertida a USD con la tasa", // net worth, in the base currency
+		} {
+			if !strings.Contains(page, phrase) {
+				t.Errorf("%s does not explain %q", path, phrase)
+			}
+		}
+	}
+}
+
+func TestAnUnknownHelpKeyRendersNothing(t *testing.T) {
+	t.Parallel()
+
+	if h := sampleRecap().Help("nope"); h != (RecapHelp{}) {
+		t.Errorf("Help(nope) = %+v, want empty", h)
 	}
 }

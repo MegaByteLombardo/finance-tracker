@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -233,6 +234,110 @@ func (i Indicator) Rule() string {
 
 // IsPoints reports the indicator that is read in percentage points.
 func (i Indicator) IsPoints() bool { return i.Key == IndicatorSavingsRate }
+
+// helpKey is the term that explains the indicator.
+func (i Indicator) helpKey() string {
+	switch i.Key {
+	case IndicatorNetWorth:
+		return "net-worth"
+	case IndicatorNetCashFlow:
+		return "net-cash-flow"
+	case IndicatorExpenses:
+		return "daily-expense"
+	case IndicatorSavingsRate:
+		return "savings-rate"
+	default:
+		return ""
+	}
+}
+
+// RecapHelp is what a "?" beside a label explains: what the term means, in
+// words. It carries no figure and computes nothing.
+type RecapHelp struct {
+	ID    string
+	Title string
+	Text  string
+}
+
+// Help explains one term of the recap. An unknown key is an empty help, which
+// the "help" component renders as nothing.
+func (r Recap) Help(key string) RecapHelp {
+	base := r.BaseCurrencyCode
+	h := RecapHelp{ID: "recap-help-" + key}
+	switch key {
+	case "net-worth":
+		h.Title = "Patrimonio neto"
+		h.Text = fmt.Sprintf("Lo que tienes: la suma de los saldos de todas tus cuentas, incluidas las archivadas, "+
+			"convertida a %s con la tasa vigente en cada fecha. Se mide al cierre del día anterior al período y al "+
+			"cierre de su último día. Puede moverse distinto que el flujo neto porque las tasas también cambian.", base)
+	case "indicators":
+		h.Title = "Indicadores"
+		h.Text = "Cuatro comparaciones con el período anterior. Cada una mejora o empeora según una regla fija, " +
+			"escrita debajo de su nombre. No es un puntaje ni una recomendación."
+	case "cash-flow":
+		h.Title = "Flujo de caja"
+		h.Text = fmt.Sprintf("El dinero que entró y salió en el período como ingresos y egresos, convertido a %s "+
+			"con la tasa del día de cada movimiento. Las transferencias entre tus cuentas y los cambios de divisa "+
+			"no son ingresos ni egresos.", base)
+	case "income":
+		h.Title = "Ingresos"
+		h.Text = "Todo lo que registraste como ingreso en el período: sueldo, ventas, intereses."
+	case "expenses":
+		h.Title = "Egresos"
+		h.Text = "Todo lo que registraste como gasto en el período."
+	case "net-cash-flow":
+		h.Title = "Flujo neto"
+		h.Text = "Ingresos menos egresos. Positivo: entró más dinero del que salió. " +
+			"Negativo: gastaste más de lo que ganaste en el período."
+	case "savings-rate":
+		h.Title = "Tasa de ahorro"
+		h.Text = "Qué parte de tus ingresos no gastaste: flujo neto ÷ ingresos. Si ganaste 100 y gastaste 70, " +
+			"es 30%. Se compara en puntos: pasar de 30% a 25% son −5 pts. Sin ingresos no se calcula."
+	case "daily-expense":
+		h.Title = "Gasto diario promedio"
+		h.Text = "Los egresos del período divididos entre sus días. Permite comparar períodos de distinta " +
+			"duración, como un mes de 31 días con uno de 30."
+	case "accounts":
+		h.Title = "Cuentas"
+		h.Text = fmt.Sprintf("Cuánto cambió el saldo de cada cuenta entre el inicio y el cierre del período, "+
+			"en su propia moneda. Al lado, ese cambio en %s; en una cuenta en otra moneda también refleja "+
+			"el movimiento de la tasa.", base)
+	case "expenses-up":
+		h.Title = "Gastos que subieron"
+		h.Text = "Categorías en las que gastaste más que en el período anterior, de la que más subió a la que " +
+			"menos. «nueva»: no tuvo gasto en el período anterior."
+	case "expenses-down":
+		h.Title = "Gastos que bajaron"
+		h.Text = "Categorías en las que gastaste menos que en el período anterior. " +
+			"«sin gasto»: no tuvo ningún gasto en este período."
+	case "expense-categories":
+		h.Title = "Categorías de gasto"
+		h.Text = "Categorías en las que gastaste más (▲) o menos (▼) que en el período anterior, de la que más " +
+			"cambió a la que menos. «nueva»: no tuvo gasto en el anterior. «sin gasto»: no tuvo gasto en este."
+	case "income-categories":
+		h.Title = "Ingresos por categoría"
+		h.Text = fmt.Sprintf("Lo que entró en cada categoría de ingreso, en %s, y cuánto cambió frente "+
+			"al período anterior.", base)
+	case "top-expenses":
+		h.Title = "Mayores gastos"
+		h.Text = fmt.Sprintf("Los cinco gastos individuales más grandes del período, convertidos a %s con la "+
+			"tasa de su fecha para poder compararlos. Toca uno para abrirlo. Un gasto sin tasa en su fecha "+
+			"no entra en el ranking.", base)
+	default:
+		return RecapHelp{}
+	}
+	return h
+}
+
+// IndicatorHelp explains an indicator's term, with an id of its own so it can
+// sit on the same page as the card that explains the same term.
+func (r Recap) IndicatorHelp(i Indicator) RecapHelp {
+	h := r.Help(i.helpKey())
+	if h.Text != "" {
+		h.ID = "recap-help-indicator-" + i.helpKey()
+	}
+	return h
+}
 
 // VerdictLabel is the verdict in words.
 func (i Indicator) VerdictLabel() string {

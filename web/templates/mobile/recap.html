@@ -52,7 +52,7 @@
 
         <section class="mobile-section" aria-labelledby="recap-nw-heading">
           <div class="section-top-bar">
-            <h2 id="recap-nw-heading" class="section-title">Patrimonio neto</h2>
+            <h2 id="recap-nw-heading" class="section-title">Patrimonio neto{{ template "help" ($r.Help "net-worth") }}</h2>
             <span class="cashflow-period">al {{ spanishDate $r.PeriodTo }}</span>
           </div>
           <div class="cashflow-cell lcd">
@@ -77,14 +77,14 @@
         <section class="mobile-section" aria-labelledby="recap-ind-heading">
           <div class="section-top-bar">
             <h2 id="recap-ind-heading" class="section-title">
-              {{ if $r.HasPrevious }}{{ $r.Summary.Improved }} de {{ $r.Summary.Total }} mejoraron{{ else }}Indicadores{{ end }}
+              {{ if $r.HasPrevious }}{{ $r.Summary.Improved }} de {{ $r.Summary.Total }} mejoraron{{ else }}Indicadores{{ end }}{{ template "help" ($r.Help "indicators") }}
             </h2>
           </div>
           <ul class="spending-list">
             {{ range $r.Indicators }}
             <li class="spending-row">
               <div class="spending-row-top">
-                <span class="spending-name">{{ .Label }}</span>
+                <span class="spending-name">{{ .Label }}{{ template "help" ($r.IndicatorHelp .) }}</span>
                 <span class="recap-verdict-chip{{ if .Improved }} is-improved{{ else if .Worsened }} is-worsened{{ end }}">{{ .VerdictLabel }}</span>
               </div>
               <div class="spending-row-bottom">
@@ -102,29 +102,29 @@
 
         <section class="mobile-section" aria-labelledby="recap-flow-heading">
           <div class="section-top-bar">
-            <h2 id="recap-flow-heading" class="section-title">Flujo de caja</h2>
+            <h2 id="recap-flow-heading" class="section-title">Flujo de caja{{ template "help" ($r.Help "cash-flow") }}</h2>
             <span class="cashflow-period">en {{ $base }}</span>
           </div>
           <div class="cashflow-grid">
             <div class="cashflow-cell lcd">
-              <span class="cashflow-label">Ingresos</span>
+              <span class="cashflow-label">Ingresos{{ template "help" ($r.Help "income") }}</span>
               <span class="cashflow-value is-income" data-fit>{{ formatAmount $r.CashFlow.IncomeFormatted }}</span>
             </div>
             <div class="cashflow-cell lcd">
-              <span class="cashflow-label">Egresos</span>
+              <span class="cashflow-label">Egresos{{ template "help" ($r.Help "expenses") }}</span>
               <span class="cashflow-value is-expense" data-fit>{{ formatAmount $r.CashFlow.ExpenseFormatted }}</span>
             </div>
             <div class="cashflow-cell lcd">
-              <span class="cashflow-label">Flujo neto</span>
+              <span class="cashflow-label">Flujo neto{{ template "help" ($r.Help "net-cash-flow") }}</span>
               <span data-fit class="cashflow-value {{ if isNegative $r.CashFlow.NetMinor }}is-expense{{ else }}is-income{{ end }}">{{ formatAmount $r.CashFlow.NetFormatted }}</span>
             </div>
             <div class="cashflow-cell lcd">
-              <span class="cashflow-label">Tasa de ahorro</span>
+              <span class="cashflow-label">Tasa de ahorro{{ template "help" ($r.Help "savings-rate") }}</span>
               <span class="cashflow-value" data-fit>{{ ratio $r.CashFlow.SavingsRate }}</span>
             </div>
           </div>
           <div class="spending-meta">
-            <span>Gasto diario {{ formatAmount $r.ExpenseDailyAverageFormatted }}</span>
+            <span>Gasto diario{{ template "help" ($r.Help "daily-expense") }} {{ formatAmount $r.ExpenseDailyAverageFormatted }}</span>
             {{ if $r.ExpenseDailyAverageChange.Defined }}
             <span class="{{ if $r.ExpenseDailyAverageChange.IsPositive }}is-expense{{ else if $r.ExpenseDailyAverageChange.IsNegative }}is-income{{ end }}">{{ signedRatio $r.ExpenseDailyAverageChange.Percent }} vs. anterior</span>
             {{ end }}
@@ -145,7 +145,7 @@
 
         <section class="mobile-section" aria-labelledby="recap-cat-heading">
           <div class="section-top-bar">
-            <h2 id="recap-cat-heading" class="section-title">Categorías de gasto</h2>
+            <h2 id="recap-cat-heading" class="section-title">Categorías de gasto{{ template "help" ($r.Help "expense-categories") }}</h2>
           </div>
           {{ if $r.CategoriesComparable }}
           <ul class="spending-list">
@@ -172,7 +172,7 @@
         {{ if $r.Accounts }}
         <section class="mobile-section" aria-labelledby="recap-acc-heading">
           <div class="section-top-bar">
-            <h2 id="recap-acc-heading" class="section-title">Cuentas</h2>
+            <h2 id="recap-acc-heading" class="section-title">Cuentas{{ template "help" ($r.Help "accounts") }}</h2>
           </div>
           <ul class="spending-list">
             {{ range $r.Accounts }}
@@ -193,7 +193,7 @@
 
         <section class="mobile-section" aria-labelledby="recap-top-heading">
           <div class="section-top-bar">
-            <h2 id="recap-top-heading" class="section-title">Mayores gastos</h2>
+            <h2 id="recap-top-heading" class="section-title">Mayores gastos{{ template "help" ($r.Help "top-expenses") }}</h2>
           </div>
           {{ if $r.TopExpenses }}
           <ul class="spending-list">
