@@ -382,3 +382,78 @@ func TestSavingsOperationKeyIsUniqueAndEntriesAreNonZero(t *testing.T) {
 		t.Errorf("refused a signed entry: %v", err)
 	}
 }
+
+const insertGoal = `
+	INSERT INTO savings_goals (name, goal_type, target_usd_minor, target_date, distribution_bp, status, closed_at, closing_note)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+
+const closedAt = "2026-10-15T12:00:00.000Z"
+
+// The shape of a goal (00017).
+func TestSavingsGoalConstraints(t *testing.T) {
+	t.Parallel()
+	cases := map[string]struct {
+		name, kind, target, date, bp, status, closed, note any
+		accepted                                           bool
+	}{
+		"permanent":                    {"Emergencias", "PERMANENT", 100000, nil, 5000, "ACTIVE", nil, nil, true},
+		"one-time with a date":         {"Viaje", "ONE_TIME", 80000, "2027-03-01", 5000, "ACTIVE", nil, nil, true},
+		"permanent with a date":        {"Emergencias", "PERMANENT", 100000, "2027-03-01", 0, "ACTIVE", nil, nil, false},
+		"completed one-time":           {"Viaje", "ONE_TIME", 80000, nil, 0, "COMPLETED", closedAt, "Hecho", true},
+		"completed permanent":          {"Emergencias", "PERMANENT", 100000, nil, 0, "COMPLETED", closedAt, "x", false},
+		"cancelled without a note":     {"Viaje", "ONE_TIME", 80000, nil, 0, "CANCELLED", closedAt, nil, false},
+		"active with a closing":        {"Viaje", "ONE_TIME", 80000, nil, 0, "ACTIVE", closedAt, "x", false},
+		"paused":                       {"Viaje", "ONE_TIME", 80000, nil, 0, "PAUSED", nil, nil, true},
+		"funded is not a stored state": {"Viaje", "ONE_TIME", 80000, nil, 0, "FUNDED", nil, nil, false},
+		"zero target":                  {"Viaje", "ONE_TIME", 0, nil, 0, "ACTIVE", nil, nil, false},
+		"real target":                  {"Viaje", "ONE_TIME", 800.5, nil, 0, "ACTIVE", nil, nil, false},
+		"share above a hundred":        {"Viaje", "ONE_TIME", 80000, nil, 10001, "ACTIVE", nil, nil, false},
+		"blank name":                   {" ", "ONE_TIME", 80000, nil, 0, "ACTIVE", nil, nil, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			db := dbtest.New(t)
+			_, err := db.ExecContext(t.Context(), insertGoal, tc.name, tc.kind, tc.target, tc.date, tc.bp, tc.status, tc.closed, tc.note)
+			if tc.accepted && err != nil {
+				t.Fatalf("refused a valid goal: %v", err)
+			}
+			if !tc.accepted && err == nil {
+				t.Fatal("accepted an invalid goal")
+			}
+		})
+	}
+}
+
+// An entry may name a goal that exists, or none.
+func TestSavingsEntryGoalIsAForeignKey(t *testing.T) {
+	t.Parallel()
+	f := newSuggestionFixture(t)
+	ctx := t.Context()
+	result, err := f.db.ExecContext(ctx, insertOperation, "RESERVE", "k-bbbbbbbbbbbbbbbb", nil, nil, nil, 0)
+	if err != nil {
+		t.Fatalf("operation: %v", err)
+	}
+	op, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("operation id: %v", err)
+	}
+	const insertEntry = `INSERT INTO savings_entries (operation_id, account_id, amount_minor, goal_id) VALUES (?, ?, 100, ?)`
+	if _, err := f.db.ExecContext(ctx, insertEntry, op, f.account, nil); err != nil {
+		t.Errorf("an unallocated entry was refused: %v", err)
+	}
+	if _, err := f.db.ExecContext(ctx, insertEntry, op, f.account, 9999); err == nil {
+		t.Error("an entry naming a goal that does not exist was accepted")
+	}
+	goal, err := f.db.ExecContext(ctx, insertGoal, "Viaje", "ONE_TIME", 80000, nil, 0, "ACTIVE", nil, nil)
+	if err != nil {
+		t.Fatalf("goal: %v", err)
+	}
+	goalID, err := goal.LastInsertId()
+	if err != nil {
+		t.Fatalf("goal id: %v", err)
+	}
+	if _, err := f.db.ExecContext(ctx, insertEntry, op, f.account, goalID); err != nil {
+		t.Errorf("an entry naming a goal was refused: %v", err)
+	}
+}

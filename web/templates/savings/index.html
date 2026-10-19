@@ -6,6 +6,7 @@
   </div>
   <div class="page-actions">
     <a href="/savings/fund" class="btn btn-secondary">Fondo</a>
+    <a href="/savings/goals" class="btn btn-secondary">Metas</a>
     <a href="/savings/policy" class="btn btn-secondary">Política y elegibilidad</a>
     {{ if and .Available .Overview.UnsyncedCount }}<a href="/savings/sync" class="btn btn-primary">Sincronizar ({{ .Overview.UnsyncedCount }})</a>{{ end }}
   </div>
@@ -113,6 +114,27 @@
   </div>
   {{ end }}
 </section>
+
+{{ if .Goals }}
+<article class="card" aria-labelledby="goals-title" style="margin-bottom: var(--space-6);">
+  <div class="card-header">
+    <h2 id="goals-title" class="card-title">Distribución entre metas</h2>
+    <span class="dash-section-meta">sin asignar: {{ formatAmount .Overview.Fund.UnallocatedFormatted }} USD</span>
+  </div>
+  <div class="card-body">
+    <ul class="ledger">
+      {{ range .Goals }}
+      <li class="ledger-row">
+        <span class="ledger-name"><a href="/savings/goals/{{ .ID }}">{{ .Name }}</a> <span class="badge {{ .FundingBadge }}">{{ .FundingLabel }}</span></span>
+        <span class="ledger-figure">{{ formatAmount .ReservedFormatted }} / {{ formatAmount .TargetFormatted }}</span>
+        <span class="ledger-sub"><span class="savings-bar"><span class="savings-bar-fill" style="width: {{ .ProgressWidth }}%"></span></span></span>
+        <span class="ledger-sub ledger-sub-right">{{ .ProgressFormatted }}%</span>
+      </li>
+      {{ end }}
+    </ul>
+  </div>
+</article>
+{{ end }}
 
 <article class="card" aria-labelledby="suggestions-title">
   <div class="card-header">

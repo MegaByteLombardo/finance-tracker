@@ -286,7 +286,7 @@ and payment methods; internal same-currency transfers.
 
 **M7 (in progress): Savings Fund & Goals.** Read
 [`docs/m7-contract.md`](docs/m7-contract.md). M7.1 (policy & suggestions) is
-delivered, M7.2 (savings fund) delivered.
+delivered, M7.2 (savings fund) and M7.3 (goals) delivered.
 
 - **Four things are never confused:** income recorded (the ledger), saving
   suggested (M7.1), money reserved (M7.2), money assigned to a goal (M7.3). M7
@@ -314,6 +314,10 @@ delivered, M7.2 (savings fund) delivered.
   is a SUM, nothing is edited. A reservation never exceeds the account's free
   USD and never confirms past the live suggestion without a recorded exception;
   every write is idempotent on a form-rendered request key (TD-083).
+- **A goal's money is the sum of its entries; its status is only its
+  lifecycle** (TD-084). FUNDED is derived and is never COMPLETED; closing a goal
+  moves its money to unallocated, never releases it. Distribution is exact,
+  capped by need, rest unallocated (TD-085).
 - The policy's "tasa de ahorro objetivo" is **not** the recap's "tasa de ahorro".
 
 **Design overhaul (in progress): skeuomorphic instrument** (TD-071).

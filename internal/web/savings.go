@@ -23,6 +23,8 @@ type SavingsView struct {
 
 	Overview    SavingsOverview
 	Suggestions []SavingsSuggestion
+	// Goals are the open goals: the distribution of the fund among them.
+	Goals []SavingsGoal
 
 	// Return is where the actions on this page come back to.
 	Return string
@@ -78,6 +80,9 @@ type SavingsIncomeView struct {
 	Live       *SavingsSuggestion
 	Fund       SavingsFund
 	ConfirmKey string
+	// Distribution is the suggested split of what remains among the active
+	// goals (M7.3); empty when no goal takes a share.
+	Distribution []SavingsDistributionLine
 
 	Return     string
 	Alert      *FlashAlert
@@ -103,6 +108,9 @@ func handleSavings(logger *slog.Logger, renderer *Renderer, svcs *Services, mobi
 		overview, err := svcs.Savings.Overview(r.Context())
 		if err == nil {
 			view.Suggestions, err = svcs.Savings.ListSuggestions(r.Context())
+		}
+		if err == nil {
+			view.Goals, err = svcs.Savings.ListGoals(r.Context(), false)
 		}
 		if err != nil {
 			logger.Error("loading the savings overview", slog.Any("error", err))
@@ -292,6 +300,12 @@ func handleSavingsIncome(logger *slog.Logger, renderer *Renderer, svcs *Services
 			if view.ConfirmKey, err = newRequestKey(); err == nil {
 				view.Fund, err = svcs.Savings.GetFund(r.Context())
 			}
+			if err == nil {
+				view.Distribution, err = svcs.Savings.SuggestDistribution(r.Context(), view.Live.RemainingAmount)
+			}
+			if !hasGoalLine(view.Distribution) {
+				view.Distribution = nil
+			}
 			if err != nil {
 				logger.Error("loading the fund for a confirmation", slog.Any("error", err))
 				http.Error(w, "No se pudo cargar el ingreso.", http.StatusInternalServerError)
@@ -423,6 +437,10 @@ func savingsAlert(q url.Values) *FlashAlert {
 			"account":               "Elige una cuenta en USD.",
 			"request-key":           "El formulario caducó. Vuelve a intentarlo desde la página actualizada.",
 			"amount-or-reason":      "Revisa el importe (en USD, con hasta dos decimales) y el motivo, si hace falta.",
+			"goal-not-accepting":    "Esa meta está pausada o cerrada: no recibe dinero.",
+			"distribution-exceeded": "Los porcentajes de las metas no pueden sumar más de 100%.",
+			"goal-invalid-state":    "Esa meta ya no admite esta acción.",
+			"goal-invalid":          "Revisa los datos: nombre, objetivo en USD, fecha y porcentaje, o el motivo si hace falta.",
 		}
 		message, ok := messages[key]
 		if !ok {
@@ -438,6 +456,20 @@ func savingsAlert(q url.Values) *FlashAlert {
 			Message: "Elegibilidad guardada. Revisa «Sincronizar» para aplicarla a los ingresos existentes."}
 	case "override-saved":
 		return &FlashAlert{Type: "success", Message: "Excepción guardada y aplicada a este ingreso."}
+	case "goal-created":
+		return &FlashAlert{Type: "success", Message: "Meta creada."}
+	case "goal-saved":
+		return &FlashAlert{Type: "success", Message: "Meta guardada. Si cambiaste el objetivo, el original queda en su historial."}
+	case "goal-paused":
+		return &FlashAlert{Type: "success", Message: "Meta pausada: conserva lo que tiene y no recibe más."}
+	case "goal-resumed":
+		return &FlashAlert{Type: "success", Message: "Meta reactivada."}
+	case "goal-completed":
+		return &FlashAlert{Type: "success", Message: "Meta completada. Lo que aún tenía quedó reservado sin asignar."}
+	case "goal-cancelled":
+		return &FlashAlert{Type: "success", Message: "Meta cancelada. Su dinero quedó reservado sin asignar."}
+	case "reallocated":
+		return &FlashAlert{Type: "success", Message: "Dinero movido. El total reservado no cambia."}
 	case "reserved":
 		return &FlashAlert{Type: "success", Message: "Ahorro reservado. El dinero sigue en su cuenta; solo quedó marcado."}
 	case "released":
@@ -506,4 +538,14 @@ func renderSavingsWithStatus(w http.ResponseWriter, r *http.Request, logger *slo
 	if err != nil {
 		logger.Error("rendering a savings page", slog.Any("error", err))
 	}
+}
+
+// hasGoalLine reports whether a distribution names at least one goal.
+func hasGoalLine(lines []SavingsDistributionLine) bool {
+	for _, l := range lines {
+		if l.GoalID != nil {
+			return true
+		}
+	}
+	return false
 }

@@ -40,6 +40,9 @@ func handleSavingsFund(logger *slog.Logger, renderer *Renderer, svcs *Services, 
 			view.Fund, err = svcs.Savings.GetFund(r.Context())
 		}
 		if err == nil {
+			view.Goals, err = svcs.Savings.ListGoals(r.Context(), false)
+		}
+		if err == nil {
 			view.Operations, err = svcs.Savings.ListOperations(r.Context(), 50)
 		}
 		if err != nil {
@@ -86,6 +89,7 @@ func handleSavingsReserve(logger *slog.Logger, svcs *Services) http.HandlerFunc 
 		if goalID, ok := formID(r, "goal_id"); ok {
 			in.GoalID = &goalID
 		}
+		in.Lines = reserveLinesFromForm(r)
 		if _, err := svcs.Savings.Reserve(r.Context(), in); err != nil {
 			logger.Warn("reserving savings", slog.Any("error", err))
 			redirectTo(w, r, withQuery(back, "err", fundErrorKey(err)))

@@ -79,6 +79,15 @@
             </div>
           </div>
           <div class="op-field-group">
+            <label for="m_reserve_goal" class="op-field-label">Para</label>
+            <div class="op-select-wrap">
+              <select id="m_reserve_goal" name="goal_id" class="op-native-select">
+                <option value="">Sin asignar</option>
+                {{ range $view.Goals }}{{ if .AcceptsMoney }}<option value="{{ .ID }}">{{ .Name }}</option>{{ end }}{{ end }}
+              </select>
+            </div>
+          </div>
+          <div class="op-field-group">
             <label for="m_reserve_amount" class="op-field-label">Importe (USD)</label>
             <input type="text" id="m_reserve_amount" name="amount" class="op-native-input" inputmode="decimal" required>
           </div>
@@ -98,6 +107,15 @@
             <div class="op-select-wrap">
               <select id="m_release_account" name="account_id" class="op-native-select">
                 {{ range $f.Accounts }}{{ if .HasReservation }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .ReservedFormatted }}</option>{{ end }}{{ end }}
+              </select>
+            </div>
+          </div>
+          <div class="op-field-group">
+            <label for="m_release_goal" class="op-field-label">De</label>
+            <div class="op-select-wrap">
+              <select id="m_release_goal" name="goal_id" class="op-native-select">
+                <option value="">Sin asignar</option>
+                {{ range $view.Goals }}{{ if .HasMoney }}<option value="{{ .ID }}">{{ .Name }}</option>{{ end }}{{ end }}
               </select>
             </div>
           </div>

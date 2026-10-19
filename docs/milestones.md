@@ -818,7 +818,7 @@ closed on its own. The contract is [m7-contract.md](m7-contract.md).
 | --- | --- |
 | M7.1 — Savings policy & suggestions | `CLOSED` (2026-10-18) |
 | M7.2 — Savings fund | `CLOSED` (2026-10-18) |
-| M7.3 — Savings goals | `PLANNED` |
+| M7.3 — Savings goals | `CLOSED` (2026-10-18) |
 | M7.4 — Ledger integration & dashboard | `PLANNED` |
 
 ### The rule the milestone hangs on
@@ -915,10 +915,43 @@ two pools over one file; releases; an expense leaving the fund overallocated and
 recorded anyway; reservations surviving a lowered revision and an invalidation;
 the six figures of a period. Desktop checked in a browser.
 
+### M7.3 delivered
+
+- **Goals** (TD-084): permanent and one-time, with a target, an optional date
+  for a one-time goal, and a share of each confirmed saving. Lifecycle stored;
+  money, funding, progress, remaining and the suggested monthly contribution
+  derived. FUNDED is not COMPLETED; only a one-time goal is completed.
+- **Contributions, withdrawals and reallocations** per goal and account, all
+  operations in the same append-only fund; reallocations are net zero.
+- **Pause, resume, complete, cancel.** Closing moves what the goal holds to the
+  unallocated part, in the same action; its history stays.
+- **Target changes** append to a history; the original budget is kept.
+- **Suggested distribution** (TD-085): exact, capped by each goal's need, the
+  rest unallocated, cents by largest remainder; shares capped at 100% in total.
+  The confirmation form prefills it, editable.
+- **Screens**: goals list and detail (desktop and mobile), distribution on the
+  overview, goal selectors on the fund forms.
+
+Schema 16 → 17 (00017), additive and reversible.
+
+### M7.3 verification
+
+`go vet` clean and `go test ./... -count=1` green. Against real SQLite: $160 at
+50/50 is $80 + $80; one and two cents in thirds; every amount from 0 to 5,000
+cents against tight caps, summing exactly and never past a cap; a funded goal
+gets nothing; a paused goal and a goal without a share take no part; shares
+past 100% refused; a distributed confirmation splitting allocated and
+unallocated without double counting; a permanent goal funded, drawn on ($1,000 −
+$300 = $700, back to partial) and refilled, never completable; a one-time goal
+over-funded, completed idempotently, its remainder kept reserved and unallocated;
+pausing and cancelling with money on two accounts; reallocations; target
+history; suggested contributions with and without a date. Desktop checked in a
+browser.
+
 ### Not in M7.1
 
-Goals, distribution, the expense and transfer integration, reconciliation of
-reserves and the dashboard block (M7.3, M7.4).
+The expense and transfer integration, reconciliation of reserves, goal
+completion against a real expense and the dashboard block (M7.4).
 
 ---
 
@@ -939,7 +972,7 @@ below has acceptance criteria yet, by design.
 | M6 | Historical Net Worth & Analytics Dashboard | `CLOSED` |
 | M6.5 | Weekly & Monthly Recap | `IN PROGRESS` |
 | — | Production Deployment, Private Access & Continuous Backup | `POSTPONED` |
-| M7 | Savings Fund & Goals | `IN PROGRESS` (M7.1, M7.2 closed) |
+| M7 | Savings Fund & Goals | `IN PROGRESS` (M7.1–M7.3 closed) |
 | M8 | Credit & Debt | `PLANNED` |
 | M9 | Instalments & Calendar | `PLANNED` |
 | M10 | Hardening | `PLANNED` |

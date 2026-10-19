@@ -77,7 +77,14 @@ func TestTablesHaveExactlyTheExpectedColumns(t *testing.T) {
 			"is_exception", "effective_date", "created_at",
 		},
 		"savings_entries": {
-			"id", "operation_id", "account_id", "amount_minor", "created_at",
+			"id", "operation_id", "account_id", "amount_minor", "created_at", "goal_id",
+		},
+		"savings_goals": {
+			"id", "name", "goal_type", "target_usd_minor", "target_date", "distribution_bp",
+			"status", "closed_at", "closing_note", "created_at", "updated_at",
+		},
+		"savings_goal_target_revisions": {
+			"id", "goal_id", "target_usd_minor", "created_at",
 		},
 	}
 
@@ -943,6 +950,7 @@ var businessTables = []string{
 	"savings_policy_versions", "savings_category_rules", "savings_income_overrides",
 	"savings_suggestions", "savings_suggestion_rate_legs",
 	"savings_operations", "savings_entries",
+	"savings_goals", "savings_goal_target_revisions",
 }
 
 func TestExpectedIndexesExist(t *testing.T) {
@@ -980,6 +988,8 @@ func TestExpectedIndexesExist(t *testing.T) {
 		"idx_savings_operations_effective_date",
 		"idx_savings_entries_operation_id",
 		"idx_savings_entries_account_id",
+		"idx_savings_goal_target_revisions_goal_id",
+		"idx_savings_entries_goal_id",
 	}
 
 	for _, index := range want {

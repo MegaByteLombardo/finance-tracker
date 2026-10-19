@@ -172,3 +172,84 @@ func TestTheFundThroughTheWebLayer(t *testing.T) {
 		t.Errorf("operations = %+v (%v)", ops, err)
 	}
 }
+
+// Goals through the web layer: a distributed confirmation, a withdrawal from a
+// permanent goal, a completion keeping the money reserved.
+func TestGoalsThroughTheWebLayer(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	svcs := newTestServices(t, dbtest.New(t))
+
+	salary, err := svcs.Categories.Create(ctx, web.CreateCategoryInput{Name: "Salario", Type: web.CategoryTypeIncome})
+	if err != nil {
+		t.Fatalf("category: %v", err)
+	}
+	opened, err := svcs.Application.OpenAccount(ctx, web.OpenAccountInput{
+		Account: web.CreateAccountInput{Name: "Efectivo", Type: web.AccountTypeCash, CurrencyCode: "USD"},
+	})
+	if err != nil {
+		t.Fatalf("account: %v", err)
+	}
+	today := database.FormatDate(database.Today())
+	if err := svcs.Savings.SetPolicy(ctx, web.SetSavingsPolicyInput{Rate: "20", EffectiveFrom: today}); err != nil {
+		t.Fatalf("policy: %v", err)
+	}
+	emergency, err := svcs.Savings.CreateGoal(ctx, web.SavingsGoalInput{Name: "Emergencias", Type: "PERMANENT", Target: "1000", Distribution: "50"})
+	if err != nil {
+		t.Fatalf("goal: %v", err)
+	}
+	travel, err := svcs.Savings.CreateGoal(ctx, web.SavingsGoalInput{Name: "Viaje", Type: "ONE_TIME", Target: "80", Distribution: "50"})
+	if err != nil {
+		t.Fatalf("goal: %v", err)
+	}
+	income, err := svcs.Ledger.RecordIncome(ctx, web.RecordIncomeInput{
+		AccountID: opened.Account.ID, CategoryID: salary.ID, Amount: "800.00", PaymentMethodID: 1, EffectiveDate: today,
+	})
+	if err != nil {
+		t.Fatalf("income: %v", err)
+	}
+
+	lines, err := svcs.Savings.SuggestDistribution(ctx, "160.00")
+	if err != nil {
+		t.Fatalf("SuggestDistribution: %v", err)
+	}
+	if len(lines) != 3 || lines[0].Amount != "80.00" || lines[1].Amount != "80.00" || lines[2].Amount != "0.00" {
+		t.Fatalf("distribution = %+v", lines)
+	}
+	in := web.SavingsReserveInput{RequestKey: "adapter-goals-0000000001", IncomeTransactionID: &income.ID, AccountID: opened.Account.ID}
+	for _, l := range lines {
+		in.Lines = append(in.Lines, web.SavingsReserveLine{GoalID: l.GoalID, Amount: l.Amount})
+	}
+	in.Lines = in.Lines[:2] // the empty unallocated line is dropped, as the form would
+	if _, err := svcs.Savings.Reserve(ctx, in); err != nil {
+		t.Fatalf("a distributed confirmation: %v", err)
+	}
+
+	g, err := svcs.Savings.GetGoal(ctx, travel)
+	if err != nil {
+		t.Fatalf("GetGoal: %v", err)
+	}
+	if g.ReservedFormatted != "80.00" || g.FundingLabel != "Financiada" || g.StatusLabel != "Activa" || g.ProgressWidth != 100 {
+		t.Errorf("travel = %+v", g)
+	}
+	if _, err := svcs.Savings.Release(ctx, web.SavingsReleaseInput{RequestKey: "adapter-goals-0000000002",
+		AccountID: opened.Account.ID, GoalID: &emergency, Amount: "30", Reason: "Imprevisto"}); err != nil {
+		t.Fatalf("withdrawing: %v", err)
+	}
+	if g, _ := svcs.Savings.GetGoal(ctx, emergency); g.ReservedFormatted != "50.00" || g.FundingLabel != "En progreso" {
+		t.Errorf("emergency after a withdrawal = %+v", g)
+	}
+	if err := svcs.Savings.CompleteGoal(ctx, travel, web.SavingsCloseGoalInput{RequestKey: "adapter-goals-0000000003", Note: "Hecho"}); err != nil {
+		t.Fatalf("CompleteGoal: %v", err)
+	}
+	fund, err := svcs.Savings.GetFund(ctx)
+	if err != nil {
+		t.Fatalf("GetFund: %v", err)
+	}
+	if fund.ReservedFormatted != "130.00" || fund.AllocatedFormatted != "50.00" || fund.UnallocatedFormatted != "80.00" {
+		t.Errorf("fund = %+v", fund)
+	}
+	if err := svcs.Savings.CompleteGoal(ctx, emergency, web.SavingsCloseGoalInput{RequestKey: "adapter-goals-0000000004", Note: "x"}); !errors.Is(err, web.ErrSavingsInvalidState) {
+		t.Errorf("completing a permanent goal returned %v", err)
+	}
+}

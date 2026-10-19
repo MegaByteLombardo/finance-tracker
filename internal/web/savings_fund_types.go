@@ -94,8 +94,11 @@ type SavingsReserveInput struct {
 	AccountID           int64
 	GoalID              *int64
 	Amount              string
-	Exception           bool
-	Reason              string
+	// Lines, when present, replace GoalID and Amount: one amount per goal (and
+	// the unallocated part), all on AccountID (M7.3).
+	Lines     []SavingsReserveLine
+	Exception bool
+	Reason    string
 }
 
 // SavingsReleaseInput gives reserved money back, with a reason.
@@ -114,6 +117,8 @@ type SavingsFundView struct {
 
 	Fund       SavingsFund
 	Operations []SavingsOperation
+	// Goals are the open goals, for the forms' goal selectors.
+	Goals []SavingsGoal
 
 	// ReserveKey and ReleaseKey are fresh idempotency tokens for the forms.
 	ReserveKey string

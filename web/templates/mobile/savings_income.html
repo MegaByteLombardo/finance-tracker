@@ -46,11 +46,22 @@
               </select>
             </div>
           </div>
+          {{ if $view.Distribution }}
+          {{ range $view.Distribution }}
+          <div class="op-field-group">
+            <label class="op-field-label">{{ if .GoalID }}{{ .GoalName }}{{ else }}Sin asignar{{ end }}</label>
+            <input type="hidden" name="line_goal" value="{{ with .GoalID }}{{ . }}{{ end }}">
+            <input type="text" name="line_amount" class="op-native-input" inputmode="decimal" value="{{ .Amount }}">
+          </div>
+          {{ end }}
+          <p class="op-field-help">Reparto sugerido; cámbialo si quieres.</p>
+          {{ else }}
           <div class="op-field-group">
             <label for="m_confirm_amount" class="op-field-label">Importe (USD)</label>
             <input type="text" id="m_confirm_amount" name="amount" class="op-native-input" inputmode="decimal" value="{{ .RemainingAmount }}" required>
             <p class="op-field-help">Todo o una parte.</p>
           </div>
+          {{ end }}
           <button type="submit" class="mobile-btn mobile-btn-primary">Confirmar y reservar</button>
         </form>
         {{ else }}<p class="section-note">No hay USD libres en ninguna cuenta activa.</p>{{ end }}{{ end }}

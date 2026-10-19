@@ -19,10 +19,17 @@ func (a *savingsAdapter) GetFund(ctx context.Context) (web.SavingsFund, error) {
 }
 
 func (a *savingsAdapter) Reserve(ctx context.Context, in web.SavingsReserveInput) (web.SavingsOperation, error) {
+	lines := []savings.ReserveLine{{AccountID: in.AccountID, GoalID: in.GoalID, Amount: in.Amount}}
+	if len(in.Lines) > 0 {
+		lines = make([]savings.ReserveLine, 0, len(in.Lines))
+		for _, l := range in.Lines {
+			lines = append(lines, savings.ReserveLine{AccountID: in.AccountID, GoalID: l.GoalID, Amount: l.Amount})
+		}
+	}
 	op, err := a.svc.Reserve(ctx, savings.ReserveInput{
 		RequestKey:          in.RequestKey,
 		IncomeTransactionID: in.IncomeTransactionID,
-		Lines:               []savings.ReserveLine{{AccountID: in.AccountID, GoalID: in.GoalID, Amount: in.Amount}},
+		Lines:               lines,
 		Exception:           in.Exception,
 		Reason:              in.Reason,
 	})

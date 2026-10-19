@@ -40,12 +40,26 @@
             {{ range $view.Fund.Accounts }}{{ if .HasFree }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .FreeFormatted }} libres</option>{{ end }}{{ end }}
           </select>
         </div>
+        {{ if not $view.Distribution }}
         <div class="form-group">
           <label for="confirm_amount" class="form-label">Importe (USD)</label>
           <input type="text" id="confirm_amount" name="amount" class="form-control" inputmode="decimal" value="{{ .RemainingAmount }}" required>
           <p class="form-help">Todo o una parte. Lo que no confirmes sigue pendiente en esta misma sugerencia.</p>
         </div>
+        {{ end }}
       </div>
+      {{ with $view.Distribution }}
+      <div class="savings-lines">
+        <p class="form-help">Reparto sugerido según el porcentaje de cada meta; cámbialo si quieres. Lo confirmado es la suma de las líneas, y lo que no confirmes sigue pendiente.</p>
+        {{ range . }}
+        <label class="savings-line">
+          <span>{{ if .GoalID }}{{ .GoalName }}{{ if .Capped }} <span class="badge badge-info">ya casi financiada</span>{{ end }}{{ else }}Sin asignar{{ end }}</span>
+          <input type="hidden" name="line_goal" value="{{ with .GoalID }}{{ . }}{{ end }}">
+          <input type="text" name="line_amount" class="form-control" inputmode="decimal" value="{{ .Amount }}">
+        </label>
+        {{ end }}
+      </div>
+      {{ end }}
       <details class="savings-exception">
         <summary>Apartar más de lo que queda (excepción)</summary>
         <label class="form-label"><input type="checkbox" name="exception" value="1"> Confirmar por encima de la sugerencia</label>

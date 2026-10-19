@@ -9,7 +9,7 @@ separately:
 | --- | --- | --- |
 | **M7.1** | Savings policy & suggestions | Delivered (this document, §1–§9) |
 | M7.2 | Savings fund: reservations, partial confirmation, availability | Delivered (§11) |
-| M7.3 | Goals: permanent and one-time, distribution, withdrawals | Planned |
+| M7.3 | Goals: permanent and one-time, distribution, withdrawals | Delivered (§12) |
 | M7.4 | Ledger integration (expenses, transfers), reconciliation, dashboard | Planned |
 
 This document is the agreement between the backend and the presentation layer
@@ -293,6 +293,46 @@ refused once fully confirmed.
 `income_id`, `exception=1`, `reason`); `POST /savings/release` (`request_key`,
 `account_id`, `amount`, `reason`). The income page carries the confirmation form,
 prefilled with what remains.
+
+## 12. M7.3 — Goals (TD-084, TD-085)
+
+A goal's money is Σ of the entries that name it; an entry naming no goal is the
+fund's unallocated part. **Status is the lifecycle only:**
+
+```
+ACTIVE ⇄ PAUSED
+ACTIVE | PAUSED → COMPLETED   (ONE_TIME only)
+ACTIVE | PAUSED → CANCELLED
+```
+
+Closing moves what the goal holds, per account, to unallocated with one
+`REALLOCATE`, in the same transaction, idempotent on the request key. A paused or
+closed goal accepts no money; a closed one keeps its history.
+
+**Derived per goal:** reserved, remaining = max(0, target − reserved), funding
+(`UNFUNDED` / `PARTIAL` / `FUNDED` / `OVERFUNDED`), progress in basis points,
+and — for a one-time goal with a date — the suggested monthly contribution:
+remaining ÷ calendar months from this month to the target's (at least 1),
+rounded half to even. FUNDED is never COMPLETED.
+
+**Targets:** editing appends to `savings_goal_target_revisions` when the target
+changes; `OriginalTargetUSDMinor` is the first revision.
+
+**Money in and out of goals:** `Reserve` lines and `Release` take an optional
+`GoalID`; `Reallocate({AccountID, FromGoalID?, ToGoalID?, Amount})` moves
+between two goals of one account or between a goal and unallocated, never more
+than is there, net zero.
+
+**Distribution:** `SuggestDistribution(amount)` → one line per active goal with
+a share, plus the unallocated line. Exact share, capped by need, rest
+unallocated, `money.Allocate` for the cents. Σ shares of open goals ≤ 100%
+(`ErrDistributionExceeded`). The confirmation form prefills the lines; posted as
+`line_goal` / `line_amount` pairs, empty or zero lines dropped, and what is
+confirmed is their sum.
+
+**Routes:** `GET|POST /savings/goals`; `GET|POST /savings/goals/{id}`;
+`POST /savings/goals/{id}/{pause,resume,complete,cancel}` (`request_key`,
+`note`); `POST /savings/reallocate`; mobile `/mobile/ahorro/metas[/{id}]`.
 
 ## Not yet built
 

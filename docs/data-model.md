@@ -1171,6 +1171,34 @@ edited — a correction is another operation. Free balance and overallocation ar
 computed against the ledger's balance today. Neither table is read by the
 valuation, so reserving cannot change the net worth.
 
+### `savings_goals` *(M7.3)*
+
+| Column | Type | Null | Constraints |
+| --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | **PRIMARY KEY** |
+| `name` | `TEXT` | NOT NULL | 1–80 |
+| `goal_type` | `TEXT` | NOT NULL | `PERMANENT`, `ONE_TIME`; immutable |
+| `target_usd_minor` | `INTEGER` | NOT NULL | `> 0`, the current target |
+| `target_date` | `TEXT` | NULL | date; only for `ONE_TIME` |
+| `distribution_bp` | `INTEGER` | NOT NULL | 0–10000; Σ over open goals ≤ 10000 (Go) |
+| `status` | `TEXT` | NOT NULL | `ACTIVE`, `PAUSED`, `COMPLETED` (only `ONE_TIME`), `CANCELLED` |
+| `closed_at`, `closing_note` | `TEXT` | NULL | both set exactly when closed |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | timestamp |
+
+There is no balance column: a goal's money is `SUM` of the entries that name it,
+and its funding is derived (TD-084).
+
+### `savings_goal_target_revisions` *(M7.3)*
+
+`(id, goal_id → savings_goals, target_usd_minor > 0, created_at)`. One row per
+target the goal has had; the first is the original budget.
+
+### `savings_entries.goal_id` *(M7.3)*
+
+Added by `ALTER TABLE ... ADD COLUMN goal_id INTEGER REFERENCES savings_goals(id)`
+with a NULL default, so every reservation made before goals existed stays
+unallocated. NULL is the fund's unallocated part. Indexed.
+
 ---
 
 ## The net worth is not in this document

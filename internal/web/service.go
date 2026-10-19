@@ -164,6 +164,19 @@ type SavingsService interface {
 	Reserve(ctx context.Context, in SavingsReserveInput) (SavingsOperation, error)
 	Release(ctx context.Context, in SavingsReleaseInput) (SavingsOperation, error)
 	ListOperations(ctx context.Context, limit int) ([]SavingsOperation, error)
+
+	// M7.3: goals. A goal's balance is the sum of the entries that name it.
+	ListGoals(ctx context.Context, includeClosed bool) ([]SavingsGoal, error)
+	GetGoal(ctx context.Context, id int64) (SavingsGoal, error)
+	CreateGoal(ctx context.Context, in SavingsGoalInput) (int64, error)
+	UpdateGoal(ctx context.Context, id int64, in SavingsGoalInput) error
+	PauseGoal(ctx context.Context, id int64) error
+	ResumeGoal(ctx context.Context, id int64) error
+	CompleteGoal(ctx context.Context, id int64, in SavingsCloseGoalInput) error
+	CancelGoal(ctx context.Context, id int64, in SavingsCloseGoalInput) error
+	Reallocate(ctx context.Context, in SavingsReallocateInput) (SavingsOperation, error)
+	// SuggestDistribution splits a USD amount ("160.00") among the active goals.
+	SuggestDistribution(ctx context.Context, amount string) ([]SavingsDistributionLine, error)
 }
 
 // Services bundles all services needed by the presentation layer.

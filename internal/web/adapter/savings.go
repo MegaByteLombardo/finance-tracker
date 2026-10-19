@@ -402,6 +402,12 @@ func TranslateSavingsError(err error) error {
 		return translateError(web.ErrAccountNotFound, err)
 	case errors.Is(err, savings.ErrAccountInactive):
 		return translateError(web.ErrAccountInactive, err)
+	case errors.Is(err, savings.ErrGoalNotFound):
+		return translateError(web.ErrSavingsGoalNotFound, err)
+	case errors.Is(err, savings.ErrGoalNotAccepting):
+		return translateError(web.ErrSavingsGoalNotAccepting, err)
+	case errors.Is(err, savings.ErrDistributionExceeded):
+		return translateError(web.ErrSavingsDistributionExceeded, err)
 	default:
 		return err
 	}

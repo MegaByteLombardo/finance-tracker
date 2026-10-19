@@ -495,8 +495,3 @@ func applyConfirmation(s *Suggestion, confirmedByIncome, confirmedBySuggestion m
 func (s *Service) reservedAt(ctx context.Context, exec database.DBTX, accountID int64, goalID *int64) (int64, error) {
 	return NewRepository(exec).ReservedAt(ctx, accountID, goalID)
 }
-
-// checkGoalAcceptsMoney refuses every goal until M7.3 brings them.
-func (s *Service) checkGoalAcceptsMoney(context.Context, database.DBTX, int64) error {
-	return fmt.Errorf("%w: goals do not exist yet", ErrInvalidInput)
-}

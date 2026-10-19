@@ -2569,3 +2569,54 @@ the browser.
 afterwards — the brief asks for an explicit decision. A per-session token —
 a second tab would share it. Releasing the excess automatically when a revision
 lowers the suggestion — the brief forbids it.
+
+## TD-084 — A goal's money is the sum of its entries; its status is only its lifecycle
+
+**Status:** Accepted · **Milestone:** M7.3
+
+**Decision.** `savings_goals` stores what a goal is (name, kind, current target,
+optional date for a one-time goal, distribution share) and its lifecycle
+(`ACTIVE`, `PAUSED`, `COMPLETED`, `CANCELLED`). Its money is `SUM` of the
+`savings_entries` that name it. Funding (`UNFUNDED`, `PARTIAL`, `FUNDED`,
+`OVERFUNDED`), progress, what remains and the suggested monthly contribution
+are derived on read. Only a one-time goal can be completed; a permanent one is
+funded, drawn on and refilled. Completing or cancelling moves whatever the goal
+still holds to the fund's unallocated part on the same accounts, in the same
+transaction, as a `REALLOCATE` — never a release. A change of target appends to
+`savings_goal_target_revisions`; the first row is the original budget.
+
+**Rationale.** A stored "funded" status would be a second source of truth that
+a withdrawal or a reallocation could contradict. Keeping lifecycle and funding
+apart is what lets a permanent goal fall back to `PARTIAL` by itself after a
+withdrawal, and what keeps `FUNDED` from meaning `COMPLETED`. Moving the
+remainder to unallocated rather than releasing it keeps the user's reservation
+intact until they decide otherwise.
+
+**Alternatives considered.** A `reserved_minor` column on goals — drifts.
+Refusing to close a goal that holds money — forces two steps for one decision.
+Releasing the remainder on close — removes savings the user did not ask to
+remove.
+
+## TD-085 — Distribution is exact, capped by need, and the remainder stays unallocated
+
+**Status:** Accepted · **Milestone:** M7.3
+
+**Decision.** A suggested distribution of an amount A among the active goals
+with a share: each goal's exact part is A × bp / 10000; a part above what the
+goal still needs (target − reserved, at least 0) is capped at that need, so a
+funded goal receives nothing; whatever the capped parts and the unassigned
+basis points leave is the unallocated part. `money.Allocate` turns the exact
+parts into cents by largest remainder, ties to the earlier goal, so the lines
+add up to A exactly. The open goals' shares sum to at most 100%. It is a
+suggestion: the user edits the lines, and what is confirmed is their sum.
+
+**Rationale.** Exact rationals and one allocation step make "sum(allocations)
+== confirmed amount" true by construction. A capped part is a whole number of
+cents, so its remainder is zero and it can never receive the extra cent that
+would take it past its cap (verified for every amount from 0 to 5,000 cents
+against tight caps). Excess stays unallocated, as approved, rather than being
+redistributed by a rule the user did not choose.
+
+**Alternatives considered.** Rounding each line independently — the lines
+disagree with the total by a cent. Redistributing the excess proportionally —
+rejected at approval (decision 5).

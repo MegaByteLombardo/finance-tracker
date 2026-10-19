@@ -298,38 +298,39 @@ func (r *Repository) DailyFundDeltas(ctx context.Context) (_ []FundDelta, err er
 	return out, rows.Err()
 }
 
-// Entries name no goal until M7.3 adds the column.
+// Entries name the goal their money is for, or none (unallocated).
 const (
-	entryGoalColumns = `NULL, NULL`
-	entryGoalJoin    = ``
+	entryGoalColumns = `e.goal_id, g.name`
+	entryGoalJoin    = `LEFT JOIN savings_goals g ON g.id = e.goal_id`
 )
 
 func (r *Repository) insertEntry(ctx context.Context, operationID int64, e newEntry, now time.Time) error {
-	if e.goalID != nil {
-		return fmt.Errorf("%w: goals do not exist yet", ErrInvalidInput)
-	}
 	if _, err := r.db.ExecContext(ctx, `
-		INSERT INTO savings_entries (operation_id, account_id, amount_minor, created_at)
-		VALUES (?, ?, ?, ?)`,
-		operationID, e.accountID, e.amountMinor, database.FormatTime(now)); err != nil {
+		INSERT INTO savings_entries (operation_id, account_id, goal_id, amount_minor, created_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		operationID, e.accountID, e.goalID, e.amountMinor, database.FormatTime(now)); err != nil {
 		return fmt.Errorf("inserting an entry of operation %d: %w", operationID, err)
 	}
 	return nil
 }
 
-// AllocatedTotal is reserved money assigned to a goal. Until M7.3 there are
-// no goals, so it is zero.
-func (r *Repository) AllocatedTotal(context.Context) (int64, error) { return 0, nil }
-
-// ReservedAt is what is reserved on an account. Until M7.3 there are no goals,
-// so it is the whole of the account's reservation.
-func (r *Repository) ReservedAt(ctx context.Context, accountID int64, goalID *int64) (int64, error) {
-	if goalID != nil {
-		return 0, fmt.Errorf("%w: goals do not exist yet", ErrInvalidInput)
-	}
+// AllocatedTotal is reserved money assigned to a goal.
+func (r *Repository) AllocatedTotal(ctx context.Context) (int64, error) {
 	var sum int64
 	if err := r.db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(amount_minor), 0) FROM savings_entries WHERE account_id = ?`, accountID).Scan(&sum); err != nil {
+		`SELECT COALESCE(SUM(amount_minor), 0) FROM savings_entries WHERE goal_id IS NOT NULL`).Scan(&sum); err != nil {
+		return 0, fmt.Errorf("reading the allocated total: %w", err)
+	}
+	return sum, nil
+}
+
+// ReservedAt is what is reserved on an account for one goal, or -- with a nil
+// goal -- unallocated on it.
+func (r *Repository) ReservedAt(ctx context.Context, accountID int64, goalID *int64) (int64, error) {
+	var sum int64
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(amount_minor), 0) FROM savings_entries WHERE account_id = ? AND goal_id IS ?`,
+		accountID, goalID).Scan(&sum); err != nil {
 		return 0, fmt.Errorf("reading the reservation of account %d: %w", accountID, err)
 	}
 	return sum, nil

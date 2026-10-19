@@ -198,6 +198,16 @@ exception with a reason. **Fondo** shows what is reserved in each account, lets
 you reserve savings you already had, and release a reservation with a reason.
 Clicking twice never reserves twice.
 
+**Metas** turns reserved money into goals. A **permanent** goal, like an
+emergency fund, is never finished: it is funded, you can draw on it, and it asks
+to be refilled. A **one-time** goal, like a trip, can have a date and is
+completed when you say so; reaching its target only makes it *funded*. Give
+goals a share — say 50% and 30% — and confirming a suggestion proposes the split
+for you (the rest stays unassigned, and a goal that is already funded gets
+nothing). You can contribute, withdraw with a reason, move money between goals,
+pause, complete or cancel; whatever a closed goal still holds stays reserved,
+unassigned. Changing a target keeps the original in its history.
+
 ### Mobile
 
 Open <http://localhost:8080/mobile> on your phone, on the same network. It has

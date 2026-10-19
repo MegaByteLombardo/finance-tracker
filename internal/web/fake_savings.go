@@ -33,6 +33,7 @@ type FakeSavings struct {
 	ValuePendingRun int
 
 	fakeFundState
+	fakeGoalState
 }
 
 // NewFakeSavings returns an empty stand-in: no policy, nothing suggested.
@@ -204,4 +205,108 @@ func (f *FakeSavings) ListOperations(context.Context, int) ([]SavingsOperation, 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.Operations, f.Err
+}
+
+// M7.3 stand-ins.
+type fakeGoalState struct {
+	Goals         []SavingsGoal
+	Distribution  []SavingsDistributionLine
+	CreatedGoals  []SavingsGoalInput
+	UpdatedGoals  map[int64]SavingsGoalInput
+	GoalActions   []string // "pause:3", "complete:3:note", ...
+	Reallocations []SavingsReallocateInput
+}
+
+func (f *FakeSavings) ListGoals(_ context.Context, includeClosed bool) ([]SavingsGoal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]SavingsGoal, 0, len(f.Goals))
+	for _, g := range f.Goals {
+		if includeClosed || !g.Closed {
+			out = append(out, g)
+		}
+	}
+	return out, f.Err
+}
+
+func (f *FakeSavings) GetGoal(_ context.Context, id int64) (SavingsGoal, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return SavingsGoal{}, f.Err
+	}
+	for _, g := range f.Goals {
+		if g.ID == id {
+			return g, nil
+		}
+	}
+	return SavingsGoal{}, ErrSavingsGoalNotFound
+}
+
+func (f *FakeSavings) CreateGoal(_ context.Context, in SavingsGoalInput) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ActionErr != nil {
+		return 0, f.ActionErr
+	}
+	f.CreatedGoals = append(f.CreatedGoals, in)
+	return int64(100 + len(f.CreatedGoals)), nil
+}
+
+func (f *FakeSavings) UpdateGoal(_ context.Context, id int64, in SavingsGoalInput) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ActionErr != nil {
+		return f.ActionErr
+	}
+	if f.UpdatedGoals == nil {
+		f.UpdatedGoals = make(map[int64]SavingsGoalInput)
+	}
+	f.UpdatedGoals[id] = in
+	return nil
+}
+
+func (f *FakeSavings) goalAction(name string, id int64, note string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ActionErr != nil {
+		return f.ActionErr
+	}
+	action := name + ":" + strconv.FormatInt(id, 10)
+	if note != "" {
+		action += ":" + note
+	}
+	f.GoalActions = append(f.GoalActions, action)
+	return nil
+}
+
+func (f *FakeSavings) PauseGoal(_ context.Context, id int64) error {
+	return f.goalAction("pause", id, "")
+}
+func (f *FakeSavings) ResumeGoal(_ context.Context, id int64) error {
+	return f.goalAction("resume", id, "")
+}
+
+func (f *FakeSavings) CompleteGoal(_ context.Context, id int64, in SavingsCloseGoalInput) error {
+	return f.goalAction("complete", id, in.Note)
+}
+
+func (f *FakeSavings) CancelGoal(_ context.Context, id int64, in SavingsCloseGoalInput) error {
+	return f.goalAction("cancel", id, in.Note)
+}
+
+func (f *FakeSavings) Reallocate(_ context.Context, in SavingsReallocateInput) (SavingsOperation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ActionErr != nil {
+		return SavingsOperation{}, f.ActionErr
+	}
+	f.Reallocations = append(f.Reallocations, in)
+	return SavingsOperation{Kind: "REALLOCATE"}, nil
+}
+
+func (f *FakeSavings) SuggestDistribution(context.Context, string) ([]SavingsDistributionLine, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Distribution, f.Err
 }

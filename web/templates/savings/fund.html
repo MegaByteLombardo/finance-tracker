@@ -35,7 +35,7 @@
     <article class="card dash-kpi">
       <h3 class="dash-kpi-label">Asignado a metas</h3>
       <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $f.AllocatedFormatted }}<span class="lcd-unit">USD</span></span></div>
-      <p class="dash-kpi-meta">Sin metas todavía, todo está sin asignar</p>
+      <p class="dash-kpi-meta"><a href="/savings/goals">Ver metas &rarr;</a></p>
     </article>
   </div>
   {{ if $f.Overallocated }}
@@ -87,6 +87,13 @@
             </select>
           </div>
           <div class="form-group">
+            <label for="reserve_goal" class="form-label">Para</label>
+            <select id="reserve_goal" name="goal_id" class="form-control">
+              <option value="">Sin asignar</option>
+              {{ range $view.Goals }}{{ if .AcceptsMoney }}<option value="{{ .ID }}">{{ .Name }}</option>{{ end }}{{ end }}
+            </select>
+          </div>
+          <div class="form-group">
             <label for="reserve_amount" class="form-label">Importe (USD)</label>
             <input type="text" id="reserve_amount" name="amount" class="form-control" inputmode="decimal" required placeholder="500.00">
           </div>
@@ -111,6 +118,13 @@
             <label for="release_account" class="form-label">Cuenta</label>
             <select id="release_account" name="account_id" class="form-control">
               {{ range $f.Accounts }}{{ if .HasReservation }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .ReservedFormatted }} reservados</option>{{ end }}{{ end }}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="release_goal" class="form-label">De</label>
+            <select id="release_goal" name="goal_id" class="form-control">
+              <option value="">Sin asignar</option>
+              {{ range $view.Goals }}{{ if .HasMoney }}<option value="{{ .ID }}">{{ .Name }}</option>{{ end }}{{ end }}
             </select>
           </div>
           <div class="form-group">
