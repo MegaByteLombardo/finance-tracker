@@ -300,6 +300,8 @@ func handleCreateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 				PaymentMethodID: paymentMethodID,
 				Description:     descPtr,
 				EffectiveDate:   effectiveDate,
+				// What the expense does to savings, if the user said (M7.4).
+				Savings: expensePlanFromForm(r),
 			})
 		}
 
@@ -307,6 +309,8 @@ func handleCreateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 			logger.Warn("recording transaction failed", slog.Any("error", txErr))
 			status := http.StatusUnprocessableEntity
 			switch {
+			case savingsMovementError(txErr) != "":
+				form.Errors["general"] = savingsMovementError(txErr)
 			case errors.Is(txErr, ErrInvalidAmount):
 				form.Errors["amount"] = "Invalid amount format. Enter a positive number with valid decimals."
 			case errors.Is(txErr, ErrCategoryTypeMismatch):

@@ -140,6 +140,7 @@ func toWebSavingsGoal(g savings.Goal) web.SavingsGoal {
 	for _, op := range g.Operations {
 		out.Operations = append(out.Operations, toWebSavingsOperation(op))
 	}
+	addGoalCost(&out, g)
 	return out
 }
 

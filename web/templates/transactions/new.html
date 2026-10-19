@@ -105,6 +105,14 @@
         {{ end }}
       </div>
     </div>
+    {{ if eq .Type "EXPENSE" }}
+    <!-- Savings (M7.4): what this expense does to the reservations of its USD account. -->
+    <div id="savings-impact-container"
+         hx-get="/savings/impact"
+         hx-trigger="load, change from:#account_id, keyup changed delay:500ms from:#amount"
+         hx-include="closest form"
+         hx-swap="innerHTML"></div>
+    {{ end }}
 
     <!-- Category Selection -->
     <div id="category-container">

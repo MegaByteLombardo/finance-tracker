@@ -26,6 +26,11 @@ type FakeServices struct {
 	// Savings is the M7.1 stand-in.
 	Savings *FakeSavings
 
+	// ExpensePlans and TransferPlans record the savings plans the movement
+	// handlers passed along (M7.4), in order.
+	ExpensePlans  []*SavingsExpensePlan
+	TransferPlans []*SavingsTransferPlan
+
 	mu           sync.RWMutex
 	currencies   map[string]Currency
 	accounts     map[int64]Account
@@ -598,6 +603,9 @@ func (fs *FakeServices) RecordIncome(ctx context.Context, in RecordIncomeInput) 
 
 func (fs *FakeServices) RecordExpense(ctx context.Context, in RecordExpenseInput) (TransactionView, error) {
 	fs.mu.Lock()
+	fs.ExpensePlans = append(fs.ExpensePlans, in.Savings)
+	fs.mu.Unlock()
+	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
 	acct, ok := fs.accounts[in.AccountID]
@@ -959,6 +967,9 @@ func (fs *FakeServices) UpdateOpeningBalance(ctx context.Context, id int64, in U
 // the whole transfer in the Transfer detail. movementInto is what makes both
 // halves reach the balances.
 func (fs *FakeServices) RecordTransfer(ctx context.Context, in RecordTransferInput) (TransactionView, error) {
+	fs.mu.Lock()
+	fs.TransferPlans = append(fs.TransferPlans, in.Savings)
+	fs.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return TransactionView{}, err
 	}

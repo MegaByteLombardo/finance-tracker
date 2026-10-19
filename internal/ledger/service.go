@@ -103,6 +103,25 @@ func (s *Service) RecordExpense(ctx context.Context, in RecordExpenseInput) (Tra
 	return *view, nil
 }
 
+// RecordExpenseTx is RecordExpense without the transaction, so that an expense
+// and the savings it consumes or releases commit together (M7.4,
+// internal/application). It writes exactly what RecordExpense writes.
+func RecordExpenseTx(ctx context.Context, exec database.DBTX, in RecordExpenseInput) (TransactionView, error) {
+	view, err := recordTx(ctx, exec, recordRequest{
+		txType:          Expense,
+		accountID:       in.AccountID,
+		amount:          in.Amount,
+		categoryID:      &in.CategoryID,
+		paymentMethodID: &in.PaymentMethodID,
+		description:     in.Description,
+		effectiveDate:   in.EffectiveDate,
+	})
+	if err != nil {
+		return TransactionView{}, err
+	}
+	return *view, nil
+}
+
 // RecordOpeningBalance records where an account started.
 //
 // A starting balance is a fact about the account, not income: recording it as

@@ -1,0 +1,56 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Reconciliación</h1>
+    <p class="page-subtitle">Donde el fondo y el ledger no cuadran. Nada se corrige solo: decides tú.</p>
+  </div>
+  <div class="page-actions">
+    <a href="/savings/fund" class="btn btn-secondary">Fondo</a>
+    <a href="/savings" class="btn btn-secondary">Volver a Ahorro</a>
+  </div>
+</div>
+
+{{ if not .Available }}
+<div class="alert alert-warning" role="alert">{{ .Error }}</div>
+{{ else }}
+{{ $view := . }}
+{{ if not .Issues }}
+<div class="empty-state">
+  <div class="empty-state-icon">✓</div>
+  <h3 class="empty-state-title">Todo cuadra</h3>
+  <p class="empty-state-text">Cada reserva está respaldada por el saldo de su cuenta y nada se confirmó de más.</p>
+</div>
+{{ else }}
+<div class="card">
+  <table class="data-table">
+    <thead><tr><th>Incidencia</th><th>Detalle</th><th class="text-right">USD</th><th>Qué hacer</th></tr></thead>
+    <tbody>
+      {{ range .Issues }}
+      <tr>
+        <td><strong>{{ .KindLabel }}</strong>{{ if .Acknowledged }} <span class="badge badge-neutral">reconocida</span>{{ end }}
+          {{ if .AccountName }}<div class="text-muted savings-sub">{{ .AccountName }}</div>{{ end }}</td>
+        <td>{{ .Detail }}
+          {{ with .IncomeTransactionID }}<div class="savings-sub"><a href="/savings/incomes/{{ . }}">Ver el ingreso</a></div>{{ end }}
+          {{ with .TransactionID }}<div class="savings-sub"><a href="/transactions/{{ . }}/edit">Ver el gasto</a></div>{{ end }}
+          {{ if .Acknowledged }}<div class="text-muted savings-sub">Reconocida el {{ formatDate .AckAt }}: «{{ .AckNote }}»</div>{{ end }}</td>
+        <td class="text-right savings-figure">{{ formatAmount .AmountFormatted }}</td>
+        <td>
+          <a href="/savings/fund" class="btn btn-sm btn-secondary">Liberar o mover</a>
+          {{ if not .Acknowledged }}
+          <form action="/savings/issues/acknowledge" method="POST" class="savings-ack-form">
+            <input type="hidden" name="key" value="{{ .Key }}">
+            <input type="hidden" name="return" value="{{ $view.Return }}">
+            <input type="text" name="note" class="form-control" maxlength="255" required placeholder="Nota: lo resolveré luego" aria-label="Nota">
+            <button type="submit" class="btn btn-sm btn-secondary">Reconocer</button>
+          </form>
+          {{ end }}
+        </td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  <div class="card-body"><p class="text-muted">Reconocer una incidencia solo deja constancia de que la viste: no cambia ningún saldo y seguirá aquí, y en el fondo, hasta que se resuelva.</p></div>
+</div>
+{{ end }}
+{{ end }}
+{{ end }}

@@ -193,6 +193,43 @@
 </div>
 {{ end }}
 
+{{ if $g.LinkedExpenses }}
+<article class="card" style="margin-bottom: var(--space-6);">
+  <div class="card-header"><h2 class="card-title">Gasto real</h2><span class="dash-section-meta">frente al presupuesto original</span></div>
+  <div class="card-body">
+    <ul class="ledger">
+      <li class="ledger-row"><span class="ledger-name">Presupuesto original</span><span class="ledger-figure">{{ formatAmount $g.OriginalTargetFormatted }} USD</span></li>
+      <li class="ledger-row"><span class="ledger-name">Gasto real</span><span class="ledger-figure">{{ formatAmount $g.ActualCostFormatted }} USD</span><span class="ledger-sub">pagado con la meta: {{ formatAmount $g.SpentFormatted }} USD</span></li>
+      <li class="ledger-row"><span class="ledger-name">Desviación</span><span class="ledger-figure {{ if $g.CostOverBudget }}amount-expense{{ end }}">{{ formatAmount $g.DeviationFormatted }} USD</span></li>
+    </ul>
+    <table class="data-table">
+      <thead><tr><th>Fecha</th><th>Gasto</th><th class="text-right">Importe</th><th class="text-right">De la meta</th></tr></thead>
+      <tbody>
+        {{ range $g.LinkedExpenses }}
+        <tr><td class="savings-figure">{{ formatDate .Date }}</td><td><a href="/transactions/{{ .TransactionID }}/edit">{{ if .Description }}{{ derefString .Description }}{{ else }}Gasto #{{ .TransactionID }}{{ end }}</a></td>
+          <td class="text-right savings-figure">{{ formatAmount .AmountFormatted }}</td><td class="text-right savings-figure">{{ formatAmount .SpentFormatted }}</td></tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+</article>
+{{ end }}
+
+{{ if $g.Months }}
+<article class="card" style="margin-bottom: var(--space-6);">
+  <div class="card-header"><h2 class="card-title">Evolución</h2><span class="dash-section-meta">por mes</span></div>
+  <table class="data-table">
+    <thead><tr><th>Mes</th><th class="text-right">Entró</th><th class="text-right">Salió</th><th class="text-right">Al cierre</th></tr></thead>
+    <tbody>
+      {{ range $g.Months }}
+      <tr><td>{{ spanishDate .Month }}</td><td class="text-right savings-figure">{{ formatAmount .InFormatted }}</td>
+        <td class="text-right savings-figure">{{ formatAmount .OutFormatted }}</td><td class="text-right savings-figure"><strong>{{ formatAmount .ClosingFormatted }}</strong></td></tr>
+      {{ end }}
+    </tbody>
+  </table>
+</article>
+{{ end }}
+
 <div class="savings-split">
   <article class="card">
     <div class="card-header"><h2 class="card-title">Historial</h2><span class="dash-section-meta">aportes, retiros y movimientos</span></div>

@@ -39,6 +39,8 @@ func (a *savingsAdapter) Overview(ctx context.Context) (web.SavingsOverview, err
 		PendingValuationCount:   o.PendingValuationCount,
 		RateChangedCount:        o.RateChangedCount,
 		UnsyncedCount:           o.UnsyncedCount,
+		IssueCount:              o.IssueCount,
+		IssueTotal:              o.IssueTotal,
 
 		ConfirmedFormatted:          usd(o.ConfirmedUSDMinor),
 		OverConfirmedFormatted:      usd(o.OverConfirmedUSDMinor),
@@ -366,6 +368,12 @@ func TranslateSavingsError(err error) error {
 		return nil
 	}
 	switch {
+	// Both wrap ErrInvalidInput in the domain; translated so that a handler
+	// can match either the specific sentinel or ErrInvalidInput.
+	case errors.Is(err, savings.ErrReasonRequired):
+		return translateError(web.ErrSavingsReasonRequired, translateError(web.ErrInvalidInput, err))
+	case errors.Is(err, savings.ErrExceedsMovement):
+		return translateError(web.ErrSavingsExceedsMovement, translateError(web.ErrInvalidInput, err))
 	case errors.Is(err, savings.ErrInvalidInput):
 		return translateError(web.ErrInvalidInput, err)
 	case errors.Is(err, savings.ErrNotFound):
@@ -408,6 +416,8 @@ func TranslateSavingsError(err error) error {
 		return translateError(web.ErrSavingsGoalNotAccepting, err)
 	case errors.Is(err, savings.ErrDistributionExceeded):
 		return translateError(web.ErrSavingsDistributionExceeded, err)
+	case errors.Is(err, savings.ErrNotLinkable):
+		return translateError(web.ErrSavingsNotLinkable, err)
 	default:
 		return err
 	}

@@ -30,10 +30,17 @@
         </a>
       </section>
 
-      <!-- Savings (M7.1): what the policy suggests setting aside. -->
+      <!-- Savings (M7): the fund and the month's savings. -->
       <section class="mobile-section">
+        {{ with .Savings }}
+        <div class="cashflow-grid">
+          <div class="cashflow-cell lcd"><span class="cashflow-label">Fondo reservado</span><span class="cashflow-value" data-fit>{{ formatAmount .Fund.ReservedFormatted }} USD</span></div>
+          <div class="cashflow-cell lcd"><span class="cashflow-label">USD libres</span><span class="cashflow-value" data-fit>{{ formatAmount .Fund.FreeFormatted }} USD</span></div>
+        </div>
+        {{ if .Fund.Overallocated }}<p class="net-worth-incomplete" role="status">Sobreasignado: {{ formatAmount .Fund.OverallocatedFormatted }} USD</p>{{ end }}
+        {{ end }}
         <a href="/mobile/ahorro" class="section-link">
-          <span>Ver ahorro sugerido</span>
+          <span>Ver ahorro</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="5" y1="12" x2="19" y2="12"></line>
             <polyline points="12 5 19 12 12 19"></polyline>

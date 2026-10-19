@@ -34,6 +34,7 @@ type FakeSavings struct {
 
 	fakeFundState
 	fakeGoalState
+	fakeLedgerState
 }
 
 // NewFakeSavings returns an empty stand-in: no policy, nothing suggested.
@@ -309,4 +310,45 @@ func (f *FakeSavings) SuggestDistribution(context.Context, string) ([]SavingsDis
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.Distribution, f.Err
+}
+
+// M7.4 stand-ins.
+type fakeLedgerState struct {
+	Impact       SavingsAccountImpact
+	ImpactCalls  []string // "accountID:amount"
+	Issues       []SavingsIssue
+	Acknowledged map[string]string
+	History      []SavingsFundMonth
+}
+
+func (f *FakeSavings) AccountImpact(_ context.Context, accountID int64, amount string) (SavingsAccountImpact, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ImpactCalls = append(f.ImpactCalls, strconv.FormatInt(accountID, 10)+":"+amount)
+	return f.Impact, f.Err
+}
+
+func (f *FakeSavings) ListIssues(context.Context) ([]SavingsIssue, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Issues, f.Err
+}
+
+func (f *FakeSavings) AcknowledgeIssue(_ context.Context, key, note string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ActionErr != nil {
+		return f.ActionErr
+	}
+	if f.Acknowledged == nil {
+		f.Acknowledged = make(map[string]string)
+	}
+	f.Acknowledged[key] = note
+	return nil
+}
+
+func (f *FakeSavings) FundHistory(context.Context) ([]SavingsFundMonth, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.History, f.Err
 }

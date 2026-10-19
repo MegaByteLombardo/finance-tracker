@@ -806,7 +806,9 @@ snapshot tables, background jobs and a JSON API.
 
 ---
 
-## M7 — Savings Fund & Goals · `IN PROGRESS`
+## M7 — Savings Fund & Goals · `CLOSED`
+
+**Closed:** 2026-10-18
 
 Replaces the M7 the roadmap called Credit & Debt, which becomes M8. The ledger
 says where the money is; M7 adds what the user means to do with it: a policy
@@ -819,7 +821,7 @@ closed on its own. The contract is [m7-contract.md](m7-contract.md).
 | M7.1 — Savings policy & suggestions | `CLOSED` (2026-10-18) |
 | M7.2 — Savings fund | `CLOSED` (2026-10-18) |
 | M7.3 — Savings goals | `CLOSED` (2026-10-18) |
-| M7.4 — Ledger integration & dashboard | `PLANNED` |
+| M7.4 — Ledger integration & dashboard | `CLOSED` (2026-10-18) |
 
 ### The rule the milestone hangs on
 
@@ -948,6 +950,51 @@ pausing and cancelling with money on two accounts; reallocations; target
 history; suggested contributions with and without a date. Desktop checked in a
 browser.
 
+### M7.4 delivered
+
+- **Expenses** (TD-086): the form shows the account's free USD and, when the
+  expense exceeds it, the shortfall; the user may pay with a goal's money
+  (`SPEND`, several goals at once), cover the shortfall with reserves and a
+  mandatory reason (`RELEASE`), or record it anyway. All atomic with the expense
+  and idempotent; never refused because of savings.
+- **Goal completion against a real expense**: the goal keeps its original
+  budget; the real cost and the deviation are shown.
+- **Transfers**: the backing of reserved money can move to the destination
+  (`REBACK`); a transfer never consumes savings.
+- **Reconciliation** (TD-087): overallocation, over-confirmation, corrected
+  linked expenses and archived backing, derived on every read; acknowledgements
+  that change no balance and keep the issue visible.
+- **History**: the fund month by month (contributions, withdrawals, net change,
+  closing balance) and each goal month by month; the policy's rate history.
+- **Dashboard**: a savings block in the desktop grid and a summary on mobile
+  Inicio, both absent until savings are in use.
+
+Schema 17 → 18 (00018), additive and reversible. The ledger gained
+`RecordExpenseTx` and `RecordTransferTx`, with no change of behaviour.
+
+### M7.4 verification
+
+`go vet` clean and `go test ./... -count=1` green; `-race` green in the Linux
+container. Against real SQLite: an expense within the free balance touching
+nothing; $300 against $200 free releasing $100 with a reason, and refused (with
+nothing recorded) without one; an unresolved expense kept, reported,
+acknowledged without changing the fund, and re-raised when the deficit grew;
+Travel $800 paid by an $800 expense with exactly one expense and the free
+balance unchanged, then completed; a $1,000 cost against an $800 budget showing
++$200; an expense over two goals atomic and idempotent; a VES expense refused
+USD savings; a corrected linked expense reported; a transfer moving the backing
+of two slices, idempotent, and a transfer without a plan reported; over-
+confirmation; the fund's and a goal's monthly history. The expense form and the
+dashboard were checked in a browser.
+
+### Not in M7
+
+Investments and their returns, bank synchronisation, automatic transfers or
+exchanges, detailed category budgets, push notifications, savings optimisers,
+predictions. Multi-currency savings: every reservation is in USD and backed by a
+USD account; a VES or EUR expense uses USD savings only through an explicit
+`FX_EXCHANGE` and a release; goals in another currency do not exist.
+
 ### Not in M7.1
 
 The expense and transfer integration, reconciliation of reserves, goal
@@ -972,7 +1019,7 @@ below has acceptance criteria yet, by design.
 | M6 | Historical Net Worth & Analytics Dashboard | `CLOSED` |
 | M6.5 | Weekly & Monthly Recap | `IN PROGRESS` |
 | — | Production Deployment, Private Access & Continuous Backup | `POSTPONED` |
-| M7 | Savings Fund & Goals | `IN PROGRESS` (M7.1–M7.3 closed) |
+| M7 | Savings Fund & Goals | `CLOSED` |
 | M8 | Credit & Debt | `PLANNED` |
 | M9 | Instalments & Calendar | `PLANNED` |
 | M10 | Hardening | `PLANNED` |

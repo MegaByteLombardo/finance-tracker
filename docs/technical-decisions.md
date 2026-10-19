@@ -2620,3 +2620,55 @@ redistributed by a rule the user did not choose.
 **Alternatives considered.** Rounding each line independently — the lines
 disagree with the total by a cent. Redistributing the excess proportionally —
 rejected at approval (decision 5).
+
+## TD-086 — A real movement is never refused because of savings; what it does to them is a plan applied in the same transaction
+
+**Status:** Accepted · **Milestone:** M7.4
+
+**Decision.** `application.RecordExpense` and `application.RecordTransfer` record
+the ledger movement and, in the same transaction, apply the user's savings plan:
+for an expense, `SPEND` for money a goal was for (no reason needed) and/or
+`RELEASE` with a mandatory reason for reserved money given back to cover it; for
+a transfer, one `REBACK` moving the backing of reserved money to the destination,
+net zero per goal. Every amount comes from a reservation on the movement's own
+USD account and together they never exceed the movement. A plan carries a
+request key: a replay returns the movement already recorded. Without a plan the
+movement is recorded exactly as before and, if the free balance did not cover
+it, the account is left overallocated — an issue (TD-087). The forms show the
+account's free USD and the shortfall through one htmx partial
+(`GET /savings/impact`), empty where nothing applies. The validation lives in
+`internal/savings`, not in a handler.
+
+**Rationale.** Finance Tracker records what happened; a bank account can be
+overdrawn and an expense that happened must be recordable (TD-043). Hiding the
+consequence would be the other failure, so it is shown, resolvable in the same
+action, or left as an explicit issue. Nothing reduces a goal the user did not
+name. A VES expense never consumes USD savings directly: the compatible path is
+an `FX_EXCHANGE` from the USD account (which then shows the shortfall) and a
+release with a reason.
+
+**Alternatives considered.** Blocking an expense beyond the free balance —
+refuses a real event. Reducing goals automatically, proportionally or by
+priority — decides for the user. Linking savings to VES expenses through an
+implicit conversion — a hidden FX decision.
+
+## TD-087 — Reconciliation issues are derived; an acknowledgement records that they were seen and resolves nothing
+
+**Status:** Accepted · **Milestone:** M7.4
+
+**Decision.** Issues are computed on every read: an overallocated account, an
+income with more confirmed than its live suggestion (or no longer eligible), a
+`SPEND` whose expense was corrected (no longer an expense, another account, or
+smaller than what it spent), and an archived account backing savings. The only
+stored fact is `savings_issue_acknowledgements(issue_key, note)`, keyed by the
+issue AND its amount. Acknowledging changes no balance; the issue stays listed
+(marked), the fund and the dashboard keep showing the overallocated figure, and a
+changed amount is a new, unacknowledged issue. Resolution is always an ordinary
+operation: release, move, reallocate, contribute.
+
+**Rationale.** A stored issue would be a copy of facts the ledger and the fund
+already state, and could disagree with them. Keying by amount means the user is
+never told "you acknowledged this" about a deficit larger than the one they saw.
+
+**Alternatives considered.** An issues table with a status — a second source of
+truth. Hiding acknowledged issues — the approval forbids it (§C).

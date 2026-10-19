@@ -40,7 +40,7 @@
   </div>
   {{ if $f.Overallocated }}
   <div class="alert alert-warning" role="alert">
-    <div><strong>Hay {{ formatAmount $f.OverallocatedFormatted }} USD reservados que el saldo ya no respalda.</strong> Un gasto o una transferencia posterior redujo la cuenta. Nada se ajusta solo: libera o mueve reservas cuando lo decidas.</div>
+    <div><strong>Hay {{ formatAmount $f.OverallocatedFormatted }} USD reservados que el saldo ya no respalda.</strong> Un gasto o una transferencia posterior redujo la cuenta. Nada se ajusta solo: libera o mueve reservas cuando lo decidas. <a href="/savings/issues">Ver reconciliación &rarr;</a></div>
   </div>
   {{ end }}
 </section>

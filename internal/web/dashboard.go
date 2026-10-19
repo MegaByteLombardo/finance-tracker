@@ -60,6 +60,8 @@ func handleDashboard(logger *slog.Logger, renderer *Renderer, svcs *Services) ht
 			data.History = loadHistory(r, logger, svcs, "/", dash, preset, chart)
 		}
 
+		data.Savings = loadSavingsSummary(r, logger, svcs)
+
 		pageData := PageData{
 			Title:     "Dashboard",
 			ActiveNav: NavDashboard,
@@ -70,4 +72,22 @@ func handleDashboard(logger *slog.Logger, renderer *Renderer, svcs *Services) ht
 			logger.Error("rendering dashboard", slog.Any("error", err))
 		}
 	}
+}
+
+// loadSavingsSummary reads the savings block of the dashboards. It is nil when
+// savings are not in use yet, or when they cannot be read: a dashboard never
+// fails because of the savings layer.
+func loadSavingsSummary(r *http.Request, logger *slog.Logger, svcs *Services) *SavingsOverview {
+	if svcs.Savings == nil {
+		return nil
+	}
+	o, err := svcs.Savings.Overview(r.Context())
+	if err != nil {
+		logger.Warn("loading the savings summary", slog.Any("error", err))
+		return nil
+	}
+	if !o.Policy.IsSet() && !o.Fund.CanRelease {
+		return nil
+	}
+	return &o
 }

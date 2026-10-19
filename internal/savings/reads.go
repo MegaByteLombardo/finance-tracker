@@ -400,6 +400,17 @@ func (s *Service) OverviewFor(ctx context.Context, from, to time.Time) (Overview
 			return err
 		}
 		out.UnsyncedCount = len(plan.Items)
+
+		issues, err := s.issuesTx(ctx, exec)
+		if err != nil {
+			return err
+		}
+		out.IssueTotal = len(issues)
+		for _, i := range issues {
+			if i.Acknowledged == nil {
+				out.IssueCount++
+			}
+		}
 		return nil
 	})
 	return out, err

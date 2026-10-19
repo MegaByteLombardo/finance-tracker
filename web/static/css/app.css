@@ -1936,3 +1936,15 @@ input[data-type="currency"] {
 .savings-close-form { display: grid; gap: var(--space-2); }
 .savings-lines { display: grid; gap: var(--space-2); margin-bottom: var(--space-4); }
 .savings-line { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: var(--space-3); align-items: center; }
+
+/* Savings impact beside a movement's amount (M7.4). */
+.savings-impact { margin: 0 0 var(--space-5); padding: var(--space-3) var(--space-4); border: 1px solid var(--panel-bevel-lo); border-radius: var(--radius-md); }
+.savings-impact-head { margin: 0 0 var(--space-3); font-size: 0.875rem; color: var(--text-body); }
+.savings-impact .alert { margin-bottom: var(--space-3); }
+.savings-impact-plan summary { cursor: pointer; font-weight: 650; margin-bottom: var(--space-3); }
+.savings-impact-purpose { display: grid; gap: var(--space-2); margin-bottom: var(--space-3); font-size: 0.875rem; }
+.dash-savings .savings-kpis { margin-top: 0; }
+.dash-savings { display: grid; gap: var(--space-3); }
+.dash-savings .dash-section-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--space-2); }
+.dash-savings .card-title { margin: 0; }
+.savings-ack-form { display: grid; gap: var(--space-2); margin-top: var(--space-2); }

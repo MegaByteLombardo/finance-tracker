@@ -7,6 +7,7 @@
   <div class="page-actions">
     <a href="/savings/fund" class="btn btn-secondary">Fondo</a>
     <a href="/savings/goals" class="btn btn-secondary">Metas</a>
+    <a href="/savings/issues" class="btn btn-secondary">Reconciliación</a>
     <a href="/savings/policy" class="btn btn-secondary">Política y elegibilidad</a>
     {{ if and .Available .Overview.UnsyncedCount }}<a href="/savings/sync" class="btn btn-primary">Sincronizar ({{ .Overview.UnsyncedCount }})</a>{{ end }}
   </div>
@@ -108,6 +109,11 @@
     <div><strong>{{ $o.RateChangedCount }} sugerencia{{ if ne $o.RateChangedCount 1 }}s{{ end }} con tasa corregida</strong>{{ template "help" ($view.Help "rate-changed") }}: se mantienen como se calcularon hasta que las revalores.</div>
   </div>
   {{ end }}
+  {{ if $o.IssueCount }}
+  <div class="alert alert-warning" role="alert">
+    <div><strong>{{ $o.IssueCount }} incidencia{{ if ne $o.IssueCount 1 }}s{{ end }} de reconciliación</strong>: reservas sin respaldo, confirmado de más o gastos vinculados modificados. <a href="/savings/issues">Revisar &rarr;</a></div>
+  </div>
+  {{ end }}
   {{ if $o.UnsyncedCount }}
   <div class="alert alert-info" role="status">
     <div><strong>{{ $o.UnsyncedCount }} ingreso{{ if ne $o.UnsyncedCount 1 }}s{{ end }} por sincronizar</strong>{{ template "help" ($view.Help "sync") }}. <a href="/savings/sync">Revisar antes de aplicar &rarr;</a></div>
@@ -133,6 +139,29 @@
       {{ end }}
     </ul>
   </div>
+</article>
+{{ end }}
+
+{{ if .History }}
+<article class="card" aria-labelledby="history-title" style="margin-bottom: var(--space-6);">
+  <div class="card-header">
+    <h2 id="history-title" class="card-title">Evolución del fondo{{ template "help" ($view.Help "fund-movement") }}</h2>
+    <span class="dash-section-meta">por mes de cada operación</span>
+  </div>
+  <table class="data-table">
+    <thead><tr><th>Mes</th><th class="text-right">Aportes</th><th class="text-right">Retiros</th><th class="text-right">Variación neta</th><th class="text-right">Reservado al cierre</th></tr></thead>
+    <tbody>
+      {{ range .History }}
+      <tr>
+        <td>{{ spanishDate .Month }}</td>
+        <td class="text-right savings-figure">{{ formatAmount .ContributionsFormatted }}</td>
+        <td class="text-right savings-figure">{{ formatAmount .WithdrawalsFormatted }}</td>
+        <td class="text-right savings-figure">{{ formatAmount .NetFormatted }}</td>
+        <td class="text-right savings-figure"><strong>{{ formatAmount .ClosingFormatted }}</strong></td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
 </article>
 {{ end }}
 

@@ -72,7 +72,7 @@ func (s *Service) inReadTx(ctx context.Context, fn func(exec database.DBTX) erro
 func normalizeReason(raw string) (string, error) {
 	reason := strings.TrimSpace(raw)
 	if reason == "" {
-		return "", fmt.Errorf("%w: a reason is required", ErrInvalidInput)
+		return "", fmt.Errorf("%w: %w", ErrInvalidInput, ErrReasonRequired)
 	}
 	if len([]rune(reason)) > 255 {
 		return "", fmt.Errorf("%w: the reason is longer than 255 characters", ErrInvalidInput)

@@ -82,6 +82,15 @@ var (
 	// ErrRateUnchanged means a revaluation was asked for but the rate the
 	// suggestion used is still the one in force on its date.
 	ErrRateUnchanged = errors.New("the exchange rate of the income's date has not changed")
+
+	// ErrReasonRequired means a decision that must explain itself -- a release,
+	// an exception, an override -- came without a reason. It is always wrapped
+	// together with ErrInvalidInput.
+	ErrReasonRequired = errors.New("a reason is required")
+
+	// ErrExceedsMovement means more savings were assigned to a movement than
+	// the movement's own amount. Wrapped together with ErrInvalidInput.
+	ErrExceedsMovement = errors.New("the savings exceed the movement")
 )
 
 // PolicyVersion is one rate of the savings policy and the day it starts.
@@ -325,6 +334,11 @@ type Overview struct {
 
 	// UnsyncedCount is how many incomes the sync preview would change.
 	UnsyncedCount int
+
+	// IssueCount is how many reconciliation issues are not acknowledged, and
+	// IssueTotal how many there are (M7.4).
+	IssueCount int
+	IssueTotal int
 }
 
 // Ratio is basis points, with Defined false for a ratio over nothing.

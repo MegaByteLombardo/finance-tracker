@@ -196,6 +196,72 @@ func (s *Service) UpdateTransaction(
 	return view, nil
 }
 
+// RecordExpense records an expense and, in the same transaction, what it does
+// to savings (M7.4, TD-086): money of a goal it was for, or reserved money
+// released -- with a reason -- to cover it. With an empty plan it is exactly
+// the ledger's RecordExpense.
+//
+// The expense is never refused because of savings. An expense the free balance
+// does not cover, recorded without a plan, leaves the account overallocated --
+// an issue the savings screens show until the user resolves it.
+//
+// A plan's request key makes the whole action idempotent: submitted twice, it
+// returns the expense already recorded and writes nothing.
+func (s *Service) RecordExpense(
+	ctx context.Context, in ledger.RecordExpenseInput, plan savings.ExpensePlan,
+) (ledger.TransactionView, error) {
+	var view ledger.TransactionView
+	err := s.inTx(ctx, "recording an expense", func(exec database.DBTX) error {
+		if !plan.Empty() {
+			if id, replay, err := s.savings.ReplayedTransactionTx(ctx, exec, plan.RequestKey); err != nil {
+				return err
+			} else if replay {
+				var gerr error
+				view, gerr = ledger.NewRepository(exec).GetView(ctx, id)
+				return gerr
+			}
+		}
+		var err error
+		if view, err = ledger.RecordExpenseTx(ctx, exec, in); err != nil {
+			return err
+		}
+		return s.savings.ApplyExpensePlanTx(ctx, exec, view.ID, plan)
+	})
+	if err != nil {
+		return ledger.TransactionView{}, err
+	}
+	return view, nil
+}
+
+// RecordTransfer records a transfer and, in the same transaction, moves the
+// backing of the reserved money the user chose from its source to its
+// destination (M7.4). A transfer never consumes savings by itself.
+func (s *Service) RecordTransfer(
+	ctx context.Context, in ledger.RecordTransferInput, plan savings.TransferPlan,
+) (ledger.TransactionView, error) {
+	var view ledger.TransactionView
+	err := s.inTx(ctx, "recording a transfer", func(exec database.DBTX) error {
+		if !plan.Empty() {
+			if id, replay, err := s.savings.ReplayedTransactionTx(ctx, exec, plan.RequestKey); err != nil {
+				return err
+			} else if replay {
+				var gerr error
+				view, gerr = ledger.NewRepository(exec).GetView(ctx, id)
+				return gerr
+			}
+		}
+		var err error
+		if view, err = ledger.RecordTransferTx(ctx, exec, in); err != nil {
+			return err
+		}
+		return s.savings.ApplyTransferPlanTx(ctx, exec, view.ID, plan)
+	})
+	if err != nil {
+		return ledger.TransactionView{}, err
+	}
+	return view, nil
+}
+
 func (s *Service) inTx(ctx context.Context, what string, fn func(exec database.DBTX) error) (err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

@@ -448,8 +448,10 @@ then frozen in the suggestion (TD-078).
 Cross-domain workflows, and nothing else. Two kinds today: `OpenAccount`, which
 creates an account and records its opening balance in a single `sql.Tx`; and
 `RecordIncome` / `UpdateTransaction`, which write an income through the ledger
-and bring its savings suggestion in line in the same transaction (TD-080). The
-web adapter routes every income write through them.
+and bring its savings suggestion in line in the same transaction (TD-080); and
+`RecordExpense` / `RecordTransfer`, which record a movement and apply the user's
+savings plan with it (TD-086). The web adapter routes every income, expense and
+transfer creation through them.
 
 A workflow earns a place here by coordinating two domains atomically. Pass-through
 wrappers do not belong in it, and neither does anything a single domain service

@@ -177,6 +177,12 @@ type SavingsService interface {
 	Reallocate(ctx context.Context, in SavingsReallocateInput) (SavingsOperation, error)
 	// SuggestDistribution splits a USD amount ("160.00") among the active goals.
 	SuggestDistribution(ctx context.Context, amount string) ([]SavingsDistributionLine, error)
+
+	// M7.4: the ledger meets the fund.
+	AccountImpact(ctx context.Context, accountID int64, amount string) (SavingsAccountImpact, error)
+	ListIssues(ctx context.Context) ([]SavingsIssue, error)
+	AcknowledgeIssue(ctx context.Context, key, note string) error
+	FundHistory(ctx context.Context) ([]SavingsFundMonth, error)
 }
 
 // Services bundles all services needed by the presentation layer.

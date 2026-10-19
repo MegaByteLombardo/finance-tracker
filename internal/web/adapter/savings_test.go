@@ -253,3 +253,92 @@ func TestGoalsThroughTheWebLayer(t *testing.T) {
 		t.Errorf("completing a permanent goal returned %v", err)
 	}
 }
+
+// An expense through the web layer, paid with a goal: one expense, the goal
+// emptied, the issue raised by an uncovered expense, and its acknowledgement.
+func TestExpensesWithSavingsThroughTheWebLayer(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	svcs := newTestServices(t, dbtest.New(t))
+
+	food, err := svcs.Categories.Create(ctx, web.CreateCategoryInput{Name: "Viajes", Type: web.CategoryTypeExpense})
+	if err != nil {
+		t.Fatalf("category: %v", err)
+	}
+	today := database.FormatDate(database.Today())
+	opening := "1000.00"
+	opened, err := svcs.Application.OpenAccount(ctx, web.OpenAccountInput{
+		Account:        web.CreateAccountInput{Name: "Efectivo", Type: web.AccountTypeCash, CurrencyCode: "USD"},
+		OpeningBalance: &opening, OpeningBalanceDate: today,
+	})
+	if err != nil {
+		t.Fatalf("account: %v", err)
+	}
+	travel, err := svcs.Savings.CreateGoal(ctx, web.SavingsGoalInput{Name: "Viaje", Type: "ONE_TIME", Target: "800"})
+	if err != nil {
+		t.Fatalf("goal: %v", err)
+	}
+	if _, err := svcs.Savings.Reserve(ctx, web.SavingsReserveInput{RequestKey: "adapter-exp-000000000001",
+		AccountID: opened.Account.ID, GoalID: &travel, Amount: "800"}); err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+
+	impact, err := svcs.Savings.AccountImpact(ctx, opened.Account.ID, "900")
+	if err != nil {
+		t.Fatalf("AccountImpact: %v", err)
+	}
+	if !impact.HasShortfall || impact.ShortfallFormatted != "700.00" || len(impact.Slices) != 1 {
+		t.Errorf("impact = %+v", impact)
+	}
+
+	if _, err := svcs.Ledger.RecordExpense(ctx, web.RecordExpenseInput{
+		AccountID: opened.Account.ID, CategoryID: food.ID, Amount: "800", PaymentMethodID: 1, EffectiveDate: today,
+		Savings: &web.SavingsExpensePlan{RequestKey: "adapter-exp-000000000002",
+			Spend: []web.SavingsUse{{GoalID: &travel, Amount: "800"}}},
+	}); err != nil {
+		t.Fatalf("an expense paid with a goal: %v", err)
+	}
+	g, err := svcs.Savings.GetGoal(ctx, travel)
+	if err != nil {
+		t.Fatalf("GetGoal: %v", err)
+	}
+	if g.ReservedFormatted != "0.00" || len(g.LinkedExpenses) != 1 || g.DeviationFormatted != "0.00" {
+		t.Errorf("goal = %+v", g)
+	}
+
+	_, err = svcs.Ledger.RecordExpense(ctx, web.RecordExpenseInput{
+		AccountID: opened.Account.ID, CategoryID: food.ID, Amount: "10", PaymentMethodID: 1, EffectiveDate: today,
+		Savings: &web.SavingsExpensePlan{RequestKey: "adapter-exp-000000000003", Release: []web.SavingsUse{{Amount: "5"}}},
+	})
+	if !errors.Is(err, web.ErrSavingsReasonRequired) || !errors.Is(err, web.ErrInvalidInput) {
+		t.Errorf("a release without a reason returned %v", err)
+	}
+
+	if _, err := svcs.Savings.Reserve(ctx, web.SavingsReserveInput{RequestKey: "adapter-exp-000000000004",
+		AccountID: opened.Account.ID, Amount: "150"}); err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	if _, err := svcs.Ledger.RecordExpense(ctx, web.RecordExpenseInput{
+		AccountID: opened.Account.ID, CategoryID: food.ID, Amount: "100", PaymentMethodID: 1, EffectiveDate: today,
+	}); err != nil {
+		t.Fatalf("an uncovered expense was refused: %v", err)
+	}
+	issues, err := svcs.Savings.ListIssues(ctx)
+	if err != nil || len(issues) != 1 || issues[0].KindLabel != "Sobreasignación" || issues[0].AmountFormatted != "50.00" {
+		t.Fatalf("issues = %+v (%v)", issues, err)
+	}
+	if err := svcs.Savings.AcknowledgeIssue(ctx, issues[0].Key, "Luego"); err != nil {
+		t.Fatalf("AcknowledgeIssue: %v", err)
+	}
+	o, err := svcs.Savings.Overview(ctx)
+	if err != nil {
+		t.Fatalf("Overview: %v", err)
+	}
+	if o.IssueCount != 0 || o.IssueTotal != 1 || !o.Fund.Overallocated {
+		t.Errorf("after acknowledging: %d/%d, overallocated %v", o.IssueCount, o.IssueTotal, o.Fund.Overallocated)
+	}
+	months, err := svcs.Savings.FundHistory(ctx)
+	if err != nil || len(months) != 1 {
+		t.Errorf("history = %+v (%v)", months, err)
+	}
+}

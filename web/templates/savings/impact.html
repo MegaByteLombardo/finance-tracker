@@ -1,0 +1,64 @@
+{{/* What an outflow does to the reservations of its account (M7.4). Loaded
+     beside the amount of the expense and transfer forms, desktop and mobile.
+     Empty when the account is not in USD or holds no reservation: nothing is
+     shown where nothing applies. The movement is never refused because of
+     savings; this only lets the user say what it does to them. */}}
+{{ define "savings_impact" }}
+{{ if and .Impact.Applies .Impact.HasReservations }}
+<div class="savings-impact">
+  <input type="hidden" name="savings_key" value="{{ .Key }}">
+  <p class="savings-impact-head">
+    {{ .Impact.AccountName }}: <strong>{{ formatAmount .Impact.FreeFormatted }} USD libres</strong>
+    · {{ formatAmount .Impact.ReservedFormatted }} USD reservados de {{ formatAmount .Impact.BalanceFormatted }}
+  </p>
+  {{ if eq .Mode "expense" }}
+    {{ if .Impact.HasShortfall }}
+    <div class="alert alert-warning" role="alert">
+      <div>Este gasto supera lo libre en <strong>{{ formatAmount .Impact.ShortfallFormatted }} USD</strong>.
+      Puedes cubrir la diferencia con reservas, indicando el motivo, o registrarlo igual: el gasto se guarda y
+      la cuenta queda sobreasignada, como una incidencia visible en Ahorro.</div>
+    </div>
+    {{ end }}
+    <details class="savings-impact-plan" {{ if .Impact.HasShortfall }}open{{ end }}>
+      <summary>Usar ahorro en este gasto</summary>
+      <div class="savings-impact-purpose">
+        <label><input type="radio" name="savings_purpose" value="goal" {{ if not .Impact.HasShortfall }}checked{{ end }}> Es el gasto para el que ahorré (una meta)</label>
+        <label><input type="radio" name="savings_purpose" value="cover" {{ if .Impact.HasShortfall }}checked{{ end }}> Cubrir con reservas un gasto extraordinario</label>
+      </div>
+      <div class="savings-lines">
+        {{ range .Impact.Slices }}
+        <label class="savings-line">
+          <span>{{ if .GoalID }}{{ .GoalName }}{{ else }}Sin asignar{{ end }} <span class="text-muted">· {{ formatAmount .ReservedFormatted }} reservados</span></span>
+          <input type="hidden" name="use_goal" value="{{ with .GoalID }}{{ . }}{{ end }}">
+          <input type="text" name="use_amount" class="form-control" inputmode="decimal" placeholder="0.00" aria-label="Importe a usar">
+        </label>
+        {{ end }}
+      </div>
+      <input type="text" name="savings_reason" class="form-control" maxlength="255"
+             placeholder="Motivo (obligatorio para cubrir un gasto extraordinario)" aria-label="Motivo">
+      <p class="form-help">Ningún importe se descuenta solo: usa solo lo que indiques aquí.</p>
+    </details>
+  {{ else }}
+    {{ if .Impact.HasShortfall }}
+    <div class="alert alert-warning" role="alert">
+      <div>La transferencia deja la cuenta con <strong>{{ formatAmount .Impact.ShortfallFormatted }} USD</strong> menos de lo reservado.
+      Puedes mover el respaldo de esas reservas a la cuenta de destino.</div>
+    </div>
+    {{ end }}
+    <details class="savings-impact-plan" {{ if .Impact.HasShortfall }}open{{ end }}>
+      <summary>Mover reservas con la transferencia</summary>
+      <div class="savings-lines">
+        {{ range .Impact.Slices }}
+        <label class="savings-line">
+          <span>{{ if .GoalID }}{{ .GoalName }}{{ else }}Sin asignar{{ end }} <span class="text-muted">· {{ formatAmount .ReservedFormatted }} reservados</span></span>
+          <input type="hidden" name="move_goal" value="{{ with .GoalID }}{{ . }}{{ end }}">
+          <input type="text" name="move_amount" class="form-control" inputmode="decimal" placeholder="0.00" aria-label="Importe a mover">
+        </label>
+        {{ end }}
+      </div>
+      <p class="form-help">Una transferencia nunca consume ahorro: solo cambia qué cuenta lo respalda.</p>
+    </details>
+  {{ end }}
+</div>
+{{ end }}
+{{ end }}

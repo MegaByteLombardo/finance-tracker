@@ -379,6 +379,11 @@ type RecordExpenseInput struct {
 	PaymentMethodID int64
 	Description     *string
 	EffectiveDate   string
+
+	// Savings, when set, is what the expense does to savings, committed in
+	// the same transaction (M7.4). The expense is never refused because of
+	// savings; without a plan, an uncovered expense is reported as an issue.
+	Savings *SavingsExpensePlan
 }
 
 type CreatePaymentMethodInput struct {
@@ -429,6 +434,10 @@ type RecordTransferInput struct {
 	Amount               string
 	Description          *string
 	EffectiveDate        string
+
+	// Savings, when set, moves the backing of reserved money to the
+	// destination in the same transaction (M7.4).
+	Savings *SavingsTransferPlan
 }
 
 // UpdateTransferInput replaces every editable field of a transfer.

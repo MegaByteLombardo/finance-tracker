@@ -78,6 +78,16 @@ type SavingsGoal struct {
 	Accounts        []SavingsGoalAccount
 	TargetRevisions []SavingsGoalTarget
 	Operations      []SavingsOperation
+	Months          []SavingsGoalMonth
+
+	// The real cost (M7.4), against the ORIGINAL budget.
+	LinkedExpenses      []SavingsLinkedExpense
+	SpentFormatted      string
+	ActualCostFormatted string
+	// DeviationFormatted is signed; empty when no expense is linked.
+	DeviationFormatted string
+	HasDeviation       bool
+	CostOverBudget     bool
 }
 
 // SavingsGoalInput creates or edits a goal.

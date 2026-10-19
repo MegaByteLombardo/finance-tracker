@@ -284,9 +284,9 @@ and payment methods; internal same-currency transfers.
 - **Indicators are fixed-rule comparisons, not advice** (TD-073). No score, no
   weights, no recommendation text.
 
-**M7 (in progress): Savings Fund & Goals.** Read
-[`docs/m7-contract.md`](docs/m7-contract.md). M7.1 (policy & suggestions) is
-delivered, M7.2 (savings fund) and M7.3 (goals) delivered.
+**M7 (closed): Savings Fund & Goals.** Read
+[`docs/m7-contract.md`](docs/m7-contract.md): policy and suggestions (M7.1),
+the fund (M7.2), goals (M7.3), ledger integration and reconciliation (M7.4).
 
 - **Four things are never confused:** income recorded (the ledger), saving
   suggested (M7.1), money reserved (M7.2), money assigned to a goal (M7.3). M7
@@ -318,6 +318,11 @@ delivered, M7.2 (savings fund) and M7.3 (goals) delivered.
   lifecycle** (TD-084). FUNDED is derived and is never COMPLETED; closing a goal
   moves its money to unallocated, never releases it. Distribution is exact,
   capped by need, rest unallocated (TD-085).
+- **An expense or a transfer is never refused because of savings** (TD-086).
+  What it does to them is a plan (`SPEND`, `RELEASE` with a reason, `REBACK`)
+  applied in the same transaction by `internal/application`; without one, an
+  uncovered expense is an issue. **Issues are derived; an acknowledgement
+  changes no balance and hides nothing** (TD-087).
 - The policy's "tasa de ahorro objetivo" is **not** the recap's "tasa de ahorro".
 
 **Design overhaul (in progress): skeuomorphic instrument** (TD-071).

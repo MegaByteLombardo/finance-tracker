@@ -41,6 +41,11 @@ type PageData struct {
 // and internal/valuation computed and formatted. The handler adds nothing up and
 // the template formats nothing that is not already a string (docs/m6-contract.md).
 type DashboardView struct {
+	// Savings is the M7 block: the fund and the month's suggested and
+	// confirmed savings. Nil when no policy, goal or reservation exists, or
+	// when it could not be read -- the dashboard never fails because of it.
+	Savings *SavingsOverview
+
 	// Analytics is the M6 dashboard: today's net worth and its breakdown, its
 	// history over the period, the change, the cash flow and the spending.
 	Analytics DashboardAnalytics

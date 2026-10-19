@@ -156,9 +156,12 @@ func (a *ledgerAdapter) RecordIncome(ctx context.Context, in web.RecordIncomeInp
 }
 
 func (a *ledgerAdapter) RecordExpense(ctx context.Context, in web.RecordExpenseInput) (web.TransactionView, error) {
-	view, err := a.svc.RecordExpense(ctx, toDomainRecordExpenseInput(in))
+	// Through the application workflow: an expense and what it does to
+	// savings commit together (M7.4). Without a plan it is the ledger's
+	// RecordExpense, unchanged.
+	view, err := a.app.RecordExpense(ctx, toDomainRecordExpenseInput(in), toDomainExpensePlan(in.Savings))
 	if err != nil {
-		return web.TransactionView{}, TranslateLedgerError(err)
+		return web.TransactionView{}, translateMovementError(err)
 	}
 	return *toWebTransactionView(&view), nil
 }
@@ -172,9 +175,9 @@ func (a *ledgerAdapter) RecordOpeningBalance(ctx context.Context, in web.RecordO
 }
 
 func (a *ledgerAdapter) RecordTransfer(ctx context.Context, in web.RecordTransferInput) (web.TransactionView, error) {
-	view, err := a.svc.RecordTransfer(ctx, toDomainRecordTransferInput(in))
+	view, err := a.app.RecordTransfer(ctx, toDomainRecordTransferInput(in), toDomainTransferPlan(in.Savings))
 	if err != nil {
-		return web.TransactionView{}, TranslateLedgerError(err)
+		return web.TransactionView{}, translateMovementError(err)
 	}
 	return *toWebTransactionView(&view), nil
 }
@@ -395,4 +398,13 @@ func New(db *sql.DB, backups *backup.Service, rates *fx.Service) *web.Services {
 		// M7.1. The savings policy and the suggestion of each eligible income.
 		Savings: &savingsAdapter{svc: savingsService},
 	}
+}
+
+// translateMovementError translates what recording a movement with a savings
+// plan can fail with: the ledger's errors first, then the fund's.
+func translateMovementError(err error) error {
+	if translated := TranslateLedgerError(err); translated != err {
+		return translated
+	}
+	return TranslateSavingsError(err)
 }

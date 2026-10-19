@@ -89,6 +89,12 @@
       {{ end }}
       <div class="form-help">Positive amount. The transfer subtracts from source and adds to destination equally.</div>
     </div>
+    <!-- Savings (M7.4): reserved money whose backing can move with the transfer. -->
+    <div id="savings-impact-container"
+         hx-get="/savings/impact"
+         hx-trigger="load, change from:#source_account_id, keyup changed delay:500ms from:#amount"
+         hx-include="closest form"
+         hx-swap="innerHTML"></div>
 
     <!-- Effective Date -->
     <div class="form-group">

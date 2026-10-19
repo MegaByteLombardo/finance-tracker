@@ -208,6 +208,17 @@ nothing). You can contribute, withdraw with a reason, move money between goals,
 pause, complete or cancel; whatever a closed goal still holds stays reserved,
 unassigned. Changing a target keeps the original in its history.
 
+When you record an **expense** from a USD account, the form shows how much of
+that account is free. If the expense is what a goal was for, say so and its
+money pays for it — the expense is recorded once, and the goal keeps its
+original budget so you can see what it really cost. If an expense exceeds the
+free money, you can cover the difference with reserves (with a reason) or record
+it anyway; it is never blocked. A **transfer** can take the backing of reserved
+money with it. **Reconciliación** lists what no longer adds up — reserved money
+an account no longer holds, more confirmed than suggested, a linked expense you
+edited — and lets you note that you have seen it, which changes nothing until
+you resolve it. The dashboard shows the fund once you use it.
+
 ### Mobile
 
 Open <http://localhost:8080/mobile> on your phone, on the same network. It has

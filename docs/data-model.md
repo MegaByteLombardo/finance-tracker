@@ -1199,6 +1199,17 @@ Added by `ALTER TABLE ... ADD COLUMN goal_id INTEGER REFERENCES savings_goals(id
 with a NULL default, so every reservation made before goals existed stays
 unallocated. NULL is the fund's unallocated part. Indexed.
 
+### `savings_issue_acknowledgements` *(M7.4)*
+
+| Column | Type | Null | Constraints |
+| --- | --- | --- | --- |
+| `issue_key` | `TEXT` | NOT NULL | **PRIMARY KEY**, 1–120; names the issue and its amount |
+| `note` | `TEXT` | NOT NULL | 1–255 |
+| `created_at` | `TEXT` | NOT NULL | timestamp |
+
+The issues themselves are derived and stored nowhere (TD-087). An
+acknowledgement changes no balance.
+
 ---
 
 ## The net worth is not in this document

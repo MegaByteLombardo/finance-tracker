@@ -10,7 +10,7 @@ separately:
 | **M7.1** | Savings policy & suggestions | Delivered (this document, §1–§9) |
 | M7.2 | Savings fund: reservations, partial confirmation, availability | Delivered (§11) |
 | M7.3 | Goals: permanent and one-time, distribution, withdrawals | Delivered (§12) |
-| M7.4 | Ledger integration (expenses, transfers), reconciliation, dashboard | Planned |
+| M7.4 | Ledger integration (expenses, transfers), reconciliation, dashboard | Delivered (§13) |
 
 This document is the agreement between the backend and the presentation layer
 for what is built. It grows as each submilestone is approved.
@@ -334,10 +334,78 @@ confirmed is their sum.
 `POST /savings/goals/{id}/{pause,resume,complete,cancel}` (`request_key`,
 `note`); `POST /savings/reallocate`; mobile `/mobile/ahorro/metas[/{id}]`.
 
-## Not yet built
+## 13. M7.4 — The ledger meets the fund (TD-086, TD-087)
 
-Reservations, confirmation, the fund, goals, distribution, expense and transfer
-integration, reconciliation of reserves and the dashboard block — M7.2 to M7.4.
-No automatic importer of historical rates, no background job, no cache, no
-scheduled sync. No savings figure on `transactions`, and no rate on any
-transaction.
+**Never refused.** An expense or a transfer is recorded whatever it does to
+savings. `GET /savings/impact` (the form's own fields, by htmx) shows the
+account's free USD and the shortfall — `min(max(outflow − max(free, 0), 0),
+reserved)` — and the reservation slices it could use; empty for any account
+outside the fund or any other operation.
+
+| Plan | Operation | Rules |
+| --- | --- | --- |
+| Expense: the money was for this (`savings_purpose=goal`) | `SPEND`, linked to the expense | from slices of the expense's USD account; no reason needed |
+| Expense: cover an extraordinary expense (`cover`) | `RELEASE`, linked to the expense | reason mandatory, checked first |
+| Transfer: move the backing | `REBACK`, linked to the transfer | from the source's slices to the destination, net zero per goal; destination active |
+
+Σ uses ≤ the movement. Atomic with the movement (`application.RecordExpense`,
+`RecordTransfer`); idempotent on `savings_key` (suffixed per operation). Form
+fields: `use_goal` / `use_amount` (expense), `move_goal` / `move_amount`
+(transfer), `savings_purpose`, `savings_reason`, `savings_key`.
+
+**Goal cost.** `LinkedExpenses` = expenses with a `SPEND` for the goal;
+`SpentMinor` what the goal paid, `ActualCostMinor` their whole amount,
+`DeviationMinor = actual − original target`. The target is never changed.
+
+**Issues** (derived; key = kind + subject + amount):
+
+| Kind | When |
+| --- | --- |
+| `OVERALLOCATED` | an account's reserved money exceeds max(0, its balance today) |
+| `OVER_CONFIRMED` | confirmed for an income > its live suggestion, or confirmed with no live revision |
+| `SPEND_MISMATCH` | a `SPEND`'s expense is no longer an expense, moved account, or is smaller than what it spent |
+| `ARCHIVED_BACKING` | an archived account backs reserved money |
+
+`AcknowledgeIssue(key, note)` stores a note; nothing else changes. The fund and
+the dashboard keep the overallocated figure until it is resolved by an ordinary
+operation.
+
+**History.** `FundHistory()`: per month, contributions (`RESERVE`), withdrawals
+(`RELEASE` + `SPEND`), net, closing reserved balance — from one read of the daily
+deltas. Per goal: in, out, closing per month.
+
+**Routes:** `GET /savings/impact`; `GET /savings/issues`,
+`/mobile/ahorro/incidencias`; `POST /savings/issues/acknowledge`. The dashboard
+and mobile Inicio show the savings block once a policy or a reservation exists.
+
+## 14. Edge cases
+
+| # | Case | Behaviour |
+| --- | --- | --- |
+| 1 | VES income with no rate for its date | `PENDING_VALUATION`, no amount, never zero; valued in place when a rate ≤ its date exists |
+| 2 | VES income whose rate is corrected later | frozen valuation; `RateChanged` reported; `RevalueSuggestion` opens a new revision |
+| 3 | Income edited after its suggestion | new revision from the current facts; the old one `SUPERSEDED` |
+| 4 | Income "deleted" (corrected away) after a confirmation | revision `INVALIDATED`; reservations untouched; `OVER_CONFIRMED` issue |
+| 5 | Purchase of USD | an `FX_EXCHANGE`, never income; no suggestion |
+| 6 | Partial confirmation | the rest stays pending on the same suggestion |
+| 7 | Double click on a confirmation | the request key replays the operation |
+| 8 | Two reservations on one account at once | `BEGIN IMMEDIATE` + free balance read in the transaction: at most what is free |
+| 9 | USD account with too little free | reservation refused (`ErrInsufficientFree`) |
+| 10 | Expense causing overallocation | recorded; shortfall shown; release with reason, or an `OVERALLOCATED` issue |
+| 11 | USD transfer from an account with reserves | backing movable with `REBACK`; otherwise an issue on the source |
+| 12 | Goal already funded | gets nothing from a suggested distribution; the excess stays unallocated |
+| 13 | Goal cancelled with money | its money moves to unallocated in the same action |
+| 14 | Completed goal costing more than its target | real cost and deviation shown; target untouched |
+| 15 | Goal without a date | valid; no suggested monthly contribution |
+| 16 | Permanent goal used and refilled | FUNDED → PARTIAL after a withdrawal → FUNDED again; never COMPLETED |
+| 17 | Reallocation between goals | one `REALLOCATE`, net zero, history kept |
+| 18 | Rounding cents in a distribution | exact parts, largest remainder, capped parts never exceeded; Σ = amount |
+| 19 | Retroactive change of the savings rate | only the first version may start in the past |
+| 20 | Recomputing history without touching confirmations | revisions and the previewed sync never move a reservation |
+
+## Not in M7
+
+Investments, bank synchronisation, automatic transfers or exchanges, category
+budgets, notifications, optimisers and predictions. Savings in any currency but
+USD. No background job, no cache, no scheduled sync, no stored issue. No savings
+figure on `transactions`, and no rate on any transaction.

@@ -159,6 +159,8 @@ func handleCreateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 			Amount:               amount,
 			Description:          descPtr,
 			EffectiveDate:        effectiveDate,
+			// Reserved money whose backing moves with the transfer (M7.4).
+			Savings: transferPlanFromForm(r),
 		})
 
 		if txErr != nil {
@@ -177,6 +179,8 @@ func handleCreateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 				} else {
 					form.Errors[field] = "Selected account does not exist."
 				}
+			case savingsMovementError(txErr) != "":
+				form.Errors["general"] = savingsMovementError(txErr)
 			case errors.Is(txErr, ErrSameAccount):
 				form.Errors["destination_account_id"] = "Source and destination accounts must be different."
 			case errors.Is(txErr, ErrCurrencyMismatch):

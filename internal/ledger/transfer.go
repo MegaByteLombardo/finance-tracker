@@ -235,6 +235,19 @@ type resolvedTransfer struct {
 	description   *string
 }
 
+// RecordTransferTx is RecordTransfer without the transaction, so that a
+// transfer and the savings whose backing moves with it commit together (M7.4,
+// internal/application). The rules are RecordTransfer's.
+func RecordTransferTx(ctx context.Context, exec database.DBTX, in RecordTransferInput) (TransactionView, error) {
+	return recordTransferTx(ctx, exec, transferRequest{
+		sourceAccountID:      in.SourceAccountID,
+		destinationAccountID: in.DestinationAccountID,
+		amount:               in.Amount,
+		description:          in.Description,
+		effectiveDate:        in.EffectiveDate,
+	})
+}
+
 // recordTransferTx validates a request and writes the transaction and its two
 // movements through exec.
 //

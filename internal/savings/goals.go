@@ -111,6 +111,15 @@ type Goal struct {
 	Accounts        []GoalAccount
 	TargetRevisions []TargetRevision
 	Operations      []Operation
+	Months          []GoalMonth
+
+	// The real cost (M7.4): the expenses that spent the goal's money, what the
+	// goal paid of them, their whole amount, and that amount against the
+	// ORIGINAL budget. The target is never adjusted to match.
+	LinkedExpenses  []LinkedExpense
+	SpentMinor      int64
+	ActualCostMinor int64
+	DeviationMinor  *int64
 }
 
 // GoalInput creates or edits a goal.
@@ -208,6 +217,20 @@ func (s *Service) GetGoal(ctx context.Context, id int64) (Goal, error) {
 		}
 		if g.TargetRevisions, err = repo.TargetRevisions(ctx, id); err != nil {
 			return err
+		}
+		if g.Months, err = s.goalMonthsTx(ctx, exec, id); err != nil {
+			return err
+		}
+		if g.LinkedExpenses, err = linkedExpensesTx(ctx, exec, id); err != nil {
+			return err
+		}
+		for _, e := range g.LinkedExpenses {
+			g.SpentMinor += e.SpentMinor
+			g.ActualCostMinor += e.AmountMinor
+		}
+		if len(g.LinkedExpenses) > 0 {
+			deviation := g.ActualCostMinor - g.OriginalTargetUSDMinor
+			g.DeviationMinor = &deviation
 		}
 		g.Operations, err = repo.ListOperations(ctx,
 			`o.id IN (SELECT operation_id FROM savings_entries WHERE goal_id = ?)`, 0, id)

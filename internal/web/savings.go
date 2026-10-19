@@ -25,6 +25,8 @@ type SavingsView struct {
 	Suggestions []SavingsSuggestion
 	// Goals are the open goals: the distribution of the fund among them.
 	Goals []SavingsGoal
+	// History is the fund month by month (M7.4).
+	History []SavingsFundMonth
 
 	// Return is where the actions on this page come back to.
 	Return string
@@ -111,6 +113,9 @@ func handleSavings(logger *slog.Logger, renderer *Renderer, svcs *Services, mobi
 		}
 		if err == nil {
 			view.Goals, err = svcs.Savings.ListGoals(r.Context(), false)
+		}
+		if err == nil {
+			view.History, err = svcs.Savings.FundHistory(r.Context())
 		}
 		if err != nil {
 			logger.Error("loading the savings overview", slog.Any("error", err))
@@ -470,6 +475,8 @@ func savingsAlert(q url.Values) *FlashAlert {
 		return &FlashAlert{Type: "success", Message: "Meta cancelada. Su dinero quedó reservado sin asignar."}
 	case "reallocated":
 		return &FlashAlert{Type: "success", Message: "Dinero movido. El total reservado no cambia."}
+	case "acknowledged":
+		return &FlashAlert{Type: "success", Message: "Incidencia reconocida. Sigue visible, y los saldos no cambian, hasta que la resuelvas."}
 	case "reserved":
 		return &FlashAlert{Type: "success", Message: "Ahorro reservado. El dinero sigue en su cuenta; solo quedó marcado."}
 	case "released":

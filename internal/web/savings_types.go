@@ -199,6 +199,10 @@ type SavingsOverview struct {
 	PendingByCurrency     []SavingsCurrencyAmount
 	RateChangedCount      int
 	UnsyncedCount         int
+
+	// IssueCount is the unacknowledged reconciliation issues; IssueTotal all.
+	IssueCount int
+	IssueTotal int
 }
 
 // SavingsIncomeOverride is an explicit exception for one income.
