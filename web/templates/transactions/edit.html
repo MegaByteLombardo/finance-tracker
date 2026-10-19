@@ -5,6 +5,7 @@
     <p class="page-subtitle">Update movement details in the ledger</p>
   </div>
   <div class="page-actions">
+    {{ if eq .Type "INCOME" }}<a href="/savings/incomes/{{ .ID }}" class="btn btn-secondary">Ahorro de este ingreso</a>{{ end }}
     <a href="/transactions" class="btn btn-secondary">&larr; Back to Transactions</a>
   </div>
 </div>

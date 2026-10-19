@@ -506,6 +506,98 @@ func (r *Repository) ListExpenses(ctx context.Context, from, to time.Time) (_ []
 	return items, nil
 }
 
+// incomeQuery reads INCOME transactions with the one movement each has. The
+// WHERE clause names what it ACCEPTS (TD-045): only an income is an income, and
+// a type added later is not one by default.
+const incomeQuery = `
+	SELECT t.id, t.effective_date, t.description, t.category_id, cat.name,
+	       a.id, a.name, a.currency_code, cur.minor_unit,
+	       SUM(m.amount_minor)
+	  FROM transactions t
+	  JOIN account_movements m ON m.transaction_id = t.id
+	  JOIN accounts a          ON a.id = m.account_id
+	  JOIN currencies cur      ON cur.code = a.currency_code
+	  LEFT JOIN categories cat ON cat.id = t.category_id
+	 WHERE t.transaction_type IN ('INCOME')`
+
+const incomeGroupBy = `
+	 GROUP BY t.id, t.effective_date, t.description, t.category_id, cat.name,
+	          a.id, a.name, a.currency_code, cur.minor_unit`
+
+// ListIncomesSince returns every income dated on or after a day, oldest first --
+// future-dated ones included, because a savings suggestion is made when an
+// income is recorded, not when its date arrives.
+func (r *Repository) ListIncomesSince(ctx context.Context, from time.Time) (_ []IncomeItem, err error) {
+	rows, err := r.db.QueryContext(ctx,
+		incomeQuery+` AND t.effective_date >= ?`+incomeGroupBy+` ORDER BY t.effective_date, t.id`,
+		database.FormatDate(from))
+	if err != nil {
+		return nil, fmt.Errorf("listing incomes: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("closing income rows: %w", cerr))
+		}
+	}()
+
+	items := make([]IncomeItem, 0)
+	for rows.Next() {
+		item, err := scanIncome(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating incomes: %w", err)
+	}
+	return items, nil
+}
+
+// GetIncome returns one income, or ErrNotFound when the transaction does not
+// exist or is not an INCOME.
+func (r *Repository) GetIncome(ctx context.Context, id int64) (IncomeItem, error) {
+	item, err := scanIncome(r.db.QueryRowContext(ctx, incomeQuery+` AND t.id = ?`+incomeGroupBy, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return IncomeItem{}, fmt.Errorf("income %d: %w", id, ErrNotFound)
+	}
+	return item, err
+}
+
+func scanIncome(s scanner) (IncomeItem, error) {
+	var (
+		item         IncomeItem
+		date         string
+		description  sql.NullString
+		categoryID   sql.NullInt64
+		categoryName sql.NullString
+	)
+	if err := s.Scan(&item.TransactionID, &date, &description, &categoryID, &categoryName,
+		&item.AccountID, &item.AccountName, &item.CurrencyCode, &item.MinorUnit, &item.AmountMinor); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return IncomeItem{}, err
+		}
+		return IncomeItem{}, fmt.Errorf("reading income row: %w", err)
+	}
+	var err error
+	if item.Date, err = database.ParseDate(date); err != nil {
+		return IncomeItem{}, fmt.Errorf("reading the date of income %d: %w", item.TransactionID, err)
+	}
+	if description.Valid {
+		text := description.String
+		item.Description = &text
+	}
+	// As in ListFlows: the CHECK guarantees a category, and the NULL branch is
+	// read rather than assumed.
+	if categoryID.Valid {
+		item.CategoryID = categoryID.Int64
+	}
+	if categoryName.Valid {
+		item.CategoryName = categoryName.String
+	}
+	return item, nil
+}
+
 // scanner is satisfied by both *sql.Row and *sql.Rows.
 type scanner interface {
 	Scan(dest ...any) error

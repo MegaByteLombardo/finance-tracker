@@ -1,0 +1,51 @@
+{{ define "content" }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+
+    <main class="mobile-scrollable-content" id="main-mobile-content">
+      <div style="margin-bottom: 4px;">
+        <a href="/mobile/ahorro" class="section-link" aria-label="Volver a Ahorro">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          <span>Ahorro</span>
+        </a>
+      </div>
+
+      {{ with .Alert }}<p class="net-worth-incomplete" role="status">{{ .Message }}</p>{{ end }}
+
+      <header class="mobile-section">
+        <span class="section-eyebrow">Sincronizar</span>
+        <h1 class="section-title">{{ len .Plan.Items }} ingreso{{ if ne (len .Plan.Items) 1 }}s{{ end }} afectado{{ if ne (len .Plan.Items) 1 }}s{{ end }}</h1>
+        <p class="section-note">Vista previa: nada cambia hasta que confirmes, y solo los marcados.</p>
+      </header>
+
+      {{ if .Plan.Items }}
+      <form action="/savings/sync" method="POST">
+        <input type="hidden" name="return" value="{{ .Return }}">
+        <ul class="mobile-list">
+          {{ range .Plan.Items }}
+          <li class="mobile-list-item">
+            <label class="mobile-list-main">
+              <span class="mobile-list-title"><input type="checkbox" name="transaction_id" value="{{ .TransactionID }}" checked> {{ .ActionLabel }}</span>
+              <span class="mobile-list-subtitle">{{ formatDate .Date }} · {{ if .Description }}{{ derefString .Description }}{{ else }}{{ .CategoryName }}{{ end }}<br>{{ .Reason }}</span>
+            </label>
+            <span class="mobile-list-amount">{{ formatAmount .AmountFormatted }} {{ .CurrencyCode }}</span>
+          </li>
+          {{ end }}
+        </ul>
+        <section class="mobile-section">
+          <button type="submit" class="mobile-btn mobile-btn-primary">Aplicar a los marcados</button>
+        </section>
+      </form>
+      {{ else }}
+      <p class="section-note">Todo está al día.</p>
+      {{ end }}
+    </main>
+
+    {{ template "bottom_navigation" .Navigation }}
+  </div>
+</div>
+{{ end }}

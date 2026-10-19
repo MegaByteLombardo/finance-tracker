@@ -55,8 +55,8 @@ func TestUpgradeFromSchema10WithRealData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LatestVersion: %v", err)
 	}
-	if latest != 13 {
-		t.Errorf("the latest embedded migration is %d, want 13", latest)
+	if latest != latestSchemaVersion {
+		t.Errorf("the latest embedded migration is %d, want %d", latest, latestSchemaVersion)
 	}
 	if got := appliedVersion(t, db); got != latest {
 		t.Errorf("the database is at version %d after upgrading, want %d", got, latest)

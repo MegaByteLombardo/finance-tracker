@@ -1034,6 +1034,115 @@ exists.
 
 ---
 
+## The savings tables *(M7.1)*
+
+Five tables, all `STRICT`, all additive (migrations 00014 and 00015). None of
+them is read by `internal/valuation`, none holds a balance, and nothing in them
+moves money: a suggestion is a **target**, not a reservation. The ledger tables
+are referenced with `RESTRICT` and never altered. See
+[m7-contract.md](m7-contract.md).
+
+### `savings_policy_versions`
+
+| Column | Type | Null | Default | Constraints |
+| --- | --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | — | **PRIMARY KEY** |
+| `rate_bp` | `INTEGER` | NOT NULL | — | `BETWEEN 0 AND 10000` (basis points; 2000 = 20%) |
+| `effective_from` | `TEXT` | NOT NULL | — | date `GLOB` + `date(x) IS x`; **UNIQUE** |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | `strftime(…)` | timestamp `GLOB` |
+
+Append-only. The version applied to an income is the latest `effective_from` on
+or before the income's **effective date** (TD-077). A version referenced by a
+suggestion never changes its rate; only the first version may start in the past.
+
+### `savings_category_rules`
+
+| Column | Type | Null | Default | Constraints |
+| --- | --- | --- | --- | --- |
+| `category_id` | `INTEGER` | NOT NULL | — | **PRIMARY KEY**, **FK** → `categories(id)` `RESTRICT` |
+| `is_eligible` | `INTEGER` | NOT NULL | — | `IN (0, 1)` |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | `strftime(…)` | timestamp `GLOB` |
+
+A category with no row is **eligible** (TD-076). That the category is an
+`INCOME` one is checked in Go, in the same transaction — a `CHECK` cannot reach
+`categories`.
+
+### `savings_income_overrides`
+
+| Column | Type | Null | Default | Constraints |
+| --- | --- | --- | --- | --- |
+| `transaction_id` | `INTEGER` | NOT NULL | — | **PRIMARY KEY**, **FK** → `transactions(id)` `RESTRICT` |
+| `is_eligible` | `INTEGER` | NOT NULL | — | `IN (0, 1)` |
+| `reason` | `TEXT` | NOT NULL | — | 1–255 characters after trimming |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | `strftime(…)` | timestamp `GLOB` |
+
+An explicit exception for one income, in either direction; it wins over the
+category rule.
+
+### `savings_suggestions`
+
+| Column | Type | Null | Constraints |
+| --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | **PRIMARY KEY** |
+| `income_transaction_id` | `INTEGER` | NOT NULL | **FK** → `transactions(id)` `RESTRICT` |
+| `revision` | `INTEGER` | NOT NULL | `>= 1`; **UNIQUE** with `income_transaction_id` |
+| `policy_version_id` | `INTEGER` | NOT NULL | **FK** → `savings_policy_versions(id)` |
+| `income_account_id` | `INTEGER` | NOT NULL | **FK** → `accounts(id)` — snapshot |
+| `income_category_id` | `INTEGER` | NOT NULL | **FK** → `categories(id)` — snapshot |
+| `income_amount_minor` | `INTEGER` | NOT NULL | `> 0`, the income's own currency — snapshot |
+| `income_currency_code` | `TEXT` | NOT NULL | **FK** → `currencies(code)` — snapshot |
+| `income_effective_date` | `TEXT` | NOT NULL | date — snapshot |
+| `income_usd_minor` | `INTEGER` | NULL | `>= 0`, USD cents |
+| `suggested_usd_minor` | `INTEGER` | NULL | `>= 0`, USD cents |
+| `fx_method` | `TEXT` | NULL | `IDENTITY`, `DIRECT`, `INVERTED`, `CROSS` |
+| `valued_at` | `TEXT` | NULL | timestamp — an instant, not a financial date |
+| `status` | `TEXT` | NOT NULL | `PENDING_VALUATION`, `OPEN`, `DISMISSED`, `SUPERSEDED`, `INVALIDATED` |
+| `status_reason` | `TEXT` | NULL | 1–255; required for `DISMISSED`, `SUPERSEDED`, `INVALIDATED` |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | timestamp |
+
+Table `CHECK`s, written with `IS [NOT] NULL` only (TD-025): the four valuation
+columns are all set or all `NULL`; `PENDING_VALUATION` has no amount, `OPEN` and
+`DISMISSED` have one.
+
+**One live revision per income**, enforced by the partial unique index
+`idx_savings_suggestions_live ON (income_transaction_id) WHERE status IN
+('PENDING_VALUATION', 'OPEN', 'DISMISSED')`. A correction closes the live
+revision and opens the next; figures are never updated in place except when a
+pending revision receives its first valuation (TD-079). The confirmation states
+of the milestone brief are derived from reservations (M7.2) and never stored.
+
+**Three dates, three meanings.** `income_effective_date` is the financial date:
+it chooses the policy version and the rate, and it is the period a suggestion is
+counted in. `created_at` is when the revision was written; `valued_at` is when
+its rate was found. The date a reservation confirms a suggestion is M7.2's own
+column.
+
+The snapshot columns are deliberate copies: they are what the income **was**
+when the revision was made, which is how a later edit is detected and how a
+closed revision still explains itself.
+
+### `savings_suggestion_rate_legs`
+
+| Column | Type | Null | Constraints |
+| --- | --- | --- | --- |
+| `suggestion_id` | `INTEGER` | NOT NULL | **FK** → `savings_suggestions(id)`; **PK** with `leg` |
+| `leg` | `INTEGER` | NOT NULL | `IN (1, 2)` |
+| `exchange_rate_id` | `INTEGER` | NOT NULL | **FK** → `exchange_rates(id)` |
+| `base_currency_code`, `quote_currency_code` | `TEXT` | NOT NULL | **FK** → `currencies(code)`; different |
+| `rate` | `TEXT` | NOT NULL | same canonical-decimal `CHECK` as `exchange_rates.rate` |
+| `effective_date` | `TEXT` | NOT NULL | date |
+| `source` | `TEXT` | NOT NULL | `MANUAL`, `BCV_OFFICIAL` |
+| `inverted` | `INTEGER` | NOT NULL | `IN (0, 1)` |
+| `created_at` | `TEXT` | NOT NULL | timestamp |
+
+The observations a valuation used, **copied**, because `exchange_rates` rows are
+mutable by design (TD-078). None for a USD income, one for a direct or inverted
+rate, two for a cross rate. The combined factor is not stored.
+
+Every foreign-key child column is indexed, as everywhere else.
+
+---
+
 ## The net worth is not in this document
 
 There is no `current_net_worth`, no `converted_balance` and no `cached_net_worth`

@@ -131,6 +131,35 @@ type ValuationService interface {
 	GetCurrentNetWorth(ctx context.Context) (NetWorth, error)
 }
 
+// SavingsService is M7.1: the savings policy and the suggestion each eligible
+// income produces.
+//
+// A suggestion is a target, never money: nothing here moves a balance or takes
+// part in the net worth. Incomes are recorded and corrected through
+// LedgerService as before; the adapter commits each one together with its
+// suggestion. Actions on a suggestion name the INCOME, and act on that income's
+// live revision.
+type SavingsService interface {
+	Overview(ctx context.Context) (SavingsOverview, error)
+
+	GetPolicy(ctx context.Context) (SavingsPolicy, error)
+	SetPolicy(ctx context.Context, in SetSavingsPolicyInput) error
+	ListCategoryEligibility(ctx context.Context) ([]SavingsCategoryEligibility, error)
+	SetCategoryEligibility(ctx context.Context, categoryID int64, eligible bool) error
+	SetIncomeOverride(ctx context.Context, transactionID int64, eligible bool, reason string) error
+
+	ListSuggestions(ctx context.Context) ([]SavingsSuggestion, error)
+	IncomeDetail(ctx context.Context, transactionID int64) (SavingsIncomeDetail, error)
+	ValueSuggestion(ctx context.Context, transactionID int64) error
+	ValuePending(ctx context.Context) (int, error)
+	RevalueSuggestion(ctx context.Context, transactionID int64) error
+	DismissSuggestion(ctx context.Context, transactionID int64, reason string) error
+
+	// PlanSync previews; ApplySync changes exactly the incomes named.
+	PlanSync(ctx context.Context) (SavingsSyncPlan, error)
+	ApplySync(ctx context.Context, transactionIDs []int64) (SavingsSyncResult, error)
+}
+
 // Services bundles all services needed by the presentation layer.
 type Services struct {
 	Currencies  CurrencyService
@@ -148,4 +177,7 @@ type Services struct {
 	// Analytics is the M6 dashboard: the net worth's history and the period's
 	// cash flow and spending.
 	Analytics AnalyticsService
+
+	// Savings is M7.1: the savings policy and its suggestions.
+	Savings SavingsService
 }

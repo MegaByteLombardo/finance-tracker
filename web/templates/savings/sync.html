@@ -1,0 +1,57 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Sincronizar ahorro</h1>
+    <p class="page-subtitle">Vista previa: nada cambia hasta que confirmes</p>
+  </div>
+  <div class="page-actions">
+    <a href="/savings" class="btn btn-secondary">Volver a Ahorro</a>
+  </div>
+</div>
+
+{{ $view := . }}
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title">Ingresos afectados{{ template "help" ($view.Help "sync") }}</h2>
+    <span class="dash-section-meta">{{ len .Plan.Items }} en total</span>
+  </div>
+  {{ if not .Plan.Items }}
+  <div class="card-body"><p class="text-muted">Todo está al día: cada ingreso elegible tiene su sugerencia, calculada con sus datos actuales.</p></div>
+  {{ else }}
+  <form action="/savings/sync" method="POST">
+    <input type="hidden" name="return" value="{{ .Return }}">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Fecha</th>
+          <th>Ingreso</th>
+          <th class="text-right">Importe</th>
+          <th class="text-right">Tasa</th>
+          <th>Cambio</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Plan.Items }}
+        <tr>
+          <td><input type="checkbox" name="transaction_id" value="{{ .TransactionID }}" checked aria-label="Incluir este ingreso"></td>
+          <td class="savings-figure">{{ formatDate .Date }}</td>
+          <td>
+            <a href="/savings/incomes/{{ .TransactionID }}">{{ if .Description }}{{ derefString .Description }}{{ else }}{{ .CategoryName }}{{ end }}</a>
+            <div class="text-muted savings-sub">{{ .AccountName }} · {{ .CategoryName }}</div>
+          </td>
+          <td class="text-right savings-figure">{{ formatAmount .AmountFormatted }} {{ .CurrencyCode }}</td>
+          <td class="text-right">{{ if .RateFormatted }}{{ .RateFormatted }}%{{ else }}—{{ end }}</td>
+          <td><strong>{{ .ActionLabel }}</strong><div class="text-muted savings-sub">{{ .Reason }}</div></td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    <div class="card-body">
+      <p class="text-muted">Se aplica solo a los ingresos marcados. Una sugerencia reemplazada o anulada queda en el historial del ingreso; aplicar dos veces no duplica nada.</p>
+      <button type="submit" class="btn btn-primary">Aplicar a los marcados</button>
+    </div>
+  </form>
+  {{ end }}
+</div>
+{{ end }}

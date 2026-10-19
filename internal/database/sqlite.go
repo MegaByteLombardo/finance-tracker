@@ -43,6 +43,10 @@ const (
 	// per-connection setting, so it is applied once in Open instead of via the
 	// DSN. See enableWAL.
 	JournalMode = "wal"
+
+	// TxLock is the BEGIN mode of every read-write transaction. IMMEDIATE takes
+	// the write lock when the transaction opens; see dsn and TD-075.
+	TxLock = "immediate"
 )
 
 // Open creates the database file (and its parent directory) if needed, opens it
@@ -97,8 +101,16 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 // them before applying any, so a malformed DSN fails cleanly instead of leaving
 // a connection half-configured.
 //
-// There is deliberately no _txlock: the default DEFERRED behaviour is right
-// until real write paths exist to justify anything else.
+// _txlock=immediate makes every read-write BeginTx issue BEGIN IMMEDIATE, so a
+// transaction takes the write lock when it opens rather than at its first
+// write (TD-075). M7 is the first write path that reads, decides and then
+// writes on the strength of what it read -- an availability or a pending amount
+// -- and under DEFERRED a second process writing between the read and the write
+// would make the upgrade fail with SQLITE_BUSY after the decision was taken.
+// Taking the lock up front moves the only wait to BEGIN, where busy_timeout
+// governs it. Within this process the single connection already serialises
+// everything, so nothing changes there. A ReadOnly transaction is unaffected:
+// the driver issues a plain BEGIN for it.
 func dsn(abs string) string {
 	// file:///abs/path on Unix, file:///C:/abs/path on Windows -- the URI form
 	// SQLite documents for both platforms. Going through url.URL also
@@ -115,6 +127,7 @@ func dsn(abs string) string {
 			"_busy_timeout": {strconv.Itoa(BusyTimeoutMS)},
 			"_foreign_keys": {"1"},
 			"_synchronous":  {Synchronous},
+			"_txlock":       {TxLock},
 		}.Encode(),
 	}
 	return u.String()

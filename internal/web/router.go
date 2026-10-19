@@ -65,6 +65,27 @@ func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
 	mux.HandleFunc("GET /mobile/categorias", handleMobileCategories(logger, renderer, svcs))
 	mux.HandleFunc("GET /mobile/metodos-pago", handleMobilePaymentMethods(logger, renderer, svcs))
 
+	// Savings (M7.1): the policy and the suggestion each eligible income
+	// produces. A suggestion is a target, never money. Actions on a suggestion
+	// name the INCOME and act on its live revision; the mobile pages post to the
+	// same endpoints with a "return" path.
+	mux.HandleFunc("GET /savings", handleSavings(logger, renderer, svcs, false))
+	mux.HandleFunc("GET /savings/policy", handleSavingsPolicy(logger, renderer, svcs, false))
+	mux.HandleFunc("POST /savings/policy", handleSetSavingsPolicy(logger, renderer, svcs))
+	mux.HandleFunc("POST /savings/categories/{id}/eligibility", handleSetCategoryEligibility(logger, svcs))
+	mux.HandleFunc("GET /savings/sync", handleSavingsSync(logger, renderer, svcs, false))
+	mux.HandleFunc("POST /savings/sync", handleApplySavingsSync(logger, svcs))
+	mux.HandleFunc("POST /savings/value-pending", handleValuePending(logger, svcs))
+	mux.HandleFunc("GET /savings/incomes/{id}", handleSavingsIncome(logger, renderer, svcs, false))
+	mux.HandleFunc("POST /savings/incomes/{id}/override", handleSetIncomeOverride(logger, svcs))
+	mux.HandleFunc("POST /savings/incomes/{id}/value", handleSuggestionAction(logger, svcs, "value"))
+	mux.HandleFunc("POST /savings/incomes/{id}/revalue", handleSuggestionAction(logger, svcs, "revalue"))
+	mux.HandleFunc("POST /savings/incomes/{id}/dismiss", handleSuggestionAction(logger, svcs, "dismiss"))
+	mux.HandleFunc("GET /mobile/ahorro", handleSavings(logger, renderer, svcs, true))
+	mux.HandleFunc("GET /mobile/ahorro/politica", handleSavingsPolicy(logger, renderer, svcs, true))
+	mux.HandleFunc("GET /mobile/ahorro/sincronizar", handleSavingsSync(logger, renderer, svcs, true))
+	mux.HandleFunc("GET /mobile/ahorro/ingresos/{id}", handleSavingsIncome(logger, renderer, svcs, true))
+
 	// Accounts
 	mux.HandleFunc("GET /accounts", handleAccountsList(logger, renderer, svcs))
 	mux.HandleFunc("GET /accounts/new", handleNewAccountForm(logger, renderer, svcs))

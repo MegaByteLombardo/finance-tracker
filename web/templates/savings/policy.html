@@ -1,0 +1,115 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Política de ahorro</h1>
+    <p class="page-subtitle">El porcentaje de cada ingreso elegible que te propones ahorrar, con su historial</p>
+  </div>
+  <div class="page-actions">
+    <a href="/savings" class="btn btn-secondary">Volver a Ahorro</a>
+  </div>
+</div>
+
+{{ $view := . }}
+
+{{ if .UnsyncedCount }}
+<div class="alert alert-info" role="status">
+  <div>
+    <strong>{{ .UnsyncedCount }} ingreso{{ if ne .UnsyncedCount 1 }}s{{ end }} por sincronizar</strong>{{ template "help" ($view.Help "sync") }}:
+    la política o la elegibilidad cambió y sus sugerencias todavía no. <a href="/savings/sync">Ver cuáles antes de aplicar &rarr;</a>
+  </div>
+</div>
+{{ end }}
+
+<div class="card" style="margin-bottom: var(--space-6);">
+  <div class="card-header">
+    <h2 class="card-title">{{ if .Policy.IsSet }}Cambiar la tasa{{ else }}Definir la política{{ end }}{{ template "help" ($view.Help "policy-rate") }}</h2>
+  </div>
+  <div class="card-body">
+    {{ if .Form.Errors.general }}<div class="alert alert-danger" role="alert">{{ .Form.Errors.general }}</div>{{ end }}
+    <form action="/savings/policy" method="POST">
+      <input type="hidden" name="return" value="{{ .Return }}">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="rate" class="form-label">Porcentaje de cada ingreso</label>
+          <input type="text" id="rate" name="rate" class="form-control" inputmode="decimal"
+                 value="{{ .Form.Rate }}" placeholder="20" autocomplete="off" required>
+          <p class="form-help">Entre 0 y 100, con hasta dos decimales. 0 deja de sugerir desde esa fecha.</p>
+          {{ if .Form.Errors.rate }}<p class="form-error">{{ .Form.Errors.rate }}</p>{{ end }}
+        </div>
+        <div class="form-group">
+          <label for="effective_from" class="form-label">Vigente desde</label>
+          <input type="date" id="effective_from" name="effective_from" class="form-control" value="{{ .Form.EffectiveFrom }}" required>
+          <p class="form-help">
+            {{ if .Policy.IsSet }}Hoy o más adelante: un cambio nunca altera las sugerencias de ingresos fechados antes.
+            {{ else }}Puede ser una fecha pasada. Los ingresos desde entonces se te mostrarán para confirmarlos antes de calcular nada.{{ end }}
+          </p>
+          {{ if .Form.Errors.effective_from }}<p class="form-error">{{ .Form.Errors.effective_from }}</p>{{ end }}
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Guardar</button>
+    </form>
+  </div>
+</div>
+
+<div class="savings-split">
+  <article class="card" aria-labelledby="versions-title">
+    <div class="card-header">
+      <h2 id="versions-title" class="card-title">Historial de tasas</h2>
+      <span class="dash-section-meta">por fecha de vigencia</span>
+    </div>
+    <div class="card-body">
+      {{ if not .Policy.Versions }}
+      <p class="text-muted">Todavía no hay ninguna versión.</p>
+      {{ else }}
+      <ul class="ledger">
+        {{ range .Policy.Versions }}
+        <li class="ledger-row">
+          <span class="ledger-name">Desde {{ spanishDate .EffectiveFrom }}
+            {{ if .InForce }}<span class="badge badge-income">vigente</span>{{ end }}
+            {{ if .Scheduled }}<span class="badge badge-info">programada</span>{{ end }}
+          </span>
+          <span class="ledger-figure">{{ .RateFormatted }}%</span>
+          <span class="ledger-sub">{{ .SuggestionCount }} sugerencia{{ if ne .SuggestionCount 1 }}s{{ end }} calculada{{ if ne .SuggestionCount 1 }}s{{ end }} con esta tasa</span>
+          <span class="ledger-sub ledger-sub-right">registrada {{ formatDate .CreatedAt }}</span>
+        </li>
+        {{ end }}
+      </ul>
+      {{ end }}
+    </div>
+  </article>
+
+  <article class="card" aria-labelledby="eligibility-title">
+    <div class="card-header">
+      <h2 id="eligibility-title" class="card-title">Categorías elegibles{{ template "help" ($view.Help "eligible-income") }}</h2>
+      <span class="dash-section-meta">elegibles salvo que las excluyas</span>
+    </div>
+    <div class="card-body">
+      {{ if not .Categories }}
+      <p class="text-muted">No hay categorías de ingreso.</p>
+      {{ else }}
+      <ul class="ledger">
+        {{ range .Categories }}
+        <li class="ledger-row">
+          <span class="ledger-name">{{ .Name }}{{ if not .IsActive }} <span class="badge badge-inactive">archivada</span>{{ end }}</span>
+          <span class="ledger-figure">
+            <form action="/savings/categories/{{ .CategoryID }}/eligibility" method="POST" class="inline-form">
+              <input type="hidden" name="return" value="{{ $view.Return }}">
+              {{ if .Eligible }}
+              <input type="hidden" name="eligible" value="0">
+              <button type="submit" class="btn btn-sm btn-secondary">Excluir</button>
+              {{ else }}
+              <input type="hidden" name="eligible" value="1">
+              <button type="submit" class="btn btn-sm btn-secondary">Incluir</button>
+              {{ end }}
+            </form>
+          </span>
+          <span class="ledger-sub">{{ if .Eligible }}Se ahorra de sus ingresos{{ else }}Excluida{{ end }}{{ if not .Explicit }} · por defecto{{ end }}</span>
+        </li>
+        {{ end }}
+      </ul>
+      <p class="dash-note text-muted">Las transferencias, las compras de divisas y los saldos iniciales nunca son ingresos. Para un ingreso concreto, usa la excepción desde su detalle.</p>
+      {{ end }}
+    </div>
+  </article>
+</div>
+{{ end }}

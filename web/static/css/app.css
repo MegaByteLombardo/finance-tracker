@@ -423,6 +423,11 @@ a:hover { color: var(--accent-hover); }
   transition: color 0.15s ease, background-color 0.15s ease;
 }
 .nav-link:hover { color: var(--text-main); background: var(--panel-bevel-lo); }
+/* Nine sections since M7.1: below the container's full width the keys tighten
+   rather than push the theme key onto a second row. */
+@media (max-width: 1360px) {
+  .nav-link { padding: 0.45rem 0.55rem; }
+}
 
 /* The current section is a slot pressed into the panel, with its pilot lit. */
 .nav-link.active {
@@ -1854,20 +1859,43 @@ input[data-type="currency"] {
 .help-plate-title { display: block; margin-bottom: 4px; color: var(--plate-accent); font-weight: 700; }
 .help-plate::backdrop { background: rgba(0, 0, 0, 0.18); }
 
+/* Savings (M7.1). Panels, keys and readouts from the same tokens as the
+   dashboard; nothing here introduces a colour of its own. */
+.savings-dash { margin-bottom: var(--space-6); }
+.savings-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.savings-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+.savings-sub { font-size: 0.75rem; margin-top: 2px; }
+.savings-figure { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.data-table .text-right { text-align: right; }
+.savings-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+.savings-actions form { margin: 0; }
+
 @media (max-width: 1200px) {
   .dash-top { grid-template-columns: minmax(0, 1fr); }
   .dash-mid { grid-template-columns: minmax(0, 1fr); }
   .recap-split { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .savings-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 840px) {
   .dash-detail { grid-template-columns: minmax(0, 1fr); }
   .dash-flow { grid-template-columns: minmax(0, 1fr); }
   .recap-split { grid-template-columns: minmax(0, 1fr); }
+  .savings-split { grid-template-columns: minmax(0, 1fr); }
   .header-container { padding: var(--space-2) var(--space-4); }
   .main-content { padding: var(--space-5) var(--space-4) var(--space-8); }
 }
 @media (max-width: 600px) {
   .dash-figures { grid-template-columns: minmax(0, 1fr); }
+  .savings-kpis { grid-template-columns: minmax(0, 1fr); }
   .nw-chart { column-gap: var(--space-2); }
   .nw-chart-svg { height: 170px; }
   .card-body { padding: var(--space-4); }

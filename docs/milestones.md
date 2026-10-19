@@ -806,6 +806,85 @@ snapshot tables, background jobs and a JSON API.
 
 ---
 
+## M7 — Savings Fund & Goals · `IN PROGRESS`
+
+Replaces the M7 the roadmap called Credit & Debt, which becomes M8. The ledger
+says where the money is; M7 adds what the user means to do with it: a policy
+that suggests a share of every eligible income, money set aside against real USD
+accounts, and goals it is assigned to. Four submilestones, each approved and
+closed on its own. The contract is [m7-contract.md](m7-contract.md).
+
+| Submilestone | Status |
+| --- | --- |
+| M7.1 — Savings policy & suggestions | `CLOSED` (2026-10-18) |
+| M7.2 — Savings fund | `PLANNED` |
+| M7.3 — Savings goals | `PLANNED` |
+| M7.4 — Ledger integration & dashboard | `PLANNED` |
+
+### The rule the milestone hangs on
+
+**A layer over the ledger, never a second ledger.** Income recorded, saving
+suggested, money reserved and money assigned to a goal are four different facts
+in four different places. Nothing in M7 adds a row or a column to `transactions`
+or `account_movements`, and nothing in it is read by the valuation: reserving
+money cannot change the net worth.
+
+### M7.1 delivered
+
+- **Eligibility** (TD-076): `INCOME` only, by type; every income category
+  eligible unless excluded; per-income overrides with a reason. Never by the
+  description.
+- **A versioned policy** (TD-077): basis points, chosen by the income's
+  effective date; only the first version may start in the past; a rate that
+  governs suggestions never changes.
+- **One suggestion per eligible income**, written in the same transaction as the
+  income (TD-080), in USD at the reference rate of the income's date, rounded
+  once, half to even. The valuation and the observations used are frozen
+  (TD-078); a corrected rate is reported and revalued only on request.
+- **Revisions** (TD-079): a correction closes the live revision and opens the
+  next; at most one live revision per income, enforced by a partial unique
+  index. A missing rate leaves a suggestion pending, never zero; a future-dated
+  income in another currency waits for its date (TD-081).
+- **A previewed, idempotent sync** for a retroactive start, a category rule and
+  anything changed outside the application.
+- **`BEGIN IMMEDIATE`** for every read-write transaction (TD-075).
+- **Screens**, desktop and mobile: overview, policy and eligibility, sync
+  preview, one income's history.
+
+Schema version 13 → 15 (00014, 00015), purely additive and reversible. The
+ledger gained `RecordIncomeTx`, `UpdateTransactionTx`, `GetIncome` and
+`ListIncomesSince`, with no change of behaviour.
+
+### M7.1 verification
+
+- `go vet ./...` clean, `go test ./... -count=1` green, `gofmt` clean on every
+  changed file, and `go test -race -count=1 -p 4 ./...` green in the Linux
+  container. At the default parallelism, under the race detector,
+  `cmd/web`'s `TestShutdownTakesABackup` can exceed its 30-second wait for the
+  server to start while twenty packages compete for the CPU; it passes alone
+  in about a second, on this branch and on `main`.
+- The no-float test covers `internal/savings` and `internal/application`.
+- Against real SQLite: $800 at 20% suggests $160; $500 + $300 suggest $160; a VES
+  income at the rate of its date, never a later or forward-dated one; a cross
+  rate through the pivot; a missing rate, then valued in place; a future-dated
+  income; an exchange and a transfer suggest nothing; single half-even rounding;
+  20% → 25% leaves earlier suggestions alone; every kind of correction; a
+  dismissed suggestion; a corrected rate and its revaluation; a retroactive start
+  backfilled only on confirmation, idempotently; eligibility previewed and
+  overrides applied; atomicity (a failed suggestion leaves no income); a
+  suggestion counted in its income's period; concurrent incomes and concurrent
+  syncs, in one pool and in two pools over one file.
+- An upgrade from a schema 13 database with M3–M5 data changes no row, creates
+  no suggestion, and rolls back cleanly.
+- Desktop and mobile were checked in a browser against a seeded database.
+
+### Not in M7.1
+
+Reservations, confirmation, the fund, goals, distribution, the expense and
+transfer integration, reconciliation of reserves and the dashboard block.
+
+---
+
 ## Roadmap
 
 Everything below is **provisional**. These are the currently expected shape of
@@ -823,9 +902,14 @@ below has acceptance criteria yet, by design.
 | M6 | Historical Net Worth & Analytics Dashboard | `CLOSED` |
 | M6.5 | Weekly & Monthly Recap | `IN PROGRESS` |
 | — | Production Deployment, Private Access & Continuous Backup | `POSTPONED` |
-| M7 | Credit & Debt | `PLANNED` |
-| M8 | Instalments & Calendar | `PLANNED` |
-| M9 | Hardening | `PLANNED` |
+| M7 | Savings Fund & Goals | `IN PROGRESS` (M7.1 closed) |
+| M8 | Credit & Debt | `PLANNED` |
+| M9 | Instalments & Calendar | `PLANNED` |
+| M10 | Hardening | `PLANNED` |
+
+**M7 is now Savings Fund & Goals**, and Credit & Debt, Instalments and Hardening
+each moved down one. Planning savings needs only what the ledger already holds;
+credit needs a model of its own.
 
 **M6 merges what were M6 (Historical Net Worth) and M7 (Dashboard &
 Analytics).** They were never separable: every figure the dashboard needs — the
@@ -862,8 +946,9 @@ Parked items, none blocking:
   startup logs report what happened, and `goose_db_version` is one query away in
   the sqlite3 CLI. Revisit if a rollback is ever needed in anger.
 - **Purpose dimension for accounts.** `account_type` classifies the container
-  only. If distinguishing savings from day-to-day money ever has a real
-  consumer, it arrives as its own decision rather than as more enum values.
+  only. M7 answers "which money is savings" without touching accounts: a
+  reservation (M7.2) marks part of an account's balance, so one account can hold
+  both. If a per-account purpose is ever still needed, it is its own decision.
 - **Historical backfill of exchange rates.** M5 stores what it is told and what it
   fetches from today onward; there is no history before the first run. M6 decided
   that manual entry is enough for now: days without a rate are gaps on the chart,

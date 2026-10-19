@@ -197,7 +197,7 @@ building it now would be anticipating a problem that does not exist.
 
 ## TD-009 — `_txlock` deliberately not configured
 
-**Status:** Accepted · **Milestone:** M0
+**Status:** Superseded by TD-075 (M7.1) · **Milestone:** M0
 
 **Decision.** The DSN does not set `_txlock`. SQLite's default `DEFERRED`
 transaction behaviour stands.
@@ -2336,3 +2336,183 @@ would be a guess at its rate (TD-067).
 **Alternatives considered.** Ranking within each currency — it answers a
 different question and lists up to five per currency. Ranking by the latest
 rate — look-ahead bias (TD-053). A query that ranks in SQL — it cannot convert.
+
+## TD-075 — Read-write transactions begin IMMEDIATE
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** The DSN carries `_txlock=immediate`, so every read-write `BeginTx`
+issues `BEGIN IMMEDIATE` and takes SQLite's write lock when the transaction
+opens. A `ReadOnly` transaction keeps a plain `BEGIN` (the driver,
+modernc.org/sqlite v1.57.0, applies the mode only to non-read-only
+transactions). M0's "no `_txlock` until real write paths justify it" is
+superseded.
+
+**Rationale.** M7 is the first write path that reads, decides and writes on
+what it read — whether an income already has a live suggestion, what remains
+pending. Within the process the single pooled connection already serialises
+everything. Against a second process (the sqlite3 CLI, a second container) a
+DEFERRED transaction reads under a shared lock and upgrades at its first write;
+if the other process committed in between, the upgrade fails with
+`SQLITE_BUSY` after the decision was taken, and `busy_timeout` cannot help
+because waiting would not make the stale read true. With IMMEDIATE the only
+wait is at `BEGIN`, before anything is read, and `busy_timeout` governs it.
+This was verified, not assumed: `TestTwoProcessesSyncingAtOnceCreateEachSuggestionOnce`
+fails with `database is locked (SQLITE_BUSY)` under `_txlock=deferred` and
+passes under `immediate`. The whole suite passes with the change, so no other
+module depended on DEFERRED.
+
+**Alternatives considered.** A dummy write at the start of each M7 transaction
+— the same effect, invisible at the call site and easy to forget in the next
+write path. A retry loop on `SQLITE_BUSY` — it would have to classify the error
+by its code, which this project does not do (CLAUDE.md), and would re-run a
+decision that already acted.
+
+## TD-076 — Income categories are eligible for savings by default
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** Only `transaction_type = 'INCOME'` is ever saved from. Within
+that, every category is eligible unless `savings_category_rules` excludes it,
+and `savings_income_overrides` holds per-income exceptions in both directions,
+each with a mandatory reason. Eligibility is never inferred from a
+description.
+
+**Rationale.** The common case — a salary — should work with no configuration;
+an exception is something the user states. Transfers, exchanges (a purchase of
+USD) and opening balances are excluded by their type, structurally, so no rule
+can let one in. The rules live in savings tables rather than in a column of
+`categories`, which would have meant rebuilding a parent table for a concern
+the ledger does not have.
+
+**Alternatives considered.** Opt-in per category — every new income category
+would silently produce no suggestion until configured. Keyword matching on the
+description — rejected by the milestone brief and by the project: a renamed
+description would change what is saved.
+
+## TD-077 — The policy rate is versioned by the income's effective date, and only the first version may reach back
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** `savings_policy_versions` is append-only and unique on
+`effective_from`. The version applied to an income is the latest one whose
+`effective_from` is on or before the income's `effective_date` — never chosen by
+`created_at`. The first version may start on any date, including in the past;
+every later version starts today or later and not before the version in force.
+A version no suggestion uses may have its rate corrected in place, and a policy
+that never produced a suggestion may move its start earlier.
+
+**Rationale.** A change from 20% to 25% must not touch any suggestion already
+made, including one for an income entered after the change but dated before
+it. Choosing by effective date makes that hold for corrections too: moving an
+income across a version boundary re-suggests it at that version's rate, which
+is what the rate was on that day. A retroactive start is useful exactly once —
+when the user begins using M7 — and is backfilled only through a previewed,
+explicit sync (TD-080).
+
+**Alternatives considered.** Choosing by when the income was recorded — an
+income entered late would take a rate that was never in force on its date.
+Freely editable versions — the rate behind confirmed history could change.
+
+## TD-078 — A savings suggestion freezes its valuation and copies the rate legs it used
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** A suggestion stores its USD figures (`income_usd_minor`,
+`suggested_usd_minor`), the method, when it was valued, and a copy of each
+reference observation used (`savings_suggestion_rate_legs`: the `exchange_rates`
+id plus base, quote, rate, effective date, source and whether it was inverted).
+The combined factor is not stored. A later change of the rate in force on the
+income's date is detected on read (`RateChanged`) and applied only by an
+explicit revaluation, which opens a new revision.
+
+**Rationale.** TD-052 derives every converted figure on every read because a
+net worth is a function of today's data. A suggestion is a different kind of
+fact: the record of what the application told the user to save, on the rate in
+force on the income's date, which the user may already have acted on. Letting a
+re-published Fecha Valor or an edited manual rate rewrite it silently would
+change a target after the fact. The legs are copied because `exchange_rates`
+rows are mutable by design (the BCV upsert, manual corrections, archiving); an
+id alone would not say what the rate WAS. The rate is still the reference rate
+of the income's date, resolved by `fx.Book` with M5's rules — never a later
+one, never a forward-dated one — and no transaction carries a rate.
+
+**Alternatives considered.** Deriving the suggestion on every read — a rate
+correction would move confirmed history. Storing only the `exchange_rates` id —
+not verifiable once the row changes. Storing the combined factor as a decimal —
+a cross rate is a fraction that is never materialised (TD-046).
+
+## TD-079 — One live suggestion revision per income; confirmation states are derived
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** A correction never updates a suggestion's figures. It closes the
+live revision (`SUPERSEDED`, or `INVALIDATED` when the income stops being
+eligible) and, if still eligible, opens revision n+1. A partial unique index
+admits at most one live revision (`PENDING_VALUATION`, `OPEN`, `DISMISSED`) per
+income. Stored statuses are those five; `PENDING_CONFIRMATION`,
+`PARTIALLY_CONFIRMED` and `CONFIRMED` are what an `OPEN` revision looks like
+against the money reserved for it (M7.2) and are derived, never stored. A
+pending valuation, once a rate exists, values the same row in place.
+
+**Rationale.** History stays readable — every figure the user was ever shown is
+kept with the reason it was replaced — and "an income is suggested once" is a
+fact the database enforces, which is also what makes the sync idempotent. A
+stored "confirmed" status would be a second source of truth beside the
+reservations. Reservations confirmed against an earlier revision (M7.2) are
+never moved, deleted or reconciled automatically when a revision is replaced;
+M7.2 will compare their sum across the income's revisions with the live
+suggestion and refuse to confirm more without an explicit, recorded user
+decision.
+
+**Alternatives considered.** Updating the suggestion in place — history lost.
+One row per income with a status — the same, plus no way to keep what a
+dismissed or superseded figure was.
+
+## TD-080 — An income and its suggestion commit together; anything wider is a previewed sync
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** `application.RecordIncome` and `application.UpdateTransaction` run
+the ledger's write (`ledger.RecordIncomeTx`, `ledger.UpdateTransactionTx`) and
+`savings.SyncIncomeTx` in one transaction. The web adapter's `RecordIncome` and
+`UpdateTransaction` route through them, so no handler can write an income that
+bypasses its suggestion. Every read inside that transaction goes through its
+executor — `ledger.NewRepository(exec)`, `fx.NewRepository(exec)` +
+`fx.NewBook` — never through a service holding the pool, which has one
+connection and would deadlock. Changes that affect many incomes — a retroactive
+first version, a category rule — write nothing by themselves: `PlanSync`
+previews every income whose suggestion is missing, out of date or no longer
+warranted, and `ApplySync` applies exactly the incomes the user confirmed,
+re-planning each inside its transaction. A per-income override applies at once,
+being an act on that income.
+
+**Rationale.** An income committed without its suggestion, or a suggestion for
+an income that then failed to commit, would each be a state no screen could
+explain. The milestone requires the backfill to be explicit, previewed and
+idempotent; the same mechanism doubles as the safety net for an income changed
+outside the application (a restored backup, the CLI). No suggestion is
+fabricated for history on upgrade.
+
+**Alternatives considered.** Syncing on every read — a GET that writes.
+Automatic re-sync when a category rule changes — a silent, unpreviewed rewrite
+of many suggestions. Making the ledger call savings — an import cycle, and the
+ledger would learn a concern it does not have.
+
+## TD-081 — A future-dated income in another currency waits for its date to be valued
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** An income dated after today in a currency other than USD is
+recorded `PENDING_VALUATION` with the reason `FUTURE_DATE`, and cannot be valued
+until its date arrives. A future-dated USD income is valued immediately (the
+identity needs no rate).
+
+**Rationale.** The rate in force on a future date is not known yet. Valuing now
+with the latest rate on or before that date would use today's rate for a day
+that has not happened, when a rate published between now and then would have
+been the right one. No figure is fixed before the information for its date
+exists — TD-053 read in the other direction.
+
+**Alternatives considered.** Valuing with today's rate and revaluing later — a
+figure known to be provisional, presented as a suggestion.

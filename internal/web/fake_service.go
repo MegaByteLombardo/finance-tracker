@@ -23,6 +23,9 @@ type FakeServices struct {
 	// ledger at call time, so a test may replace Rates after construction.
 	Analytics *FakeAnalytics
 
+	// Savings is the M7.1 stand-in.
+	Savings *FakeSavings
+
 	mu           sync.RWMutex
 	currencies   map[string]Currency
 	accounts     map[int64]Account
@@ -1414,6 +1417,9 @@ func (fs *FakeServices) BuildServices() *Services {
 	if fs.Rates == nil {
 		fs.Rates = NewFakeRateStore()
 	}
+	if fs.Savings == nil {
+		fs.Savings = NewFakeSavings()
+	}
 	return &Services{
 		Currencies:  fs,
 		Accounts:    fakeAccountService{fs},
@@ -1427,6 +1433,7 @@ func (fs *FakeServices) BuildServices() *Services {
 		Settings:  fakeSettingsService{fs.Rates},
 		Valuation: fs.Rates,
 		Analytics: fs.analytics(),
+		Savings:   fs.Savings,
 	}
 }
 

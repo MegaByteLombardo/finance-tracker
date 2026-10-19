@@ -1,0 +1,74 @@
+{{ define "content" }}
+{{ $d := .Detail }}
+{{ $view := . }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>{{ if $d.Description }}{{ derefString $d.Description }}{{ else }}Ingreso{{ end }}</h1>
+    <p class="page-subtitle">{{ formatDate $d.Date }} · {{ $d.AccountName }} · {{ $d.CategoryName }} · {{ formatAmount $d.AmountFormatted }} {{ $d.CurrencyCode }}</p>
+  </div>
+  <div class="page-actions">
+    <a href="/savings" class="btn btn-secondary">Volver a Ahorro</a>
+    <a href="/transactions/{{ $d.TransactionID }}/edit" class="btn btn-secondary">Editar la transacción</a>
+  </div>
+</div>
+
+<div class="savings-split">
+  <article class="card">
+    <div class="card-header"><h2 class="card-title">¿Se ahorra de este ingreso?</h2></div>
+    <div class="card-body">
+      <p><span class="badge {{ if $d.Eligible }}badge-income{{ else }}badge-neutral{{ end }}">{{ if $d.Eligible }}Elegible{{ else }}No elegible{{ end }}</span> {{ $d.Reason }}</p>
+      {{ with $d.Override }}
+      <p class="text-muted">Excepción vigente desde {{ formatDate .UpdatedAt }}: «{{ .Reason }}».</p>
+      {{ end }}
+      <form action="/savings/incomes/{{ $d.TransactionID }}/override" method="POST">
+        <input type="hidden" name="return" value="{{ $view.Return }}">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="eligible" class="form-label">Excepción para este ingreso</label>
+            <select id="eligible" name="eligible" class="form-control">
+              <option value="0">Excluir del ahorro</option>
+              <option value="1">Incluir en el ahorro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="reason" class="form-label">Motivo</label>
+            <input type="text" id="reason" name="reason" class="form-control" maxlength="255" required placeholder="Es un reembolso, no un ingreso nuevo">
+          </div>
+        </div>
+        <p class="form-help">Gana sobre la regla de su categoría y se aplica de inmediato a este ingreso. Nunca se decide por la descripción.</p>
+        <button type="submit" class="btn btn-secondary">Guardar excepción</button>
+      </form>
+    </div>
+  </article>
+
+  <article class="card">
+    <div class="card-header">
+      <h2 class="card-title">Historial de sugerencias</h2>
+      <span class="dash-section-meta">la más antigua primero</span>
+    </div>
+    <div class="card-body">
+      {{ if not $d.Revisions }}
+      <p class="text-muted">Este ingreso nunca tuvo una sugerencia.</p>
+      {{ else }}
+      <ul class="ledger">
+        {{ range $d.Revisions }}
+        <li class="ledger-row">
+          <span class="ledger-name">Revisión {{ .Revision }} <span class="badge {{ .BadgeClass }}">{{ .StatusLabel }}</span>
+            {{ if .RateChanged }}<span class="badge badge-info">tasa corregida</span>{{ end }}</span>
+          <span class="ledger-figure">{{ if .Valued }}{{ formatAmount .SuggestedUSDFormatted }} USD{{ else }}—{{ end }}</span>
+          <span class="ledger-sub">
+            {{ formatAmount .IncomeAmountFormatted }} {{ .IncomeCurrencyCode }} del {{ formatDate .IncomeEffectiveDate }} al {{ .RateFormatted }}%
+            {{ if .Valued }}· {{ .MethodLabel }}{{ if .ShowUSDEquivalent }}: {{ formatAmount .IncomeUSDFormatted }} USD{{ end }}{{ end }}
+            {{ range .Legs }}<br>1 {{ .Pair }} = {{ .Rate }} ({{ .SourceLabel }}, fecha valor {{ formatDate .EffectiveDate }}{{ if .Inverted }}, invertida{{ end }}){{ end }}
+            {{ if .PendingLabel }}<br>{{ .PendingLabel }}{{ end }}
+            {{ if .StatusReason }}<br>{{ derefString .StatusReason }}{{ end }}
+          </span>
+          <span class="ledger-sub ledger-sub-right">creada {{ formatDate .CreatedAt }}{{ with .ValuedAt }}<br>valorada {{ formatDate . }}{{ end }}</span>
+        </li>
+        {{ end }}
+      </ul>
+      {{ end }}
+    </div>
+  </article>
+</div>
+{{ end }}

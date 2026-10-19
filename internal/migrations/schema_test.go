@@ -52,6 +52,26 @@ func TestTablesHaveExactlyTheExpectedColumns(t *testing.T) {
 		"app_settings": {
 			"id", "base_currency_code", "created_at", "updated_at",
 		},
+		"savings_policy_versions": {
+			"id", "rate_bp", "effective_from", "created_at", "updated_at",
+		},
+		"savings_category_rules": {
+			"category_id", "is_eligible", "created_at", "updated_at",
+		},
+		"savings_income_overrides": {
+			"transaction_id", "is_eligible", "reason", "created_at", "updated_at",
+		},
+		"savings_suggestions": {
+			"id", "income_transaction_id", "revision", "policy_version_id",
+			"income_account_id", "income_category_id", "income_amount_minor",
+			"income_currency_code", "income_effective_date",
+			"income_usd_minor", "suggested_usd_minor", "fx_method", "valued_at",
+			"status", "status_reason", "created_at", "updated_at",
+		},
+		"savings_suggestion_rate_legs": {
+			"suggestion_id", "leg", "exchange_rate_id", "base_currency_code",
+			"quote_currency_code", "rate", "effective_date", "source", "inverted", "created_at",
+		},
 	}
 
 	for table, want := range tests {
@@ -913,6 +933,8 @@ func TestNoStoredBalanceAnywhere(t *testing.T) {
 var businessTables = []string{
 	"currencies", "accounts", "categories", "payment_methods", "transactions", "account_movements",
 	"exchange_rates", "app_settings",
+	"savings_policy_versions", "savings_category_rules", "savings_income_overrides",
+	"savings_suggestions", "savings_suggestion_rate_legs",
 }
 
 func TestExpectedIndexesExist(t *testing.T) {
@@ -934,6 +956,16 @@ func TestExpectedIndexesExist(t *testing.T) {
 		"idx_exchange_rates_observation",
 		"idx_exchange_rates_lookup",
 		"idx_exchange_rates_quote_currency_code",
+		"idx_savings_policy_versions_effective_from",
+		"idx_savings_suggestions_revision",
+		"idx_savings_suggestions_live",
+		"idx_savings_suggestions_policy_version_id",
+		"idx_savings_suggestions_income_account_id",
+		"idx_savings_suggestions_income_category_id",
+		"idx_savings_suggestions_income_currency_code",
+		"idx_savings_suggestion_rate_legs_exchange_rate_id",
+		"idx_savings_suggestion_rate_legs_base_currency_code",
+		"idx_savings_suggestion_rate_legs_quote_currency_code",
 	}
 
 	for _, index := range want {

@@ -34,10 +34,13 @@ HTTP  →  Application / Services  →  Repository  →  SQLite
 - `internal/migrations` owns the schema. It is the **only** package that imports
   goose.
 - `internal/httpserver` owns HTTP. It never builds SQL.
-- Domain packages (`internal/currency`, `internal/account`, `internal/fx`, …)
-  hold their own model, repository and service — organised by feature, not by
-  layer. Do not create a package before it has code.
-- `internal/application` is for **writes** spanning two domains atomically.
+- Domain packages (`internal/currency`, `internal/account`, `internal/fx`,
+  `internal/savings`, …) hold their own model, repository and service —
+  organised by feature, not by layer. Do not create a package before it has
+  code.
+- `internal/application` is for **writes** spanning two domains atomically:
+  opening an account with its balance, and (M7) recording or correcting an
+  income together with its savings suggestion.
   `internal/valuation` is a cross-domain **read**, and is its own package for
   that reason (TD-052). `internal/analytics` (M6) is the dashboard's
   cross-domain read over a period, built on `valuation`.
@@ -81,7 +84,10 @@ amount never travels without its currency anyway.
 ## SQLite
 
 - WAL journal mode, `foreign_keys = ON`, `busy_timeout = 5000`,
-  `synchronous = FULL`. Durability beats write throughput for financial records.
+  `synchronous = FULL`, `_txlock = immediate`. Durability beats write throughput
+  for financial records. Every read-write transaction takes the write lock at
+  `BEGIN` (TD-075): a transaction that reads, decides and writes cannot be
+  overtaken by another process in between.
 - **Connection-scoped PRAGMAs go in the DSN, never in a one-off `db.Exec` after
   `sql.Open`.** `database/sql` is a pool: a single `Exec` configures one
   arbitrary connection and silently leaves the rest at SQLite's defaults.
@@ -89,7 +95,10 @@ amount never travels without its currency anyway.
   `database.Open` and its returned value is *checked* — the PRAGMA reports the
   resulting mode instead of failing.
 - The pool is pinned to a single connection. That is deliberate; read the
-  comments in `internal/database/sqlite.go` before changing it.
+  comments in `internal/database/sqlite.go` before changing it. Its corollary:
+  **inside an open transaction, never call a service that uses the `*sql.DB`** —
+  it waits for the connection the transaction holds, forever. Read through
+  `Repository(exec)` (and `fx.NewRepository(exec)` + `fx.NewBook`) instead.
 - **Every business table is `CREATE TABLE ... STRICT;`** unless there is a
   written reason not to.
 - **Timestamps are `TEXT`**, RFC 3339 UTC with exactly three fractional digits.
@@ -275,6 +284,34 @@ and payment methods; internal same-currency transfers.
 - **Indicators are fixed-rule comparisons, not advice** (TD-073). No score, no
   weights, no recommendation text.
 
+**M7 (in progress): Savings Fund & Goals.** Read
+[`docs/m7-contract.md`](docs/m7-contract.md). M7.1 (policy & suggestions) is
+delivered; M7.2–M7.4 are each approved before they start.
+
+- **Four things are never confused:** income recorded (the ledger), saving
+  suggested (M7.1), money reserved (M7.2), money assigned to a goal (M7.3). M7
+  adds **no row and no column** to `transactions` or `account_movements`, and
+  nothing in it is read by `valuation`: reserving cannot move the net worth.
+- **All M7 figures are USD** (`savings.FundCurrency`), which is not the
+  valuation base.
+- **Only `INCOME` is saved from**, by type; categories are eligible unless
+  excluded; overrides carry a reason; never by description (TD-076).
+- **The policy version is chosen by the income's effective date.** Only the
+  first version may start in the past (TD-077).
+- **A suggestion freezes its USD valuation and copies the rate legs it used**
+  (TD-078) — a deliberate exception to "derived on every read", because it is a
+  record of what was suggested. The rate is still the reference rate of the
+  income's date via `fx.Book`; a corrected rate is reported, never applied
+  silently. A missing rate is `PENDING_VALUATION`, never zero.
+- **One live revision per income** (partial unique index); a correction
+  supersedes, never edits. Confirmation states are derived, never stored
+  (TD-079). Reservations confirmed against a revision are never moved or
+  deleted automatically.
+- **An income and its suggestion commit in one transaction** through
+  `internal/application`; the web adapter routes every income write there.
+  Anything wider is a previewed, idempotent sync (TD-080).
+- The policy's "tasa de ahorro objetivo" is **not** the recap's "tasa de ahorro".
+
 **Design overhaul (in progress): skeuomorphic instrument** (TD-071).
 
 - One visual system for desktop and `/mobile`: brushed chassis panels, keys for
@@ -305,12 +342,14 @@ and payment methods; internal same-currency transfers.
   scheduled or recurring transfers, no scheduled or automatic exchanges.
 - **No budgets, spending limits, alerts, anomaly detection, notifications,
   forecasting or recommendations.** M6's dashboard reports; it does not judge.
+  M7's savings suggestion is a mechanical application of a rate the user set,
+  not advice, and it never moves money.
 - **No projected balance**, no maximum age for a rate, no automatic importer of
   historical BCV rates, no snapshot table, no cache, no background job, no JSON
   API and no charting library.
 - **No third-party rate mirror** (TD-054).
-- No credit, loans, instalments, calendar, recurring transactions, budgets, tags,
-  hierarchical categories, authentication or public API.
+- No credit, loans, instalments (M8, M9), calendar, recurring transactions,
+  budgets, tags, hierarchical categories, authentication or public API.
 
 Do not implement a future milestone's domain because it seems convenient.
 

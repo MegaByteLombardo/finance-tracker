@@ -1,0 +1,77 @@
+{{ define "content" }}
+{{ $d := .Detail }}
+{{ $view := . }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+
+    <main class="mobile-scrollable-content" id="main-mobile-content">
+      <div style="margin-bottom: 4px;">
+        <a href="/mobile/ahorro" class="section-link" aria-label="Volver a Ahorro">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          <span>Ahorro</span>
+        </a>
+      </div>
+
+      {{ with .Alert }}<p class="net-worth-incomplete" role="status">{{ .Message }}</p>{{ end }}
+
+      <header class="mobile-section">
+        <span class="section-eyebrow">{{ if $d.Eligible }}Elegible{{ else }}No elegible{{ end }}</span>
+        <h1 class="section-title">{{ if $d.Description }}{{ derefString $d.Description }}{{ else }}{{ $d.CategoryName }}{{ end }}</h1>
+        <p class="section-note">{{ formatDate $d.Date }} · {{ formatAmount $d.AmountFormatted }} {{ $d.CurrencyCode }} · {{ $d.AccountName }}<br>{{ $d.Reason }}</p>
+      </header>
+
+      <section class="mobile-section" aria-labelledby="revisions-heading">
+        <h2 id="revisions-heading" class="section-title">Historial de sugerencias</h2>
+        {{ if not $d.Revisions }}
+        <p class="section-note">Este ingreso nunca tuvo una sugerencia.</p>
+        {{ else }}
+        <ul class="mobile-list">
+          {{ range $d.Revisions }}
+          <li class="mobile-list-item">
+            <div class="mobile-list-main">
+              <span class="mobile-list-title">Revisión {{ .Revision }} · {{ .StatusLabel }}</span>
+              <span class="mobile-list-subtitle">
+                {{ .RateFormatted }}%{{ if .Valued }} · {{ .MethodLabel }}{{ end }}
+                {{ range .Legs }}<br>1 {{ .Pair }} = {{ .Rate }} ({{ .SourceLabel }}, {{ formatDate .EffectiveDate }}){{ end }}
+                {{ if .StatusReason }}<br>{{ derefString .StatusReason }}{{ end }}
+                {{ if .PendingLabel }}<br>{{ .PendingLabel }}{{ end }}
+              </span>
+            </div>
+            <span class="mobile-list-amount">{{ if .Valued }}{{ formatAmount .SuggestedUSDFormatted }} USD{{ else }}—{{ end }}</span>
+          </li>
+          {{ end }}
+        </ul>
+        {{ end }}
+      </section>
+
+      <section class="mobile-section">
+        <h2 class="section-title">Excepción</h2>
+        {{ with $d.Override }}<p class="section-note">Vigente: «{{ .Reason }}».</p>{{ end }}
+        <form action="/savings/incomes/{{ $d.TransactionID }}/override" method="POST" class="op-fields-container">
+          <input type="hidden" name="return" value="{{ $view.Return }}">
+          <div class="op-field-group">
+            <label for="eligible" class="op-field-label">Para este ingreso</label>
+            <div class="op-select-wrap">
+              <select id="eligible" name="eligible" class="op-native-select">
+                <option value="0">Excluir del ahorro</option>
+                <option value="1">Incluir en el ahorro</option>
+              </select>
+            </div>
+          </div>
+          <div class="op-field-group">
+            <label for="reason" class="op-field-label">Motivo</label>
+            <input type="text" id="reason" name="reason" class="op-native-input" maxlength="255" required>
+          </div>
+          <button type="submit" class="mobile-btn mobile-btn-secondary">Guardar excepción</button>
+        </form>
+      </section>
+    </main>
+
+    {{ template "bottom_navigation" .Navigation }}
+  </div>
+</div>
+{{ end }}

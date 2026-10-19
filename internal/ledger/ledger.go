@@ -646,6 +646,29 @@ type ExpenseItem struct {
 	AmountMinor int64
 }
 
+// IncomeItem is one INCOME transaction, in its own currency, with the facts a
+// savings suggestion is computed from (M7, internal/savings).
+//
+// It is ExpenseItem's mirror. The ledger returns incomes as they are now; what
+// a suggestion recorded about one when it was made is internal/savings'
+// business, and comparing the two is how a correction is noticed.
+type IncomeItem struct {
+	TransactionID int64
+	Date          time.Time
+	Description   *string
+
+	CategoryID   int64
+	CategoryName string
+
+	AccountID    int64
+	AccountName  string
+	CurrencyCode string
+	MinorUnit    int
+
+	// AmountMinor is how much came in: positive, as stored.
+	AmountMinor int64
+}
+
 // RecordIncomeInput is the input to Service.RecordIncome.
 type RecordIncomeInput struct {
 	AccountID int64
