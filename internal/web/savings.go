@@ -71,7 +71,14 @@ func (SavingsSyncView) Help(key string) RecapHelp { return SavingsHelp(key) }
 
 // SavingsIncomeView is one income's savings history.
 type SavingsIncomeView struct {
-	Detail     SavingsIncomeDetail
+	Detail SavingsIncomeDetail
+
+	// Live is the income's live revision, when it has one; Fund and
+	// ConfirmKey back the confirmation form (M7.2).
+	Live       *SavingsSuggestion
+	Fund       SavingsFund
+	ConfirmKey string
+
 	Return     string
 	Alert      *FlashAlert
 	Navigation MobileNavView
@@ -276,6 +283,21 @@ func handleSavingsIncome(logger *slog.Logger, renderer *Renderer, svcs *Services
 			return
 		}
 		view := SavingsIncomeView{Detail: detail, Return: fmt.Sprintf("%s/incomes/%d", savingsPath, id)}
+		for i := range detail.Revisions {
+			if detail.Revisions[i].Live {
+				view.Live = &detail.Revisions[i]
+			}
+		}
+		if view.Live != nil && view.Live.CanConfirm {
+			if view.ConfirmKey, err = newRequestKey(); err == nil {
+				view.Fund, err = svcs.Savings.GetFund(r.Context())
+			}
+			if err != nil {
+				logger.Error("loading the fund for a confirmation", slog.Any("error", err))
+				http.Error(w, "No se pudo cargar el ingreso.", http.StatusInternalServerError)
+				return
+			}
+		}
 		if mobile {
 			view.Return = fmt.Sprintf("%s/ingresos/%d", mobileSavingsPath, id)
 			view.Navigation = MobileNavView{ActiveTab: "inicio"}
@@ -387,12 +409,20 @@ func suggestionErrorKey(err error) string {
 func savingsAlert(q url.Values) *FlashAlert {
 	if key := q.Get("err"); key != "" {
 		messages := map[string]string{
-			"rate-unavailable": "Todavía no hay una tasa vigente en la fecha de ese ingreso. Regístrala en Tasas de cambio y vuelve a valorar.",
-			"not-yet":          "La fecha de ese ingreso aún no llega; se podrá valorar ese día.",
-			"rate-unchanged":   "La tasa de esa fecha no ha cambiado: no hay nada que revalorar.",
-			"invalid-state":    "Esa sugerencia ya no admite esta acción. La lista se actualizó.",
-			"reason-required":  "Indica el motivo de la excepción.",
-			"eligibility":      "No se pudo cambiar la elegibilidad de la categoría.",
+			"rate-unavailable":      "Todavía no hay una tasa vigente en la fecha de ese ingreso. Regístrala en Tasas de cambio y vuelve a valorar.",
+			"not-yet":               "La fecha de ese ingreso aún no llega; se podrá valorar ese día.",
+			"rate-unchanged":        "La tasa de esa fecha no ha cambiado: no hay nada que revalorar.",
+			"invalid-state":         "Esa sugerencia ya no admite esta acción. La lista se actualizó.",
+			"reason-required":       "Indica el motivo de la excepción.",
+			"eligibility":           "No se pudo cambiar la elegibilidad de la categoría.",
+			"insufficient-free":     "La cuenta no tiene suficientes USD libres: su saldo menos lo ya reservado no cubre ese importe.",
+			"insufficient-reserved": "No hay tanto reservado ahí.",
+			"exceeds-suggestion":    "Eso supera lo que queda de la sugerencia. Si de verdad quieres apartar más, marca la excepción e indica el motivo.",
+			"not-usd":               "El ahorro solo se respalda con cuentas en USD.",
+			"account-inactive":      "Esa cuenta está archivada: no puede respaldar ahorro nuevo.",
+			"account":               "Elige una cuenta en USD.",
+			"request-key":           "El formulario caducó. Vuelve a intentarlo desde la página actualizada.",
+			"amount-or-reason":      "Revisa el importe (en USD, con hasta dos decimales) y el motivo, si hace falta.",
 		}
 		message, ok := messages[key]
 		if !ok {
@@ -408,6 +438,10 @@ func savingsAlert(q url.Values) *FlashAlert {
 			Message: "Elegibilidad guardada. Revisa «Sincronizar» para aplicarla a los ingresos existentes."}
 	case "override-saved":
 		return &FlashAlert{Type: "success", Message: "Excepción guardada y aplicada a este ingreso."}
+	case "reserved":
+		return &FlashAlert{Type: "success", Message: "Ahorro reservado. El dinero sigue en su cuenta; solo quedó marcado."}
+	case "released":
+		return &FlashAlert{Type: "success", Message: "Reserva liberada: ese dinero vuelve a estar libre."}
 	case "valued":
 		return &FlashAlert{Type: "success", Message: "Sugerencia valorada."}
 	case "revalued":

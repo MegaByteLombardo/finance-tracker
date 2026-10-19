@@ -1141,6 +1141,36 @@ rate, two for a cross rate. The combined factor is not stored.
 
 Every foreign-key child column is indexed, as everywhere else.
 
+### `savings_operations` *(M7.2)*
+
+| Column | Type | Null | Constraints |
+| --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | **PRIMARY KEY** |
+| `kind` | `TEXT` | NOT NULL | `RESERVE`, `RELEASE`, `REALLOCATE`, `REBACK`, `SPEND` |
+| `request_key` | `TEXT` | NOT NULL | 16–64 of `[0-9a-zA-Z_-]`; **UNIQUE** (idempotency) |
+| `suggestion_id` | `INTEGER` | NULL | **FK** → `savings_suggestions(id)`; only for `RESERVE` |
+| `transaction_id` | `INTEGER` | NULL | **FK** → `transactions(id)`; required for `SPEND` |
+| `reason` | `TEXT` | NULL | 1–255; required for `RELEASE` and for an exception |
+| `is_exception` | `INTEGER` | NOT NULL | `IN (0, 1)`; 1 requires a suggestion and a reason |
+| `effective_date` | `TEXT` | NOT NULL | date — the business day the operation happened (the confirmation date) |
+| `created_at` | `TEXT` | NOT NULL | timestamp; never updated |
+
+### `savings_entries` *(M7.2)*
+
+| Column | Type | Null | Constraints |
+| --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | **PRIMARY KEY** |
+| `operation_id` | `INTEGER` | NOT NULL | **FK** → `savings_operations(id)` |
+| `account_id` | `INTEGER` | NOT NULL | **FK** → `accounts(id)`; a USD account (checked in Go) |
+| `amount_minor` | `INTEGER` | NOT NULL | USD cents, signed, `<> 0` |
+| `created_at` | `TEXT` | NOT NULL | timestamp |
+
+The fund is these two tables and nothing else (TD-082): every reserved balance
+is a `SUM` of entries, there is no balance column, and an operation is never
+edited — a correction is another operation. Free balance and overallocation are
+computed against the ledger's balance today. Neither table is read by the
+valuation, so reserving cannot change the net worth.
+
 ---
 
 ## The net worth is not in this document

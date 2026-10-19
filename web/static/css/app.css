@@ -1908,3 +1908,9 @@ input[data-type="currency"] {
     animation: none !important;
   }
 }
+
+/* Savings fund (M7.2): the exception toggle under a confirmation. */
+.savings-exception { margin: 0 0 var(--space-4); font-size: 0.875rem; color: var(--text-body); }
+.savings-exception summary { cursor: pointer; font-weight: 650; margin-bottom: var(--space-2); }
+.savings-exception .form-control { margin-top: var(--space-2); }
+#confirm .ledger { margin-bottom: var(--space-4); }

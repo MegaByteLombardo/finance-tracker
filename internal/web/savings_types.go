@@ -137,11 +137,26 @@ type SavingsSuggestion struct {
 	// this valuation used.
 	RateChanged bool
 
+	// What reservations confirmed (M7.2). ConfirmedFormatted is this
+	// revision's; the Income* figures are the income's, across revisions, on
+	// the live one.
+	ConfirmedFormatted       string
+	IncomeConfirmedFormatted string
+	RemainingFormatted       string
+	OverConfirmedFormatted   string
+	// RemainingAmount is RemainingFormatted without separators, to prefill a
+	// form field.
+	RemainingAmount   string
+	ConfirmationLabel string
+	HasConfirmed      bool
+	OverConfirmed     bool
+
 	// What the user may do with this revision, decided by the backend.
 	Live       bool
 	CanDismiss bool
 	CanValue   bool
 	CanRevalue bool
+	CanConfirm bool
 }
 
 // SavingsCurrencyAmount is an amount in its own currency, formatted.
@@ -162,6 +177,21 @@ type SavingsOverview struct {
 	SuggestedFormatted      string
 	OpenFormatted           string
 	DismissedFormatted      string
+
+	ConfirmedFormatted     string
+	OverConfirmedFormatted string
+	OverConfirmed          bool
+	// ProgressFormatted is confirmed over suggested, as a percentage with two
+	// decimals; empty when nothing was suggested. It is NOT the fund's growth.
+	ProgressFormatted string
+
+	// The fund's movement in the period, by the operations' dates.
+	GrossContributionsFormatted string
+	WithdrawalsFormatted        string
+	// NetChangeFormatted is signed.
+	NetChangeFormatted string
+
+	Fund SavingsFund
 
 	OpenCount             int
 	DismissedCount        int
@@ -245,8 +275,8 @@ func SavingsHelp(key string) RecapHelp {
 			"reservado: no mueve ningún saldo ni cambia tu patrimonio."
 	case "open":
 		h.Title = "Pendiente de confirmar"
-		h.Text = "Las sugerencias que no descartaste. Confirmar y reservar el dinero llega en la siguiente " +
-			"etapa (M7.2); por ahora es lo que la política te propone."
+		h.Text = "Lo que falta por confirmar de las sugerencias que no descartaste. Confirmar es reservar " +
+			"dólares de una cuenta en USD contra la sugerencia, todo o una parte."
 	case "pending-valuation":
 		h.Title = "Sin valorar"
 		h.Text = "Ingresos en otra moneda para los que todavía no hay tasa en su fecha, o cuya fecha aún no " +
@@ -255,6 +285,25 @@ func SavingsHelp(key string) RecapHelp {
 		h.Title = "Tasa corregida"
 		h.Text = "La tasa vigente en la fecha del ingreso ya no es la que se usó al sugerir (una corrección del " +
 			"BCV o una tasa manual). La sugerencia no cambia sola; puedes revalorarla."
+	case "confirmed":
+		h.Title = "Ahorro confirmado"
+		h.Text = "Lo que de verdad apartaste contra las sugerencias de los ingresos del mes, cuando sea que lo " +
+			"hayas hecho. El porcentaje compara lo confirmado con lo sugerido; no es el crecimiento del fondo."
+	case "fund":
+		h.Title = "Fondo de ahorro"
+		h.Text = "Dólares que marcaste como ahorro dentro de tus cuentas en USD. No es una cuenta nueva: el " +
+			"dinero sigue donde está y tu patrimonio no cambia. Cada reserva está respaldada por el saldo de una cuenta."
+	case "free":
+		h.Title = "USD libres"
+		h.Text = "Saldo de tus cuentas en USD menos lo reservado en cada una. Es lo que todavía puedes reservar."
+	case "overallocated":
+		h.Title = "Sobreasignado"
+		h.Text = "Lo reservado que el saldo de su cuenta ya no respalda, por un gasto o una transferencia " +
+			"posterior. No se corrige solo: libera o mueve reservas cuando lo decidas."
+	case "fund-movement":
+		h.Title = "Movimiento del fondo"
+		h.Text = "Aportes brutos (todo lo reservado en el mes, con o sin sugerencia), retiros (lo liberado o " +
+			"gastado) y su diferencia, por la fecha de cada operación. No es rentabilidad ni crecimiento del patrimonio."
 	case "sync":
 		h.Title = "Sincronizar"
 		h.Text = "Ingresos cuya sugerencia falta, está desactualizada o ya no corresponde: por ejemplo, tras " +

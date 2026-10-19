@@ -72,6 +72,13 @@ func TestTablesHaveExactlyTheExpectedColumns(t *testing.T) {
 			"suggestion_id", "leg", "exchange_rate_id", "base_currency_code",
 			"quote_currency_code", "rate", "effective_date", "source", "inverted", "created_at",
 		},
+		"savings_operations": {
+			"id", "kind", "request_key", "suggestion_id", "transaction_id", "reason",
+			"is_exception", "effective_date", "created_at",
+		},
+		"savings_entries": {
+			"id", "operation_id", "account_id", "amount_minor", "created_at",
+		},
 	}
 
 	for table, want := range tests {
@@ -935,6 +942,7 @@ var businessTables = []string{
 	"exchange_rates", "app_settings",
 	"savings_policy_versions", "savings_category_rules", "savings_income_overrides",
 	"savings_suggestions", "savings_suggestion_rate_legs",
+	"savings_operations", "savings_entries",
 }
 
 func TestExpectedIndexesExist(t *testing.T) {
@@ -966,6 +974,12 @@ func TestExpectedIndexesExist(t *testing.T) {
 		"idx_savings_suggestion_rate_legs_exchange_rate_id",
 		"idx_savings_suggestion_rate_legs_base_currency_code",
 		"idx_savings_suggestion_rate_legs_quote_currency_code",
+		"idx_savings_operations_request_key",
+		"idx_savings_operations_suggestion_id",
+		"idx_savings_operations_transaction_id",
+		"idx_savings_operations_effective_date",
+		"idx_savings_entries_operation_id",
+		"idx_savings_entries_account_id",
 	}
 
 	for _, index := range want {

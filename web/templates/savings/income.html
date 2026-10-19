@@ -12,6 +12,55 @@
   </div>
 </div>
 
+{{ with .Live }}{{ if .Valued }}
+<article class="card" id="confirm" style="margin-bottom: var(--space-6);">
+  <div class="card-header">
+    <h2 class="card-title">Confirmar el ahorro</h2>
+    <span class="badge {{ .BadgeClass }}">{{ .StatusLabel }}</span>
+  </div>
+  <div class="card-body">
+    <ul class="ledger">
+      <li class="ledger-row"><span class="ledger-name">Sugerido</span><span class="ledger-figure">{{ formatAmount .SuggestedUSDFormatted }} USD</span></li>
+      <li class="ledger-row"><span class="ledger-name">Confirmado</span><span class="ledger-figure">{{ formatAmount .IncomeConfirmedFormatted }} USD</span><span class="ledger-sub">en todas las revisiones de este ingreso</span></li>
+      <li class="ledger-row"><span class="ledger-name">Por confirmar</span><span class="ledger-figure">{{ formatAmount .RemainingFormatted }} USD</span></li>
+    </ul>
+    {{ if .OverConfirmed }}
+    <div class="alert alert-warning" role="alert"><div>Hay <strong>{{ formatAmount .OverConfirmedFormatted }} USD</strong> confirmados por encima de la sugerencia vigente (una excepción, o una revisión que la redujo). No se libera solo: hazlo desde el fondo si lo decides.</div></div>
+    {{ end }}
+    {{ if .CanConfirm }}
+    {{ if $view.Fund.CanReserve }}
+    <form action="/savings/reserve" method="POST">
+      <input type="hidden" name="request_key" value="{{ $view.ConfirmKey }}">
+      <input type="hidden" name="income_id" value="{{ .IncomeTransactionID }}">
+      <input type="hidden" name="return" value="{{ $view.Return }}">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="confirm_account" class="form-label">Cuenta en USD que lo respalda</label>
+          <select id="confirm_account" name="account_id" class="form-control">
+            {{ range $view.Fund.Accounts }}{{ if .HasFree }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .FreeFormatted }} libres</option>{{ end }}{{ end }}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="confirm_amount" class="form-label">Importe (USD)</label>
+          <input type="text" id="confirm_amount" name="amount" class="form-control" inputmode="decimal" value="{{ .RemainingAmount }}" required>
+          <p class="form-help">Todo o una parte. Lo que no confirmes sigue pendiente en esta misma sugerencia.</p>
+        </div>
+      </div>
+      <details class="savings-exception">
+        <summary>Apartar más de lo que queda (excepción)</summary>
+        <label class="form-label"><input type="checkbox" name="exception" value="1"> Confirmar por encima de la sugerencia</label>
+        <input type="text" name="reason" class="form-control" maxlength="255" placeholder="Motivo, obligatorio para una excepción">
+      </details>
+      <button type="submit" class="btn btn-primary">Confirmar y reservar</button>
+    </form>
+    {{ else }}
+    <p class="text-muted">No hay USD libres en ninguna cuenta activa. Si el ingreso fue en bolívares, registra primero la compra de dólares.</p>
+    {{ end }}
+    {{ end }}
+  </div>
+</article>
+{{ end }}{{ end }}
+
 <div class="savings-split">
   <article class="card">
     <div class="card-header"><h2 class="card-title">¿Se ahorra de este ingreso?</h2></div>

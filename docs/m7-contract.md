@@ -8,7 +8,7 @@ separately:
 | Submilestone | Scope | Status |
 | --- | --- | --- |
 | **M7.1** | Savings policy & suggestions | Delivered (this document, §1–§9) |
-| M7.2 | Savings fund: reservations, partial confirmation, availability | Planned |
+| M7.2 | Savings fund: reservations, partial confirmation, availability | Delivered (§11) |
 | M7.3 | Goals: permanent and one-time, distribution, withdrawals | Planned |
 | M7.4 | Ledger integration (expenses, transfers), reconciliation, dashboard | Planned |
 
@@ -240,7 +240,61 @@ links to its savings history.
 - A confirmation is idempotent through a form token and its own date column,
   distinct from the income's effective date.
 
-## Not in M7.1
+## 11. M7.2 — The savings fund (TD-082, TD-083)
+
+**The fund is a sum over entries, never an account.** An operation (`RESERVE`,
+`RELEASE`; `REALLOCATE`, `REBACK`, `SPEND` arrive in M7.3–M7.4) has one or more
+signed entries on USD accounts. Nothing is edited or deleted.
+
+| Figure, per USD account | Definition |
+| --- | --- |
+| Balance | the ledger's balance today (TD-063) |
+| Reserved | Σ entries on the account |
+| Free | balance − reserved (negative when overallocated) |
+| Overallocated | max(0, reserved − max(0, balance)) |
+
+The fund totals sum those, with **free** counting only positive free balances,
+and **unallocated** = reserved − assigned to goals (all of it until M7.3).
+
+**`Reserve({RequestKey, IncomeTransactionID?, Lines, Exception, Reason})`**
+
+- Each line's account must exist, be in USD and be active; the amounts per
+  account must fit its free balance, read inside the transaction.
+- With an income: its live revision must be `OPEN`; what is confirmed for the
+  income across all its revisions plus this amount may not exceed the live
+  suggested amount, unless `Exception` with a `Reason` (stored as
+  `is_exception`). `ErrExceedsSuggestion` otherwise.
+- Without an income: a manual contribution (savings that predate M7).
+- The request key is generated when the form renders; the same key replays the
+  operation it produced and writes nothing.
+- The operation is dated today (Venezuela): **the confirmation date**, distinct
+  from the income's effective date and from `created_at`.
+
+**`Release({RequestKey, AccountID, Amount, Reason})`** — reason required; never
+more than reserved there. An archived account may release, never back new money.
+
+**Derived on every suggestion:** `ConfirmedUSDMinor` (this revision),
+`IncomeConfirmedUSDMinor` (the income, all revisions), `RemainingUSDMinor`,
+`OverConfirmedUSDMinor`, `Confirmation` = `PENDING_CONFIRMATION` /
+`PARTIALLY_CONFIRMED` / `CONFIRMED`. Dismissing applies to the remainder and is
+refused once fully confirmed.
+
+**Overview, six figures that are never mixed:**
+
+| Figure | Dated by |
+| --- | --- |
+| Suggested; confirmed; remaining; declined; over-confirmed | the income's effective date |
+| Confirmation progress = confirmed ÷ suggested (bp) | the income's effective date |
+| Gross contributions (all `RESERVE`), withdrawals (`RELEASE` + `SPEND`), net change | the operation's effective date |
+| Reserved, free, overallocated, unallocated | today |
+
+**Routes:** `GET /savings/fund`, `GET /mobile/ahorro/fondo`;
+`POST /savings/reserve` (`request_key`, `account_id`, `amount`, optional
+`income_id`, `exception=1`, `reason`); `POST /savings/release` (`request_key`,
+`account_id`, `amount`, `reason`). The income page carries the confirmation form,
+prefilled with what remains.
+
+## Not yet built
 
 Reservations, confirmation, the fund, goals, distribution, expense and transfer
 integration, reconciliation of reserves and the dashboard block — M7.2 to M7.4.

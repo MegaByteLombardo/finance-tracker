@@ -298,3 +298,87 @@ func seedIncome(t *testing.T, db *sql.DB, category int64) int64 {
 	}
 	return id
 }
+
+const insertOperation = `
+	INSERT INTO savings_operations (kind, request_key, suggestion_id, transaction_id, reason, is_exception, effective_date)
+	VALUES (?, ?, ?, ?, ?, ?, '2026-10-15')`
+
+// The shape of each operation kind (00016).
+func TestSavingsOperationShapePerKind(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]struct {
+		kind, key      any
+		suggestion, tx bool
+		reason         any
+		exception      any
+		accepted       bool
+	}{
+		"manual reserve":               {"RESERVE", "k-0000000000000001", false, false, nil, 0, true},
+		"reserve of a suggestion":      {"RESERVE", "k-0000000000000002", true, false, nil, 0, true},
+		"exception with a reason":      {"RESERVE", "k-0000000000000003", true, false, "Bono", 1, true},
+		"exception without a reason":   {"RESERVE", "k-0000000000000004", true, false, nil, 1, false},
+		"exception without suggestion": {"RESERVE", "k-0000000000000005", false, false, "x", 1, false},
+		"release with a reason":        {"RELEASE", "k-0000000000000006", false, false, "Emergencia", 0, true},
+		"release without a reason":     {"RELEASE", "k-0000000000000007", false, false, nil, 0, false},
+		"release naming a suggestion":  {"RELEASE", "k-0000000000000008", true, false, "x", 0, false},
+		"spend with its expense":       {"SPEND", "k-0000000000000009", false, true, nil, 0, true},
+		"spend without an expense":     {"SPEND", "k-0000000000000010", false, false, nil, 0, false},
+		"unknown kind":                 {"WITHDRAW", "k-0000000000000011", false, false, nil, 0, false},
+		"short key":                    {"RESERVE", "short", false, false, nil, 0, false},
+		"key with spaces":              {"RESERVE", "k 000000000000000012", false, false, nil, 0, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newSuggestionFixture(t)
+			if err := f.insert(t, 1, 80000, 16000, "IDENTITY", valuedAt, "OPEN", nil); err != nil {
+				t.Fatalf("suggestion: %v", err)
+			}
+			var suggestion, tx any
+			if tc.suggestion {
+				suggestion = 1
+			}
+			if tc.tx {
+				tx = f.income
+			}
+			_, err := f.db.ExecContext(t.Context(), insertOperation, tc.kind, tc.key, suggestion, tx, tc.reason, tc.exception)
+			if tc.accepted && err != nil {
+				t.Fatalf("refused a valid operation: %v", err)
+			}
+			if !tc.accepted && err == nil {
+				t.Fatal("accepted an invalid operation")
+			}
+		})
+	}
+}
+
+func TestSavingsOperationKeyIsUniqueAndEntriesAreNonZero(t *testing.T) {
+	t.Parallel()
+	f := newSuggestionFixture(t)
+	ctx := t.Context()
+	result, err := f.db.ExecContext(ctx, insertOperation, "RESERVE", "k-aaaaaaaaaaaaaaaa", nil, nil, nil, 0)
+	if err != nil {
+		t.Fatalf("operation: %v", err)
+	}
+	op, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("operation id: %v", err)
+	}
+	if _, err := f.db.ExecContext(ctx, insertOperation, "RESERVE", "k-aaaaaaaaaaaaaaaa", nil, nil, nil, 0); err == nil {
+		t.Error("accepted a repeated request key")
+	}
+	const insertEntry = `INSERT INTO savings_entries (operation_id, account_id, amount_minor) VALUES (?, ?, ?)`
+	if _, err := f.db.ExecContext(ctx, insertEntry, op, f.account, 0); err == nil {
+		t.Error("accepted a zero entry")
+	}
+	if _, err := f.db.ExecContext(ctx, insertEntry, op, f.account, 10.5); err == nil {
+		t.Error("accepted a REAL entry")
+	}
+	if _, err := f.db.ExecContext(ctx, insertEntry, op, 9999, 100); err == nil {
+		t.Error("accepted an entry for an account that does not exist")
+	}
+	if _, err := f.db.ExecContext(ctx, insertEntry, op, f.account, -100); err != nil {
+		t.Errorf("refused a signed entry: %v", err)
+	}
+}

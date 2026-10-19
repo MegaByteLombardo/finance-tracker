@@ -31,6 +31,8 @@ type FakeSavings struct {
 	DismissReasons  []string
 	Applied         [][]int64
 	ValuePendingRun int
+
+	fakeFundState
 }
 
 // NewFakeSavings returns an empty stand-in: no policy, nothing suggested.
@@ -161,4 +163,45 @@ func (f *FakeSavings) ApplySync(_ context.Context, transactionIDs []int64) (Savi
 	}
 	f.Applied = append(f.Applied, transactionIDs)
 	return SavingsSyncResult{Created: len(transactionIDs)}, nil
+}
+
+// M7.2 stand-ins. FundResult and Operations are what the reads return;
+// Reserved and Released record what the handlers asked for.
+type fakeFundState struct {
+	FundResult SavingsFund
+	Operations []SavingsOperation
+	Reserved   []SavingsReserveInput
+	Released   []SavingsReleaseInput
+}
+
+func (f *FakeSavings) GetFund(context.Context) (SavingsFund, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.FundResult, f.Err
+}
+
+func (f *FakeSavings) Reserve(_ context.Context, in SavingsReserveInput) (SavingsOperation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ActionErr != nil {
+		return SavingsOperation{}, f.ActionErr
+	}
+	f.Reserved = append(f.Reserved, in)
+	return SavingsOperation{ID: int64(len(f.Reserved)), Kind: "RESERVE"}, nil
+}
+
+func (f *FakeSavings) Release(_ context.Context, in SavingsReleaseInput) (SavingsOperation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ActionErr != nil {
+		return SavingsOperation{}, f.ActionErr
+	}
+	f.Released = append(f.Released, in)
+	return SavingsOperation{ID: int64(len(f.Released)), Kind: "RELEASE"}, nil
+}
+
+func (f *FakeSavings) ListOperations(context.Context, int) ([]SavingsOperation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Operations, f.Err
 }

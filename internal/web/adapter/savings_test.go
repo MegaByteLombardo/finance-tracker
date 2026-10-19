@@ -90,3 +90,85 @@ func TestIncomesWrittenThroughTheWebLayerCarryTheirSuggestion(t *testing.T) {
 		t.Errorf("an unknown income returned %v, want ErrSavingsIncomeNotFound", err)
 	}
 }
+
+// The fund through the web layer: a partial confirmation, a replayed form, a
+// release and the overview's separate figures.
+func TestTheFundThroughTheWebLayer(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	svcs := newTestServices(t, dbtest.New(t))
+
+	salary, err := svcs.Categories.Create(ctx, web.CreateCategoryInput{Name: "Salario", Type: web.CategoryTypeIncome})
+	if err != nil {
+		t.Fatalf("category: %v", err)
+	}
+	opened, err := svcs.Application.OpenAccount(ctx, web.OpenAccountInput{
+		Account: web.CreateAccountInput{Name: "Efectivo", Type: web.AccountTypeCash, CurrencyCode: "USD"},
+	})
+	if err != nil {
+		t.Fatalf("account: %v", err)
+	}
+	today := database.FormatDate(database.Today())
+	if err := svcs.Savings.SetPolicy(ctx, web.SetSavingsPolicyInput{Rate: "20", EffectiveFrom: today}); err != nil {
+		t.Fatalf("policy: %v", err)
+	}
+	income, err := svcs.Ledger.RecordIncome(ctx, web.RecordIncomeInput{
+		AccountID: opened.Account.ID, CategoryID: salary.ID, Amount: "800.00", PaymentMethodID: 1, EffectiveDate: today,
+	})
+	if err != nil {
+		t.Fatalf("income: %v", err)
+	}
+
+	in := web.SavingsReserveInput{RequestKey: "adapter-key-000000000001", IncomeTransactionID: &income.ID,
+		AccountID: opened.Account.ID, Amount: "100.00"}
+	first, err := svcs.Savings.Reserve(ctx, in)
+	if err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+	again, err := svcs.Savings.Reserve(ctx, in)
+	if err != nil || again.ID != first.ID {
+		t.Fatalf("a replayed form reserved again: %v", err)
+	}
+	if first.KindLabel != "Reserva" || first.TotalFormatted != "100.00" {
+		t.Errorf("operation = %+v", first)
+	}
+
+	list, err := svcs.Savings.ListSuggestions(ctx)
+	if err != nil {
+		t.Fatalf("ListSuggestions: %v", err)
+	}
+	s := list[0]
+	if s.StatusLabel != "Confirmada en parte" || s.RemainingAmount != "60.00" || !s.CanConfirm {
+		t.Errorf("suggestion after a partial confirmation: %+v", s)
+	}
+
+	_, err = svcs.Savings.Reserve(ctx, web.SavingsReserveInput{RequestKey: "adapter-key-000000000002",
+		IncomeTransactionID: &income.ID, AccountID: opened.Account.ID, Amount: "61"})
+	if !errors.Is(err, web.ErrSavingsExceedsSuggestion) {
+		t.Errorf("confirming past the suggestion returned %v", err)
+	}
+	if _, err := svcs.Savings.Release(ctx, web.SavingsReleaseInput{RequestKey: "adapter-key-000000000003",
+		AccountID: opened.Account.ID, Amount: "30", Reason: "Imprevisto"}); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+
+	fund, err := svcs.Savings.GetFund(ctx)
+	if err != nil {
+		t.Fatalf("GetFund: %v", err)
+	}
+	if fund.ReservedFormatted != "70.00" || fund.FreeFormatted != "730.00" || !fund.CanReserve {
+		t.Errorf("fund = %+v", fund)
+	}
+	o, err := svcs.Savings.Overview(ctx)
+	if err != nil {
+		t.Fatalf("Overview: %v", err)
+	}
+	if o.SuggestedFormatted != "160.00" || o.ConfirmedFormatted != "100.00" || o.ProgressFormatted != "62.50" ||
+		o.GrossContributionsFormatted != "100.00" || o.WithdrawalsFormatted != "30.00" || o.NetChangeFormatted != "70.00" {
+		t.Errorf("overview = %+v", o)
+	}
+	ops, err := svcs.Savings.ListOperations(ctx, 10)
+	if err != nil || len(ops) != 2 {
+		t.Errorf("operations = %+v (%v)", ops, err)
+	}
+}

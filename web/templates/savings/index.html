@@ -5,6 +5,7 @@
     <p class="page-subtitle">Lo que tu política propone apartar de cada ingreso. Es un objetivo: no mueve saldos ni cambia tu patrimonio.</p>
   </div>
   <div class="page-actions">
+    <a href="/savings/fund" class="btn btn-secondary">Fondo</a>
     <a href="/savings/policy" class="btn btn-secondary">Política y elegibilidad</a>
     {{ if and .Available .Overview.UnsyncedCount }}<a href="/savings/sync" class="btn btn-primary">Sincronizar ({{ .Overview.UnsyncedCount }})</a>{{ end }}
   </div>
@@ -55,13 +56,36 @@
     <article class="card dash-kpi">
       <h3 class="dash-kpi-label">Ahorro sugerido{{ template "help" ($view.Help "suggested") }}</h3>
       <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.SuggestedFormatted }}<span class="lcd-unit">USD</span></span></div>
-      <p class="dash-kpi-meta">{{ if $o.DismissedCount }}Descartado: <strong>{{ formatAmount $o.DismissedFormatted }} USD</strong> ({{ $o.DismissedCount }}){{ else }}Nada descartado{{ end }}</p>
+      <p class="dash-kpi-meta">{{ $o.OpenCount }} abierta{{ if ne $o.OpenCount 1 }}s{{ end }}{{ if $o.OverConfirmed }} · {{ formatAmount $o.OverConfirmedFormatted }} confirmados de más{{ end }}</p>
     </article>
 
     <article class="card dash-kpi">
-      <h3 class="dash-kpi-label">Pendiente de confirmar{{ template "help" ($view.Help "open") }}</h3>
-      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.OpenFormatted }}<span class="lcd-unit">USD</span></span></div>
-      <p class="dash-kpi-meta">{{ $o.OpenCount }} sugerencia{{ if ne $o.OpenCount 1 }}s{{ end }} abierta{{ if ne $o.OpenCount 1 }}s{{ end }}</p>
+      <h3 class="dash-kpi-label">Confirmado{{ template "help" ($view.Help "confirmed") }}</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.ConfirmedFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">{{ if $o.ProgressFormatted }}{{ $o.ProgressFormatted }}% de lo sugerido{{ else }}Nada sugerido aún{{ end }} · pendiente <strong>{{ formatAmount $o.OpenFormatted }} USD</strong>{{ template "help" ($view.Help "open") }}</p>
+    </article>
+  </div>
+
+  <div class="savings-kpis">
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Fondo reservado{{ template "help" ($view.Help "fund") }}</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.Fund.ReservedFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">Hoy · sin asignar <strong>{{ formatAmount $o.Fund.UnallocatedFormatted }} USD</strong></p>
+    </article>
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">USD libres{{ template "help" ($view.Help "free") }}</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.Fund.FreeFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">{{ if $o.Fund.Overallocated }}<span class="amount-expense">Sobreasignado: {{ formatAmount $o.Fund.OverallocatedFormatted }} USD</span>{{ else }}Todo lo reservado está respaldado{{ end }}</p>
+    </article>
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Movimiento del mes{{ template "help" ($view.Help "fund-movement") }}</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.NetChangeFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">Aportes <strong>{{ formatAmount $o.GrossContributionsFormatted }}</strong> · retiros <strong>{{ formatAmount $o.WithdrawalsFormatted }}</strong></p>
+    </article>
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Descartado</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.DismissedFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">{{ $o.DismissedCount }} sugerencia{{ if ne $o.DismissedCount 1 }}s{{ end }} declinada{{ if ne $o.DismissedCount 1 }}s{{ end }}</p>
     </article>
   </div>
 
@@ -125,6 +149,7 @@
         <td class="text-right">{{ .RateFormatted }}%</td>
         <td class="text-right savings-figure">
           {{ if .Valued }}<strong>{{ formatAmount .SuggestedUSDFormatted }} USD</strong>{{ else }}<span class="text-muted">—</span>{{ end }}
+          {{ if .HasConfirmed }}<div class="text-muted savings-sub">confirmado {{ formatAmount .IncomeConfirmedFormatted }}</div>{{ end }}
         </td>
         <td>
           <span class="badge {{ .BadgeClass }}">{{ .StatusLabel }}</span>
@@ -133,6 +158,7 @@
           {{ if .StatusReason }}<div class="text-muted savings-sub">{{ derefString .StatusReason }}</div>{{ end }}
         </td>
         <td class="savings-actions">
+          {{ if .CanConfirm }}<a href="/savings/incomes/{{ .IncomeTransactionID }}#confirm" class="btn btn-sm btn-primary">Confirmar</a>{{ end }}
           {{ if .CanValue }}
           <form action="/savings/incomes/{{ .IncomeTransactionID }}/value" method="POST">
             <input type="hidden" name="return" value="{{ $view.Return }}">

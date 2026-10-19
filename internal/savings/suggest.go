@@ -580,6 +580,13 @@ func (s *Service) DismissSuggestion(ctx context.Context, transactionID int64, re
 			return fmt.Errorf("%w: only an open suggestion can be dismissed; this one is %s",
 				ErrInvalidState, live.Status)
 		}
+		confirmed, err := repo.ConfirmedByIncome(ctx)
+		if err != nil {
+			return err
+		}
+		if confirmed[transactionID] >= *live.SuggestedUSDMinor {
+			return fmt.Errorf("%w: the suggestion is already confirmed in full", ErrInvalidState)
+		}
 		return repo.SetStatus(ctx, live.ID, StatusDismissed, reason, database.Now())
 	})
 }

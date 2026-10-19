@@ -817,7 +817,7 @@ closed on its own. The contract is [m7-contract.md](m7-contract.md).
 | Submilestone | Status |
 | --- | --- |
 | M7.1 — Savings policy & suggestions | `CLOSED` (2026-10-18) |
-| M7.2 — Savings fund | `PLANNED` |
+| M7.2 — Savings fund | `CLOSED` (2026-10-18) |
 | M7.3 — Savings goals | `PLANNED` |
 | M7.4 — Ledger integration & dashboard | `PLANNED` |
 
@@ -878,10 +878,47 @@ ledger gained `RecordIncomeTx`, `UpdateTransactionTx`, `GetIncome` and
   no suggestion, and rolls back cleanly.
 - Desktop and mobile were checked in a browser against a seeded database.
 
+### M7.2 delivered
+
+- **The fund** (TD-082): `savings_operations` + `savings_entries`, append-only;
+  every reserved balance a sum of entries. Per USD account: balance today,
+  reserved, free, overallocated; in total, plus unallocated.
+- **Reserving** (TD-083): with or without a suggestion (savings that predate M7
+  need no income), never above the account's free balance, idempotent on a
+  request key generated with each form. Partial confirmation leaves the rest
+  pending on the same suggestion; confirming past it needs a recorded exception
+  with a reason.
+- **Releasing**, with a mandatory reason; an archived account can still release
+  what it backs but backs nothing new.
+- **Derived confirmation states** on every suggestion (pending, partly
+  confirmed, confirmed, over-confirmed), summed across the income's revisions;
+  a revision or invalidation never moves a reservation.
+- **The six figures kept apart** (§B of the approval): suggested and confirmed
+  by the income's date; gross contributions, withdrawals and net change by the
+  operation's date; the reserved balance today. The confirmation percentage is
+  not the fund's growth.
+- **Screens**: the fund page (desktop and mobile), the confirmation form on each
+  income, confirmed figures on the overview.
+
+Schema 15 → 16 (00016), additive and reversible.
+
+### M7.2 verification
+
+`go vet` clean and `go test ./... -count=1` green. Against real SQLite:
+reserved vs unreserved ($1,000 / $800 / $200) with the net worth unchanged; a
+manual reservation with no income; free-balance, currency, archived-account and
+key refusals; $160 confirmed as $100 + $60 on one suggestion, $0.01 more refused,
+an exception recorded; a pending or dismissed suggestion refused; a form
+submitted twice reserving once (also for a release); six concurrent
+reservations of $600 against $1,000 with exactly one winning, and the same across
+two pools over one file; releases; an expense leaving the fund overallocated and
+recorded anyway; reservations surviving a lowered revision and an invalidation;
+the six figures of a period. Desktop checked in a browser.
+
 ### Not in M7.1
 
-Reservations, confirmation, the fund, goals, distribution, the expense and
-transfer integration, reconciliation of reserves and the dashboard block.
+Goals, distribution, the expense and transfer integration, reconciliation of
+reserves and the dashboard block (M7.3, M7.4).
 
 ---
 
@@ -902,7 +939,7 @@ below has acceptance criteria yet, by design.
 | M6 | Historical Net Worth & Analytics Dashboard | `CLOSED` |
 | M6.5 | Weekly & Monthly Recap | `IN PROGRESS` |
 | — | Production Deployment, Private Access & Continuous Backup | `POSTPONED` |
-| M7 | Savings Fund & Goals | `IN PROGRESS` (M7.1 closed) |
+| M7 | Savings Fund & Goals | `IN PROGRESS` (M7.1, M7.2 closed) |
 | M8 | Credit & Debt | `PLANNED` |
 | M9 | Instalments & Calendar | `PLANNED` |
 | M10 | Hardening | `PLANNED` |

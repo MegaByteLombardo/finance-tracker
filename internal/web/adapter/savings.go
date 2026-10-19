@@ -39,6 +39,17 @@ func (a *savingsAdapter) Overview(ctx context.Context) (web.SavingsOverview, err
 		PendingValuationCount:   o.PendingValuationCount,
 		RateChangedCount:        o.RateChangedCount,
 		UnsyncedCount:           o.UnsyncedCount,
+
+		ConfirmedFormatted:          usd(o.ConfirmedUSDMinor),
+		OverConfirmedFormatted:      usd(o.OverConfirmedUSDMinor),
+		OverConfirmed:               o.OverConfirmedUSDMinor > 0,
+		GrossContributionsFormatted: usd(o.GrossContributionsMinor),
+		WithdrawalsFormatted:        usd(o.WithdrawalsMinor),
+		NetChangeFormatted:          usd(o.NetChangeMinor),
+		Fund:                        toWebSavingsFund(o.Fund),
+	}
+	if o.ConfirmationProgress.Defined {
+		out.ProgressFormatted = money.Format(o.ConfirmationProgress.BasisPoints, 2)
 	}
 	for _, p := range o.PendingByCurrency {
 		out.PendingByCurrency = append(out.PendingByCurrency, web.SavingsCurrencyAmount{
@@ -229,7 +240,11 @@ func toWebSavingsSuggestion(s savings.Suggestion) web.SavingsSuggestion {
 		CreatedAt:             s.CreatedAt,
 		RateChanged:           s.RateChanged,
 		Live:                  s.Status.Live(),
-		CanDismiss:            s.Status == savings.StatusOpen,
+		CanDismiss:            s.Status == savings.StatusOpen && s.RemainingUSDMinor > 0,
+		CanConfirm:            s.Status == savings.StatusOpen && s.RemainingUSDMinor > 0,
+		ConfirmedFormatted:    usd(s.ConfirmedUSDMinor),
+		HasConfirmed:          s.IncomeConfirmedUSDMinor > 0,
+		OverConfirmed:         s.OverConfirmedUSDMinor > 0,
 		CanValue:              s.Status == savings.StatusPendingValuation && s.Pending == savings.PendingNoRate,
 		CanRevalue:            s.Status.Live() && s.RateChanged,
 	}
@@ -240,6 +255,16 @@ func toWebSavingsSuggestion(s savings.Suggestion) web.SavingsSuggestion {
 		out.ShowUSDEquivalent = s.IncomeCurrencyCode != savings.FundCurrency
 	}
 	out.BadgeClass = suggestionBadgeClass(s.Status)
+	if s.Status.Live() && s.SuggestedUSDMinor != nil {
+		out.IncomeConfirmedFormatted = usd(s.IncomeConfirmedUSDMinor)
+		out.RemainingFormatted = usd(s.RemainingUSDMinor)
+		out.RemainingAmount = usd(s.RemainingUSDMinor)
+		out.OverConfirmedFormatted = usd(s.OverConfirmedUSDMinor)
+		out.ConfirmationLabel = confirmationLabel(s.Confirmation)
+		if s.Status == savings.StatusOpen && out.ConfirmationLabel != "" {
+			out.StatusLabel = out.ConfirmationLabel
+		}
+	}
 	if s.FXMethod != nil {
 		out.MethodLabel = methodLabel(*s.FXMethod)
 	}
@@ -363,6 +388,20 @@ func TranslateSavingsError(err error) error {
 		return translateError(web.ErrSavingsNotYetEffective, err)
 	case errors.Is(err, savings.ErrRateUnchanged):
 		return translateError(web.ErrSavingsRateUnchanged, err)
+	case errors.Is(err, savings.ErrInsufficientFree):
+		return translateError(web.ErrSavingsInsufficientFree, err)
+	case errors.Is(err, savings.ErrInsufficientReserved):
+		return translateError(web.ErrSavingsInsufficientReserved, err)
+	case errors.Is(err, savings.ErrExceedsSuggestion):
+		return translateError(web.ErrSavingsExceedsSuggestion, err)
+	case errors.Is(err, savings.ErrNotUSDAccount):
+		return translateError(web.ErrSavingsNotUSDAccount, err)
+	case errors.Is(err, savings.ErrInvalidRequestKey):
+		return translateError(web.ErrSavingsInvalidRequestKey, err)
+	case errors.Is(err, savings.ErrAccountNotFound):
+		return translateError(web.ErrAccountNotFound, err)
+	case errors.Is(err, savings.ErrAccountInactive):
+		return translateError(web.ErrAccountInactive, err)
 	default:
 		return err
 	}

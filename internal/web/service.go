@@ -158,6 +158,12 @@ type SavingsService interface {
 	// PlanSync previews; ApplySync changes exactly the incomes named.
 	PlanSync(ctx context.Context) (SavingsSyncPlan, error)
 	ApplySync(ctx context.Context, transactionIDs []int64) (SavingsSyncResult, error)
+
+	// M7.2: the fund. Reserve and Release are idempotent on their request key.
+	GetFund(ctx context.Context) (SavingsFund, error)
+	Reserve(ctx context.Context, in SavingsReserveInput) (SavingsOperation, error)
+	Release(ctx context.Context, in SavingsReleaseInput) (SavingsOperation, error)
+	ListOperations(ctx context.Context, limit int) ([]SavingsOperation, error)
 }
 
 // Services bundles all services needed by the presentation layer.

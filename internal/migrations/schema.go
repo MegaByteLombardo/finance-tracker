@@ -35,6 +35,8 @@ var tableIntroducedAt = map[string]int64{
 	"savings_income_overrides":     14,
 	"savings_suggestions":          15,
 	"savings_suggestion_rate_legs": 15,
+	"savings_operations":           16,
+	"savings_entries":              16,
 }
 
 // ExpectedTables returns the business tables a database at the given schema

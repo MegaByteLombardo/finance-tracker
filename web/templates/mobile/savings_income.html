@@ -24,6 +24,39 @@
         <p class="section-note">{{ formatDate $d.Date }} · {{ formatAmount $d.AmountFormatted }} {{ $d.CurrencyCode }} · {{ $d.AccountName }}<br>{{ $d.Reason }}</p>
       </header>
 
+      {{ with .Live }}{{ if .Valued }}
+      <section class="mobile-section" id="confirm">
+        <h2 class="section-title">Confirmar el ahorro</h2>
+        <div class="cashflow-grid">
+          <div class="cashflow-cell lcd"><span class="cashflow-label">Sugerido</span><span class="cashflow-value" data-fit>{{ formatAmount .SuggestedUSDFormatted }}</span></div>
+          <div class="cashflow-cell lcd"><span class="cashflow-label">Confirmado</span><span class="cashflow-value" data-fit>{{ formatAmount .IncomeConfirmedFormatted }}</span></div>
+        </div>
+        <p class="section-note">{{ .StatusLabel }} · por confirmar {{ formatAmount .RemainingFormatted }} USD</p>
+        {{ if .OverConfirmed }}<p class="net-worth-incomplete" role="status">{{ formatAmount .OverConfirmedFormatted }} USD confirmados por encima de la sugerencia vigente.</p>{{ end }}
+        {{ if .CanConfirm }}{{ if $view.Fund.CanReserve }}
+        <form action="/savings/reserve" method="POST" class="op-fields-container">
+          <input type="hidden" name="request_key" value="{{ $view.ConfirmKey }}">
+          <input type="hidden" name="income_id" value="{{ .IncomeTransactionID }}">
+          <input type="hidden" name="return" value="{{ $view.Return }}">
+          <div class="op-field-group">
+            <label for="m_confirm_account" class="op-field-label">Cuenta en USD</label>
+            <div class="op-select-wrap">
+              <select id="m_confirm_account" name="account_id" class="op-native-select">
+                {{ range $view.Fund.Accounts }}{{ if .HasFree }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .FreeFormatted }} libres</option>{{ end }}{{ end }}
+              </select>
+            </div>
+          </div>
+          <div class="op-field-group">
+            <label for="m_confirm_amount" class="op-field-label">Importe (USD)</label>
+            <input type="text" id="m_confirm_amount" name="amount" class="op-native-input" inputmode="decimal" value="{{ .RemainingAmount }}" required>
+            <p class="op-field-help">Todo o una parte.</p>
+          </div>
+          <button type="submit" class="mobile-btn mobile-btn-primary">Confirmar y reservar</button>
+        </form>
+        {{ else }}<p class="section-note">No hay USD libres en ninguna cuenta activa.</p>{{ end }}{{ end }}
+      </section>
+      {{ end }}{{ end }}
+
       <section class="mobile-section" aria-labelledby="revisions-heading">
         <h2 id="revisions-heading" class="section-title">Historial de sugerencias</h2>
         {{ if not $d.Revisions }}

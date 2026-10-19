@@ -1,0 +1,139 @@
+{{ define "content" }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+
+    <main class="mobile-scrollable-content" id="main-mobile-content">
+      <div style="margin-bottom: 4px;">
+        <a href="/mobile/ahorro" class="section-link" aria-label="Volver a Ahorro">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          <span>Ahorro</span>
+        </a>
+      </div>
+
+      {{ $view := . }}
+      {{ with .Alert }}<p class="net-worth-incomplete" role="status">{{ .Message }}</p>{{ end }}
+
+      <header class="mobile-section">
+        <span class="section-eyebrow">Fondo de ahorro</span>
+        <h1 class="section-title">Dólares marcados como ahorro</h1>
+        <p class="section-note">El dinero sigue en su cuenta y tu patrimonio no cambia.</p>
+      </header>
+
+      {{ if not .Available }}
+      <p class="net-worth-incomplete" role="status">{{ .Error }}</p>
+      {{ else }}
+      {{ $f := .Fund }}
+      <section class="mobile-section">
+        <div class="cashflow-grid">
+          <div class="cashflow-cell lcd">
+            <span class="cashflow-label">Reservado{{ template "help" ($view.Help "fund") }}</span>
+            <span class="cashflow-value" data-fit>{{ formatAmount $f.ReservedFormatted }} USD</span>
+          </div>
+          <div class="cashflow-cell lcd">
+            <span class="cashflow-label">USD libres{{ template "help" ($view.Help "free") }}</span>
+            <span class="cashflow-value" data-fit>{{ formatAmount $f.FreeFormatted }} USD</span>
+          </div>
+          <div class="cashflow-cell lcd">
+            <span class="cashflow-label">Sin asignar</span>
+            <span class="cashflow-value" data-fit>{{ formatAmount $f.UnallocatedFormatted }} USD</span>
+          </div>
+          <div class="cashflow-cell lcd">
+            <span class="cashflow-label">Sobreasignado{{ template "help" ($view.Help "overallocated") }}</span>
+            <span class="cashflow-value{{ if $f.Overallocated }} is-expense{{ end }}" data-fit>{{ formatAmount $f.OverallocatedFormatted }} USD</span>
+          </div>
+        </div>
+        {{ if $f.Overallocated }}<p class="net-worth-incomplete" role="status">Hay reservas que el saldo ya no respalda. No se ajustan solas.</p>{{ end }}
+      </section>
+
+      <section class="mobile-section" aria-labelledby="fund-accounts-heading">
+        <h2 id="fund-accounts-heading" class="section-title">Por cuenta</h2>
+        <ul class="mobile-list">
+          {{ range $f.Accounts }}
+          <li class="mobile-list-item">
+            <div class="mobile-list-main">
+              <span class="mobile-list-title">{{ .AccountName }}</span>
+              <span class="mobile-list-subtitle">Saldo {{ formatAmount .BalanceFormatted }} · libre {{ formatAmount .FreeFormatted }}{{ if .Overallocated }} · sobreasignado {{ formatAmount .OverallocatedFormatted }}{{ end }}</span>
+            </div>
+            <span class="mobile-list-amount">{{ formatAmount .ReservedFormatted }}</span>
+          </li>
+          {{ end }}
+        </ul>
+      </section>
+
+      {{ if $f.CanReserve }}
+      <section class="mobile-section">
+        <h2 class="section-title">Reservar sin sugerencia</h2>
+        <form action="/savings/reserve" method="POST" class="op-fields-container">
+          <input type="hidden" name="request_key" value="{{ $view.ReserveKey }}">
+          <input type="hidden" name="return" value="{{ $view.Return }}">
+          <div class="op-field-group">
+            <label for="m_reserve_account" class="op-field-label">Cuenta</label>
+            <div class="op-select-wrap">
+              <select id="m_reserve_account" name="account_id" class="op-native-select">
+                {{ range $f.Accounts }}{{ if .HasFree }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .FreeFormatted }} libres</option>{{ end }}{{ end }}
+              </select>
+            </div>
+          </div>
+          <div class="op-field-group">
+            <label for="m_reserve_amount" class="op-field-label">Importe (USD)</label>
+            <input type="text" id="m_reserve_amount" name="amount" class="op-native-input" inputmode="decimal" required>
+          </div>
+          <button type="submit" class="mobile-btn mobile-btn-primary">Reservar</button>
+        </form>
+      </section>
+      {{ end }}
+
+      {{ if $f.CanRelease }}
+      <section class="mobile-section">
+        <h2 class="section-title">Liberar una reserva</h2>
+        <form action="/savings/release" method="POST" class="op-fields-container">
+          <input type="hidden" name="request_key" value="{{ $view.ReleaseKey }}">
+          <input type="hidden" name="return" value="{{ $view.Return }}">
+          <div class="op-field-group">
+            <label for="m_release_account" class="op-field-label">Cuenta</label>
+            <div class="op-select-wrap">
+              <select id="m_release_account" name="account_id" class="op-native-select">
+                {{ range $f.Accounts }}{{ if .HasReservation }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .ReservedFormatted }}</option>{{ end }}{{ end }}
+              </select>
+            </div>
+          </div>
+          <div class="op-field-group">
+            <label for="m_release_amount" class="op-field-label">Importe (USD)</label>
+            <input type="text" id="m_release_amount" name="amount" class="op-native-input" inputmode="decimal" required>
+          </div>
+          <div class="op-field-group">
+            <label for="m_release_reason" class="op-field-label">Motivo</label>
+            <input type="text" id="m_release_reason" name="reason" class="op-native-input" maxlength="255" required>
+          </div>
+          <button type="submit" class="mobile-btn mobile-btn-secondary">Liberar</button>
+        </form>
+      </section>
+      {{ end }}
+
+      <section class="mobile-section" aria-labelledby="fund-history-heading">
+        <h2 id="fund-history-heading" class="section-title">Historial</h2>
+        {{ if not .Operations }}<p class="section-note">Aún no hay operaciones.</p>{{ else }}
+        <ul class="mobile-list">
+          {{ range .Operations }}
+          <li class="mobile-list-item">
+            <div class="mobile-list-main">
+              <span class="mobile-list-title">{{ .KindLabel }}{{ if .IsException }} · excepción{{ end }}</span>
+              <span class="mobile-list-subtitle">{{ formatDate .EffectiveDate }} · {{ range $i, $e := .Entries }}{{ if $i }}, {{ end }}{{ $e.AccountName }}{{ if $e.GoalName }} → {{ $e.GoalName }}{{ end }}{{ end }}{{ if .Reason }}<br>{{ derefString .Reason }}{{ end }}</span>
+            </div>
+            <span class="mobile-list-amount">{{ formatAmount .TotalFormatted }}</span>
+          </li>
+          {{ end }}
+        </ul>
+        {{ end }}
+      </section>
+      {{ end }}
+    </main>
+
+    {{ template "bottom_navigation" .Navigation }}
+  </div>
+</div>
+{{ end }}

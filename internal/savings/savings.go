@@ -248,7 +248,33 @@ type Suggestion struct {
 	// longer the one this valuation used -- a corrected publication, a manual
 	// override added or archived. It is reported; revaluing is explicit.
 	RateChanged bool
+
+	// ConfirmedUSDMinor is what reservations confirmed against THIS revision
+	// (M7.2).
+	ConfirmedUSDMinor int64
+
+	// For a live revision: what is confirmed for the income across all of its
+	// revisions, what remains of the suggestion, any excess confirmed above it
+	// (an exception, or a revision that lowered the figure), and the derived
+	// confirmation state. Reservations are never moved by a revision.
+	IncomeConfirmedUSDMinor int64
+	RemainingUSDMinor       int64
+	OverConfirmedUSDMinor   int64
+	Confirmation            Confirmation
 }
+
+// Confirmation is what an open suggestion looks like against the money
+// reserved for it. It is derived on read and never stored (TD-079).
+type Confirmation string
+
+const (
+	// ConfirmationPending: nothing confirmed yet.
+	ConfirmationPending Confirmation = "PENDING_CONFIRMATION"
+	// ConfirmationPartial: part of the suggestion confirmed.
+	ConfirmationPartial Confirmation = "PARTIALLY_CONFIRMED"
+	// ConfirmationFull: the suggestion confirmed in full, or beyond.
+	ConfirmationFull Confirmation = "CONFIRMED"
+)
 
 // Overview is the savings policy's figures for a period.
 //
@@ -260,11 +286,30 @@ type Overview struct {
 
 	Policy Policy
 
-	// USD cents, each summed over the live, valued revisions of the period.
+	// USD cents, each summed over the live, valued revisions of the period
+	// (by the income's effective date).
 	EligibleIncomeUSDMinor int64 // the incomes, converted
 	SuggestedUSDMinor      int64 // OPEN and DISMISSED: everything the policy suggested
-	OpenUSDMinor           int64 // OPEN: not declined
-	DismissedUSDMinor      int64 // DISMISSED: declined
+	ConfirmedUSDMinor      int64 // reserved against those suggestions, whenever
+	OpenUSDMinor           int64 // OPEN: what remains to confirm
+	DismissedUSDMinor      int64 // DISMISSED: what was declined
+	OverConfirmedUSDMinor  int64 // confirmed above the live suggestion
+
+	// ConfirmationProgress is ConfirmedUSDMinor over SuggestedUSDMinor: how
+	// much of what was suggested has been honoured. It is NOT the growth of
+	// the fund, which the figures below measure.
+	ConfirmationProgress Ratio
+
+	// The fund's own movement in the period, by the operations' dates (the
+	// confirmation date, not the income's): gross contributions, withdrawals
+	// (releases and spending), and their difference. Reallocations between
+	// goals move nothing in or out.
+	GrossContributionsMinor int64
+	WithdrawalsMinor        int64
+	NetChangeMinor          int64
+
+	// Fund is the reserved balance today.
+	Fund Fund
 
 	OpenCount      int
 	DismissedCount int
@@ -280,6 +325,12 @@ type Overview struct {
 
 	// UnsyncedCount is how many incomes the sync preview would change.
 	UnsyncedCount int
+}
+
+// Ratio is basis points, with Defined false for a ratio over nothing.
+type Ratio struct {
+	BasisPoints int64
+	Defined     bool
 }
 
 // CurrencyAmount is an amount in its own currency.

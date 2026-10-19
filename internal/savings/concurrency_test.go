@@ -2,6 +2,7 @@ package savings_test
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -185,5 +186,39 @@ func incomeInput(e *env, amount string) ledger.RecordIncomeInput {
 	return ledger.RecordIncomeInput{
 		AccountID: e.usd, CategoryID: e.salary, Amount: amount,
 		PaymentMethodID: bankTransfer, EffectiveDate: "2026-10-05",
+	}
+}
+
+// Two processes reserving from the same free balance at once never reserve the
+// same money twice: whatever succeeds fits within the balance.
+func TestTwoProcessesReservingAtOnceNeverExceedTheFreeBalance(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "finance.db")
+	first := openPool(t, path)
+	if err := migrations.Up(t.Context(), first, slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatalf("migrating: %v", err)
+	}
+	second := openPool(t, path)
+	e := newEnvOn(t, first)
+	e.open(e.usd, "1000")
+	other := savings.NewService(second)
+	savings.SetClock(other, today)
+
+	reserveOn := func(svc *savings.Service) func() error {
+		return func() error {
+			_, err := svc.Reserve(t.Context(), savings.ReserveInput{
+				RequestKey: key(), Lines: []savings.ReserveLine{{AccountID: e.usd, Amount: "600"}},
+			})
+			if errors.Is(err, savings.ErrInsufficientFree) {
+				return nil // the safe refusal
+			}
+			return err
+		}
+	}
+	refusedAtBegin := func(err error) bool { return strings.HasPrefix(err.Error(), "beginning transaction: ") }
+	runConcurrentlyAllowing(t, 4, refusedAtBegin, reserveOn(e.svc), reserveOn(other))
+
+	if a := e.availability(e.usd); a.ReservedMinor != 60000 {
+		t.Errorf("reserved %d across two processes, want exactly one reservation of 60000", a.ReservedMinor)
 	}
 }

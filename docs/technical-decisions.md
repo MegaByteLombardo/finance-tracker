@@ -2516,3 +2516,56 @@ exists — TD-053 read in the other direction.
 
 **Alternatives considered.** Valuing with today's rate and revaluing later — a
 figure known to be provisional, presented as a suggestion.
+
+## TD-082 — The savings fund is operations and signed entries, never an account
+
+**Status:** Accepted · **Milestone:** M7.2
+
+**Decision.** Money set aside is recorded as `savings_operations` (the event:
+kind, idempotency key, the suggestion or transaction it answers to, a reason,
+the financial date) and `savings_entries` (the impact: a signed USD amount on
+one USD account, and from M7.3 one goal). Every reserved balance — per account,
+per goal, the fund's total — is a `SUM` over entries computed on read. Free
+balance is the ledger's balance today minus what is reserved on the account;
+overallocation is `max(0, reserved − max(0, balance))`. Operations are never
+edited or deleted. The `kind` enumeration (`RESERVE`, `RELEASE`, `REALLOCATE`,
+`REBACK`, `SPEND`) is complete from migration 00016, and Go refuses the kinds no
+use case writes yet.
+
+**Rationale.** It is the ledger's own shape one level up: a single source of
+truth per figure, no balance column that could drift, and an audit trail for
+free. The fund is not an account, so it can neither appear as an extra asset
+nor move money; `internal/valuation` never reads these tables. Defining the
+whole enumeration at once avoids the TD-037 rebuild of a parent table with
+children in the middle of the milestone, which was approved as a whole.
+
+**Alternatives considered.** A virtual "savings account" in the ledger — the
+net worth would count the money twice or the user's real account would show
+less than the bank. A stored reserved balance per account — a second source of
+truth. Widening the kind CHECK in M7.3 and M7.4 — two table rebuilds.
+
+## TD-083 — A reservation never exceeds free USD, and never confirms more than the live suggestion without a recorded exception
+
+**Status:** Accepted · **Milestone:** M7.2
+
+**Decision.** `Reserve` refuses an amount above the account's free balance,
+read inside the `BEGIN IMMEDIATE` transaction that writes it. Against a
+suggestion, it refuses to bring what is confirmed for the income — summed over
+all its revisions — above the live revision's suggested amount, unless the user
+marks an exception, which requires a reason and is stored (`is_exception`).
+Every write carries a request key generated when the form is rendered; a key
+that already produced an operation replays it. A partial confirmation leaves
+the remainder pending on the same suggestion; confirmation states are derived.
+
+**Rationale.** A reservation is not a financial event, so refusing one hides
+nothing — unlike an expense, which is never blocked (M7.4). Summing across
+revisions is what keeps a correction of the income from re-opening money that
+was already confirmed, and what lets a revision that lowered the suggestion
+show the excess (`OverConfirmed`) without releasing anything by itself. The
+request key makes a double click or a browser retry harmless without relying on
+the browser.
+
+**Alternatives considered.** Allowing any confirmation and reporting the excess
+afterwards — the brief asks for an explicit decision. A per-session token —
+a second tab would share it. Releasing the excess automatically when a revision
+lowers the suggestion — the brief forbids it.

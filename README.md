@@ -188,8 +188,15 @@ USD:
 
 A suggestion is only a target: it moves no money and does not change your net
 worth. If you start the policy on a past date, the app shows the incomes it
-would reach and suggests from them only when you confirm. Setting money aside
-against a suggestion, and savings goals, come in later releases.
+would reach and suggests from them only when you confirm.
+
+To **confirm** a suggestion, open its income and reserve all or part of it on a
+USD account. The dollars stay in that account; they are only marked as savings,
+so the account shows how much of it is free. You cannot reserve more than an
+account has free, nor more than the suggestion unless you mark it as an
+exception with a reason. **Fondo** shows what is reserved in each account, lets
+you reserve savings you already had, and release a reservation with a reason.
+Clicking twice never reserves twice.
 
 ### Mobile
 

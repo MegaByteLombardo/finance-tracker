@@ -9,6 +9,7 @@ import (
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
+	"github.com/MegaByteLombardo/finance-tracker/internal/money"
 )
 
 // ListSuggestions returns every live revision, newest income first, with why a
@@ -25,10 +26,30 @@ func (s *Service) ListSuggestions(ctx context.Context) ([]Suggestion, error) {
 		if err := sc.annotate(ctx, lives); err != nil {
 			return err
 		}
+		if err := confirmAll(ctx, exec, lives); err != nil {
+			return err
+		}
 		list = lives
 		return nil
 	})
 	return list, err
+}
+
+// confirmAll fills in what reservations confirmed for each revision.
+func confirmAll(ctx context.Context, exec database.DBTX, list []Suggestion) error {
+	repo := NewRepository(exec)
+	byIncome, err := repo.ConfirmedByIncome(ctx)
+	if err != nil {
+		return err
+	}
+	bySuggestion, err := repo.ConfirmedBySuggestion(ctx)
+	if err != nil {
+		return err
+	}
+	for i := range list {
+		applyConfirmation(&list[i], byIncome, bySuggestion)
+	}
+	return nil
 }
 
 // annotate fills in the derived fields of live revisions.
@@ -74,6 +95,10 @@ func (s *Service) IncomeDetail(ctx context.Context, transactionID int64) (Income
 					revisions[i] = l
 				}
 			}
+		}
+
+		if err := confirmAll(ctx, exec, revisions); err != nil {
+			return err
 		}
 
 		override, err := repo.Override(ctx, transactionID)
@@ -294,10 +319,14 @@ func (s *Service) OverviewFor(ctx context.Context, from, to time.Time) (Overview
 		if err != nil {
 			return err
 		}
+		if err := confirmAll(ctx, exec, lives); err != nil {
+			return err
+		}
 		sc := &syncContext{exec: exec, today: s.today()}
 		pending := make(map[string]*CurrencyAmount)
+		inPeriod := func(d time.Time) bool { return !d.Before(from) && !d.After(to) }
 		for _, live := range lives {
-			if live.IncomeEffectiveDate.Before(from) || live.IncomeEffectiveDate.After(to) {
+			if !inPeriod(live.IncomeEffectiveDate) {
 				continue
 			}
 			switch live.Status {
@@ -312,7 +341,7 @@ func (s *Service) OverviewFor(ctx context.Context, from, to time.Time) (Overview
 				continue
 			case StatusOpen:
 				out.OpenCount++
-				out.OpenUSDMinor += *live.SuggestedUSDMinor
+				out.OpenUSDMinor += live.RemainingUSDMinor
 				changed, err := sc.rateChanged(ctx, live)
 				if err != nil {
 					return err
@@ -322,10 +351,42 @@ func (s *Service) OverviewFor(ctx context.Context, from, to time.Time) (Overview
 				}
 			case StatusDismissed:
 				out.DismissedCount++
-				out.DismissedUSDMinor += *live.SuggestedUSDMinor
+				out.DismissedUSDMinor += live.RemainingUSDMinor
 			}
 			out.EligibleIncomeUSDMinor += *live.IncomeUSDMinor
 			out.SuggestedUSDMinor += *live.SuggestedUSDMinor
+			out.ConfirmedUSDMinor += live.IncomeConfirmedUSDMinor
+			out.OverConfirmedUSDMinor += live.OverConfirmedUSDMinor
+		}
+		bp, defined, err := money.RatioBasisPoints(out.ConfirmedUSDMinor, out.SuggestedUSDMinor)
+		if err != nil {
+			return fmt.Errorf("computing the confirmation progress: %w", err)
+		}
+		out.ConfirmationProgress = Ratio{BasisPoints: bp, Defined: defined}
+
+		// The fund's movement in the period, by the operations' own dates:
+		// a different question from how much of the period's suggestions was
+		// confirmed, and never mixed with it.
+		deltas, err := repo.DailyFundDeltas(ctx)
+		if err != nil {
+			return err
+		}
+		for _, d := range deltas {
+			if !inPeriod(d.Date) {
+				continue
+			}
+			switch d.Kind {
+			case KindReserve:
+				out.GrossContributionsMinor += d.AmountMinor
+			case KindRelease, KindSpend:
+				out.WithdrawalsMinor -= d.AmountMinor
+			case KindReallocate, KindReback:
+				// Net zero by construction: money moved within the fund.
+			}
+		}
+		out.NetChangeMinor = out.GrossContributionsMinor - out.WithdrawalsMinor
+		if out.Fund, err = s.fundTx(ctx, exec); err != nil {
+			return err
 		}
 		for _, p := range pending {
 			out.PendingByCurrency = append(out.PendingByCurrency, *p)

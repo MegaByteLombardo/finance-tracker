@@ -46,6 +46,7 @@ func TestUpgradeFromSchema13WithRealData(t *testing.T) {
 	for _, table := range []string{
 		"savings_policy_versions", "savings_category_rules", "savings_income_overrides",
 		"savings_suggestions", "savings_suggestion_rate_legs",
+		"savings_operations", "savings_entries",
 	} {
 		var n int
 		if err := db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil {
@@ -60,6 +61,7 @@ func TestUpgradeFromSchema13WithRealData(t *testing.T) {
 
 	// Reversible, newest first, straight from the embedded files.
 	for _, file := range []string{
+		"00016_create_savings_fund.sql",
 		"00015_create_savings_suggestions.sql",
 		"00014_create_savings_policy.sql",
 	} {
