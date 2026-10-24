@@ -26,6 +26,9 @@ type FakeServices struct {
 	// Savings is the M7.1 stand-in.
 	Savings *FakeSavings
 
+	// Cards is the M8.1 stand-in.
+	Cards *FakeCards
+
 	// ExpensePlans and TransferPlans record the savings plans the movement
 	// handlers passed along (M7.4), in order.
 	ExpensePlans  []*SavingsExpensePlan
@@ -1431,6 +1434,9 @@ func (fs *FakeServices) BuildServices() *Services {
 	if fs.Savings == nil {
 		fs.Savings = NewFakeSavings()
 	}
+	if fs.Cards == nil {
+		fs.Cards = NewFakeCards()
+	}
 	return &Services{
 		Currencies:  fs,
 		Accounts:    fakeAccountService{fs},
@@ -1445,6 +1451,7 @@ func (fs *FakeServices) BuildServices() *Services {
 		Valuation: fs.Rates,
 		Analytics: fs.analytics(),
 		Savings:   fs.Savings,
+		Cards:     fs.Cards,
 	}
 }
 

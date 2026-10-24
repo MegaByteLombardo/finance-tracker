@@ -1,0 +1,116 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>{{ if .IsEdit }}Corregir devolución{{ else }}Registrar devolución{{ end }}</h1>
+    <p class="page-subtitle">Dinero devuelto por un gasto. No es un ingreso: reduce el gasto de su categoría y nunca se ahorra de él.</p>
+  </div>
+  <div class="page-actions">
+    <a href="{{ .Return }}" class="btn btn-secondary">&larr; Volver</a>
+  </div>
+</div>
+
+<div class="form-card">
+  {{ if .HasError "general" }}
+  <div class="alert alert-danger" role="alert"><div>{{ .Error "general" }}</div></div>
+  {{ end }}
+
+  {{ if and (not .IsEdit) (not .Account) }}
+  <!-- Step one: the account the money came back to. The expenses a refund can
+       name are listed for that account only. -->
+  <form action="/refunds/new" method="GET">
+    <input type="hidden" name="return_to" value="{{ .Return }}">
+    <div class="form-group">
+      <label class="form-label" for="account_id">Cuenta donde se devolvió el dinero <span class="required-indicator">*</span></label>
+      <select class="form-control" id="account_id" name="account_id" required>
+        <option value="">Elige una cuenta...</option>
+        {{ range .Accounts }}
+        <option value="{{ .ID }}">{{ .Name }} ({{ .CurrencyCode }}) · {{ accountTypeLabel .Type }}</option>
+        {{ end }}
+      </select>
+    </div>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Continuar</button></div>
+  </form>
+  {{ else }}
+  <form action="{{ .Action }}" method="POST">
+    {{ if .RequestKey }}<input type="hidden" name="request_key" value="{{ .RequestKey }}">{{ end }}
+    <input type="hidden" name="return_to" value="{{ .Return }}">
+
+    <div class="form-group">
+      <label class="form-label" for="account_id">Cuenta <span class="required-indicator">*</span></label>
+      {{ if .IsEdit }}
+      <select class="form-control {{ if .HasError "account_id" }}is-invalid{{ end }}" id="account_id" name="account_id" required>
+        {{ range .Accounts }}
+        <option value="{{ .ID }}" {{ if eq $.AccountID .ID }}selected{{ end }}>{{ .Name }} ({{ .CurrencyCode }})</option>
+        {{ end }}
+      </select>
+      {{ else }}
+      <input type="hidden" name="account_id" value="{{ .AccountID }}">
+      <input type="text" class="form-control" value="{{ .Account.Name }} ({{ .Account.CurrencyCode }}) · {{ accountTypeLabel .Account.Type }}" readonly>
+      {{ end }}
+      {{ if .HasError "account_id" }}<div class="form-error">{{ .Error "account_id" }}</div>{{ end }}
+      <div class="form-help">En una tarjeta reduce la deuda; en una cuenta bancaria aumenta el saldo.</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="original_transaction_id">Compra que se devuelve</label>
+      <select class="form-control {{ if .HasError "original_transaction_id" }}is-invalid{{ end }}" id="original_transaction_id" name="original_transaction_id">
+        <option value="">Sin vincular</option>
+        {{ range .Originals }}
+        <option value="{{ .ID }}" {{ if eq $.OriginalTransactionID .ID }}selected{{ end }}>{{ .Label }}</option>
+        {{ end }}
+      </select>
+      {{ if .HasError "original_transaction_id" }}<div class="form-error">{{ .Error "original_transaction_id" }}</div>{{ end }}
+      <div class="form-help">Opcional. Vinculada, las devoluciones de una compra nunca suman más que ella.</div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="amount">Monto <span class="required-indicator">*</span></label>
+        <input type="text" inputmode="decimal" class="form-control font-mono {{ if .HasError "amount" }}is-invalid{{ end }}"
+               id="amount" name="amount" value="{{ .Amount }}" placeholder="0.00" required>
+        {{ if .HasError "amount" }}<div class="form-error">{{ .Error "amount" }}</div>{{ end }}
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="effective_date">Fecha <span class="required-indicator">*</span></label>
+        <input type="date" class="form-control {{ if .HasError "effective_date" }}is-invalid{{ end }}"
+               id="effective_date" name="effective_date" value="{{ .EffectiveDate }}" required>
+        {{ if .HasError "effective_date" }}<div class="form-error">{{ .Error "effective_date" }}</div>{{ end }}
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="category_id">Categoría de egresos <span class="required-indicator">*</span></label>
+        <select class="form-control {{ if .HasError "category_id" }}is-invalid{{ end }}" id="category_id" name="category_id" required>
+          <option value="">Elige la categoría del gasto devuelto...</option>
+          {{ range .Categories }}{{ if .IsActive }}
+          <option value="{{ .ID }}" {{ if eq $.CategoryID .ID }}selected{{ end }}>{{ .Name }}</option>
+          {{ end }}{{ end }}
+        </select>
+        {{ if .HasError "category_id" }}<div class="form-error">{{ .Error "category_id" }}</div>{{ end }}
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="payment_method_id">Método de pago <span class="required-indicator">*</span></label>
+        <select class="form-control {{ if .HasError "payment_method_id" }}is-invalid{{ end }}" id="payment_method_id" name="payment_method_id" required>
+          <option value="">Elige un método...</option>
+          {{ range .Methods }}{{ if .IsActive }}
+          <option value="{{ .ID }}" {{ if eq $.PaymentMethodID .ID }}selected{{ end }}>{{ .Name }}</option>
+          {{ end }}{{ end }}
+        </select>
+        {{ if .HasError "payment_method_id" }}<div class="form-error">{{ .Error "payment_method_id" }}</div>{{ end }}
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="description">Descripción</label>
+      <input type="text" class="form-control" id="description" name="description" value="{{ .Description }}" maxlength="255">
+    </div>
+
+    <div class="form-actions">
+      <a href="{{ .Return }}" class="btn btn-secondary">Cancelar</a>
+      <button type="submit" class="btn btn-primary">{{ if .IsEdit }}Guardar corrección{{ else }}Registrar devolución{{ end }}</button>
+    </div>
+  </form>
+  {{ end }}
+</div>
+{{ end }}

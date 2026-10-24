@@ -17,6 +17,9 @@ const (
 	AccountTypeOther  AccountType = "OTHER"
 )
 
+// AccountTypes lists what the generic account form offers: the ASSET types.
+// A credit card is a type too (AccountTypeCreditCard), opened through its own
+// form with its terms.
 func AccountTypes() []AccountType {
 	return []AccountType{AccountTypeBank, AccountTypeCash, AccountTypeWallet, AccountTypeOther}
 }
@@ -97,6 +100,7 @@ func TransactionTypes() []TransactionType {
 		TransactionTypeOpeningBalance,
 		TransactionTypeTransfer,
 		TransactionTypeFXExchange,
+		TransactionTypeRefund,
 	}
 }
 
@@ -281,6 +285,9 @@ type TransactionView struct {
 	// included. Read it instead of the movement-centric fields below whenever
 	// the type is FX_EXCHANGE.
 	Exchange *ExchangeDetail
+
+	// RefundOf is the expense a REFUND gives money back for, when linked.
+	RefundOf *int64
 
 	MovementID     int64
 	AccountID      int64

@@ -20,9 +20,14 @@ func handleNewTransferForm(logger *slog.Logger, renderer *Renderer, svcs *Servic
 			return
 		}
 
-		var fromID int64
+		var fromID, toID int64
 		if rawFrom := r.URL.Query().Get("from_account_id"); rawFrom != "" {
 			fromID, _ = strconv.ParseInt(rawFrom, 10, 64)
+		}
+		// A card's "pay" button preselects the card as the destination: a card
+		// payment is a transfer into it (M8.1, TD-091).
+		if rawTo := r.URL.Query().Get("to_account_id"); rawTo != "" {
+			toID, _ = strconv.ParseInt(rawTo, 10, 64)
 		}
 
 		var selectedCurrency string
@@ -43,6 +48,7 @@ func handleNewTransferForm(logger *slog.Logger, renderer *Renderer, svcs *Servic
 
 		form := TransferForm{
 			SourceAccountID:           fromID,
+			DestinationAccountID:      toID,
 			EffectiveDate:             TodayDate(),
 			SelectedCurrencyCode:      selectedCurrency,
 			SelectedCurrencySymbol:    selectedSymbol,

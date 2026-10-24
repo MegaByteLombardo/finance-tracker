@@ -15,6 +15,7 @@ const (
 	NavRecap          NavItem = "recap"
 	NavSavings        NavItem = "savings"
 	NavAccounts       NavItem = "accounts"
+	NavCards          NavItem = "cards"
 	NavTransactions   NavItem = "transactions"
 	NavCategories     NavItem = "categories"
 	NavPaymentMethods NavItem = "payment-methods"

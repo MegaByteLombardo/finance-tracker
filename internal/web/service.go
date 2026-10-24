@@ -205,4 +205,7 @@ type Services struct {
 
 	// Savings is M7.1: the savings policy and its suggestions.
 	Savings SavingsService
+
+	// Cards is M8.1: credit cards, their charges, and refunds.
+	Cards CardService
 }

@@ -208,8 +208,8 @@ func (s *Service) Validate(ctx context.Context, name string) error {
 // whole point of keeping pre-migration backups -- so the table set it is checked
 // against is the one that belonged to the version it records, not today's.
 //
-// The check is PRAGMA integrity_check rather than quick_check. quick_check skips
-// verifying that index contents agree with table contents, which is exactly the
+// The checks are PRAGMA integrity_check and foreign_key_check. integrity_check
+// rather than quick_check: quick_check skips verifying that index contents agree with table contents, which is exactly the
 // kind of silent corruption a backup exists to rule out; on a database of this
 // size the difference is milliseconds, and the file may be opened in anger years
 // from now.
@@ -230,6 +230,18 @@ func Validate(ctx context.Context, path string) error {
 	}
 	if result != "ok" {
 		return fmt.Errorf("%w: integrity check reported %q", ErrInvalidBackup, result)
+	}
+
+	// integrity_check "does not find FOREIGN KEY errors" (SQLite's own words),
+	// and since 00019 (TD-088) one migration runs with foreign keys switched
+	// off. A snapshot with an orphan in it would restore a ledger whose rows
+	// point at nothing, so it is refused here rather than discovered later.
+	var violations int
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM pragma_foreign_key_check").Scan(&violations); err != nil {
+		return fmt.Errorf("%w: foreign key check could not run: %s", ErrInvalidBackup, err)
+	}
+	if violations != 0 {
+		return fmt.Errorf("%w: %d rows reference a row that does not exist", ErrInvalidBackup, violations)
 	}
 
 	// A .db extension proves nothing. This is what distinguishes a snapshot of

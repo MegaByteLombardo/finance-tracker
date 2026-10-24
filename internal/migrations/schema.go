@@ -40,6 +40,11 @@ var tableIntroducedAt = map[string]int64{
 	"savings_goals":                  17,
 	"savings_goal_target_revisions":  17,
 	"savings_issue_acknowledgements": 18,
+
+	"credit_cards":        20,
+	"credit_charges":      21,
+	"transaction_refunds": 21,
+	"operation_requests":  21,
 }
 
 // ExpectedTables returns the business tables a database at the given schema

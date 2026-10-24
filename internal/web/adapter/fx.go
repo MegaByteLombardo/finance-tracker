@@ -181,18 +181,22 @@ func (a *valuationAdapter) GetCurrentNetWorth(ctx context.Context) (web.NetWorth
 // computed by internal/valuation; nothing here adds anything up.
 func toWebNetWorth(worth valuation.NetWorth) web.NetWorth {
 	out := web.NetWorth{
-		BaseCurrencyCode:    worth.BaseCurrencyCode,
-		BaseCurrencyName:    worth.BaseCurrencyName,
-		BaseSymbol:          worth.BaseSymbol,
-		BaseMinorUnit:       worth.BaseMinorUnit,
-		ValuationDate:       worth.ValuationDate,
-		TotalMinor:          worth.TotalMinor,
-		TotalFormatted:      worth.TotalFormatted,
-		Complete:            worth.Complete,
-		Components:          make([]web.NetWorthComponent, 0, len(worth.Components)),
-		Accounts:            make([]web.NetWorthAccount, 0, len(worth.Accounts)),
-		ArchivedWithBalance: worth.ArchivedWithBalance,
-		FutureMovementCount: worth.FutureMovementCount,
+		BaseCurrencyCode:     worth.BaseCurrencyCode,
+		BaseCurrencyName:     worth.BaseCurrencyName,
+		BaseSymbol:           worth.BaseSymbol,
+		BaseMinorUnit:        worth.BaseMinorUnit,
+		ValuationDate:        worth.ValuationDate,
+		TotalMinor:           worth.TotalMinor,
+		TotalFormatted:       worth.TotalFormatted,
+		AssetsMinor:          worth.AssetsMinor,
+		AssetsFormatted:      worth.AssetsFormatted,
+		LiabilitiesMinor:     worth.LiabilitiesMinor,
+		LiabilitiesFormatted: worth.LiabilitiesFormatted,
+		Complete:             worth.Complete,
+		Components:           make([]web.NetWorthComponent, 0, len(worth.Components)),
+		Accounts:             make([]web.NetWorthAccount, 0, len(worth.Accounts)),
+		ArchivedWithBalance:  worth.ArchivedWithBalance,
+		FutureMovementCount:  worth.FutureMovementCount,
 	}
 
 	for _, component := range worth.Components {
@@ -232,6 +236,7 @@ func toWebNetWorth(worth valuation.NetWorth) web.NetWorth {
 			AccountID:          line.AccountID,
 			AccountName:        line.AccountName,
 			AccountType:        line.AccountType,
+			Nature:             string(line.Nature),
 			Institution:        line.Institution,
 			IsActive:           line.IsActive,
 			CurrencyCode:       line.CurrencyCode,

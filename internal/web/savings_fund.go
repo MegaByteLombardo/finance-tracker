@@ -147,7 +147,7 @@ func fundErrorKey(err error) string {
 		return "insufficient-reserved"
 	case errors.Is(err, ErrSavingsExceedsSuggestion):
 		return "exceeds-suggestion"
-	case errors.Is(err, ErrSavingsNotUSDAccount):
+	case errors.Is(err, ErrSavingsNotUSDAccount), errors.Is(err, ErrSavingsLiabilityAccount):
 		return "not-usd"
 	case errors.Is(err, ErrAccountInactive):
 		return "account-inactive"

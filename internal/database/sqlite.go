@@ -239,3 +239,23 @@ func (p Pragmas) LogValue() slog.Value {
 		slog.String("synchronous", p.SynchronousName()),
 	)
 }
+
+// CheckForeignKeys confirms that foreign key enforcement is ON for the
+// connection q reaches.
+//
+// It exists because one migration (00019, TD-088) has to switch enforcement
+// OFF to rebuild a parent table, and a connection left with it OFF would
+// accept orphans silently for the rest of the process. The DSN turns it on for
+// every new connection; this is what proves the one connection the pool keeps
+// came back from that migration the way it went in. It lives here because this
+// package owns every PRAGMA.
+func CheckForeignKeys(ctx context.Context, q Querier) error {
+	var enabled bool
+	if err := q.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&enabled); err != nil {
+		return fmt.Errorf("reading foreign_keys: %w", err)
+	}
+	if !enabled {
+		return errors.New("foreign_keys is OFF on the database connection; foreign keys would not be enforced")
+	}
+	return nil
+}

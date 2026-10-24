@@ -172,6 +172,12 @@ func (s *Service) ListTransactions(ctx context.Context, in ListTransactionsInput
 	return s.repo.ListViews(ctx, in.limit())
 }
 
+// ListAccountTransactions returns the recent activity of one account, newest
+// first: every transaction that moved it, both ends of a transfer included.
+func (s *Service) ListAccountTransactions(ctx context.Context, accountID int64, in ListTransactionsInput) ([]TransactionView, error) {
+	return s.repo.ListViewsForAccount(ctx, accountID, in.limit())
+}
+
 // today is the as-of date of every CURRENT balance: today on the Venezuelan
 // calendar (TD-051), read from the injected clock.
 func (s *Service) today() time.Time { return database.TodayAt(s.now()) }
@@ -452,6 +458,13 @@ func amountFor(txType TransactionType, amount string, minorUnit int) (int64, err
 		// that starts overdrawn.
 		return minor, nil
 
+	case Refund:
+		if minor <= 0 {
+			return 0, fmt.Errorf("%w: a refund amount must be greater than zero; it is stored as a positive movement",
+				ErrInvalidAmount)
+		}
+		return minor, nil
+
 	case Transfer:
 		// Unreachable: a transfer has two accounts and two signed amounts, so it
 		// never travels through the single-account request this function serves.
@@ -535,7 +548,8 @@ func categoryTypeFor(txType TransactionType) (category.Type, error) {
 	switch txType {
 	case Income:
 		return category.Income, nil
-	case Expense:
+	case Expense, Refund:
+		// A refund gives spending back, so it is filed where the spending was.
 		return category.Expense, nil
 	default:
 		return "", fmt.Errorf("%w: a %s transaction has no category", ErrInvalidInput, txType)
@@ -751,6 +765,14 @@ func updateTx(
 
 	// The movement's sign comes from the new type, never from the old row.
 	if err := repo.UpdateMovement(ctx, movement.ID, resolved.account.ID, resolved.amountMinor); err != nil {
+		return nil, err
+	}
+
+	// An expense that refunds name must still be what they were linked to: an
+	// expense, in their account, at least as large as they add up to. Checked
+	// after the write, in the same transaction, so the rule is applied to what
+	// is about to be committed.
+	if err := checkRefundsOf(ctx, exec, id); err != nil {
 		return nil, err
 	}
 

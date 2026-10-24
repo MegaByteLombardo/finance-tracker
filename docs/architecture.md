@@ -443,6 +443,17 @@ writes open with `BEGIN IMMEDIATE` (TD-075). The rate of an income is resolved b
 `fx.Book` with M5's rules; the resulting USD figure and the observations used are
 then frozen in the suggestion (TD-078).
 
+### `internal/creditcard` *(M8.1)*
+
+What a credit card is beyond being an account: the issuer's terms
+(`credit_cards`), the position derived from the ledger and the terms on every
+read, and which expenses are financial charges (`credit_charges`). A card IS an
+account of type `CREDIT_CARD`, whose nature is LIABILITY (`account.Type.Nature`,
+TD-089). The package reads the account, the ledger and payment methods; it
+writes only its own two tables. Opening a card and recording on one go through
+`internal/application`, which commits the ledger's rows, the card's and the
+request key (TD-095) together.
+
 ### `internal/application`
 
 Cross-domain workflows, and nothing else. Two kinds today: `OpenAccount`, which
@@ -450,7 +461,10 @@ creates an account and records its opening balance in a single `sql.Tx`; and
 `RecordIncome` / `UpdateTransaction`, which write an income through the ledger
 and bring its savings suggestion in line in the same transaction (TD-080); and
 `RecordExpense` / `RecordTransfer`, which record a movement and apply the user's
-savings plan with it (TD-086). The web adapter routes every income, expense and
+savings plan with it (TD-086); and, from M8.1, `OpenCreditCard`,
+`RecordCardPurchase`, `RecordCardCharge` / `UpdateCardCharge` and `RecordRefund`
+/ `UpdateRefund`, which commit the ledger's rows with the card's and with the
+form's request key (TD-095). The web adapter routes every income, expense and
 transfer creation through them.
 
 A workflow earns a place here by coordinating two domains atomically. Pass-through

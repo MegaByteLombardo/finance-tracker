@@ -1,0 +1,71 @@
+{{ define "card_terms_fields" }}
+{{/* The issuer's terms, shared by opening a card and editing its terms. The
+     dot is the form; .Terms holds the fields as typed. Anything unknown is left
+     empty, never zero: nothing is derived from a figure nobody stated. */}}
+<div class="form-row">
+  <div class="form-group">
+    <label class="form-label" for="product_name">Producto</label>
+    <input type="text" class="form-control {{ if .HasError "product_name" }}is-invalid{{ end }}" id="product_name"
+           name="product_name" value="{{ .Terms.ProductName }}" maxlength="120" placeholder="p. ej. Mastercard Black">
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="statement_day">Día de corte <span class="required-indicator">*</span></label>
+    <input type="number" min="1" max="31" class="form-control {{ if .HasError "statement_day" }}is-invalid{{ end }}"
+           id="statement_day" name="statement_day" value="{{ .Terms.StatementDay }}" required>
+    {{ if .HasError "statement_day" }}<div class="form-error">{{ .Error "statement_day" }}</div>{{ end }}
+    <div class="form-help">En un mes sin ese día, el corte es el último día del mes.</div>
+  </div>
+</div>
+
+<div class="form-row">
+  <div class="form-group">
+    <label class="form-label" for="credit_limit">Límite de crédito</label>
+    <input type="text" inputmode="decimal" class="form-control font-mono {{ if .HasError "credit_limit" }}is-invalid{{ end }}"
+           id="credit_limit" name="credit_limit" value="{{ .Terms.CreditLimit }}" placeholder="Vacío si no lo conoces">
+    {{ if .HasError "credit_limit" }}<div class="form-error">{{ .Error "credit_limit" }}</div>{{ end }}
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="due_days">Días hasta el vencimiento</label>
+    <input type="number" min="1" max="60" class="form-control {{ if .HasError "due_days" }}is-invalid{{ end }}"
+           id="due_days" name="due_days" value="{{ .Terms.DueDays }}" placeholder="Vacío si no los conoces">
+    {{ if .HasError "due_days" }}<div class="form-error">{{ .Error "due_days" }}</div>{{ end }}
+    <div class="form-help">Días después del corte. Si no se conoce, nada se marcará como vencido.</div>
+  </div>
+</div>
+
+<div class="form-row">
+  <div class="form-group">
+    <label class="form-label" for="processing_days">Días hábiles de procesamiento de un pago</label>
+    <input type="number" min="0" max="10" class="form-control {{ if .HasError "processing_days" }}is-invalid{{ end }}"
+           id="processing_days" name="processing_days" value="{{ .Terms.ProcessingDays }}">
+    {{ if .HasError "processing_days" }}<div class="form-error">{{ .Error "processing_days" }}</div>{{ end }}
+  </div>
+  <div class="form-group">
+    <label class="form-label" for="default_payment_method_id">Método de pago por defecto</label>
+    <select class="form-control" id="default_payment_method_id" name="default_payment_method_id">
+      <option value="">Ninguno</option>
+      {{ range .Methods }}{{ if .IsActive }}
+      <option value="{{ .ID }}" {{ if eq $.Terms.DefaultPaymentMethodID .ID }}selected{{ end }}>{{ .Name }}</option>
+      {{ end }}{{ end }}
+    </select>
+    <div class="form-help">Se preselecciona al registrar una compra.</div>
+  </div>
+</div>
+
+<div class="form-row">
+  <div class="form-group">
+    <label class="form-label" for="denomination">Denominación de la deuda</label>
+    <select class="form-control {{ if .HasError "denomination" }}is-invalid{{ end }}" id="denomination" name="denomination">
+      <option value="NOMINAL" {{ if eq .Terms.Denomination "NOMINAL" }}selected{{ end }}>Nominal (monto fijo en la moneda)</option>
+      <option value="INDEXED" {{ if eq .Terms.Denomination "INDEXED" }}selected{{ end }}>Indexada (UVC)</option>
+    </select>
+  </div>
+  <div class="form-group">
+    <label class="form-label">
+      <input type="checkbox" name="denomination_confirmed" value="1" {{ if .Terms.DenominationConfirmed }}checked{{ end }}>
+      Verifiqué la denominación en el contrato
+    </label>
+    <div class="form-help">Si no está verificada, se muestra como un supuesto.</div>
+  </div>
+</div>
+{{ end }}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MegaByteLombardo/finance-tracker/internal/account"
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/fx"
@@ -72,11 +73,23 @@ type decision struct {
 	reason   string
 }
 
-// decide applies the eligibility rules to one income, in this order: the
-// policy must govern its date; an explicit override wins; otherwise its
-// category's rule, eligible by default (TD-076); and a rate of zero suggests
-// nothing. The income's description is never read.
+// decide applies the eligibility rules to one income, in this order: it must
+// be credited to an ASSET (TD-094); the policy must govern its date; an
+// explicit override wins; otherwise its category's rule, eligible by default
+// (TD-076); and a rate of zero suggests nothing. The income's description is
+// never read.
+//
+// The asset rule comes first, before the overrides, so that no manual
+// inclusion can make an income credited to a credit card eligible: cashback on
+// a card lowers a debt and adds no money anyone could set aside, and a
+// suggestion from it would be a reservation with nothing behind it. The nature
+// is the account type's, never the category's or the sign's.
 func (r *rules) decide(item ledger.IncomeItem) decision {
+	if item.AccountType.Nature() != account.Asset {
+		return decision{reason: fmt.Sprintf(
+			"Se acreditó a «%s», que es un pasivo: reduce una deuda y no aporta fondos disponibles",
+			item.AccountName)}
+	}
 	if len(r.versions) == 0 {
 		return decision{reason: "No hay una política de ahorro configurada"}
 	}

@@ -18,6 +18,8 @@ import (
 	"log/slog"
 
 	"github.com/pressly/goose/v3"
+
+	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 )
 
 // goose discovers migrations by globbing "*.sql" at the ROOT of the fs.FS, so
@@ -35,6 +37,13 @@ var migrationsFS embed.FS
 // Migrations must run before the process accepts traffic. A failure here is
 // fatal by design — serving requests against a half-migrated schema would be
 // worse than not serving at all.
+//
+// After an error the *sql.DB is NOT reusable and must be closed. Migration
+// 00019 (TD-088) switches foreign_keys OFF on the one pooled connection and
+// opens a transaction of its own; if one of its statements fails, that
+// connection is left with both. Closing the pool discards them -- SQLite rolls
+// the transaction back -- and the next connection gets foreign_keys from the
+// DSN. cmd/web closes the database on any error from here.
 func Up(ctx context.Context, db *sql.DB, logger *slog.Logger) error {
 	return up(ctx, db, migrationsFS, logger)
 }
@@ -102,6 +111,13 @@ func up(ctx context.Context, db *sql.DB, fsys fs.FS, logger *slog.Logger) error 
 				partial.Failed.Source.Path, len(partial.Applied), err)
 		}
 		return fmt.Errorf("applying migrations: %w", err)
+	}
+
+	// The post-condition 00019 promises, checked rather than trusted: a
+	// connection that came back from it with foreign keys OFF would accept
+	// orphans for the rest of the process.
+	if err := database.CheckForeignKeys(ctx, db); err != nil {
+		return fmt.Errorf("after applying migrations: %w", err)
 	}
 
 	if len(results) == 0 {

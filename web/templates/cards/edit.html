@@ -1,0 +1,26 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Condiciones de {{ .Card.Name }}</h1>
+    <p class="page-subtitle">El nombre, el banco y el archivado se editan en la cuenta; aquí, las condiciones del emisor.</p>
+  </div>
+  <div class="page-actions">
+    <a href="/cards/{{ .Card.AccountID }}" class="btn btn-secondary">&larr; Volver a la tarjeta</a>
+    <a href="/accounts/{{ .Card.AccountID }}/edit" class="btn btn-secondary">Editar la cuenta</a>
+  </div>
+</div>
+
+<div class="form-card">
+  {{ if .HasError "general" }}
+  <div class="alert alert-danger" role="alert"><div>{{ .Error "general" }}</div></div>
+  {{ end }}
+  <form action="/cards/{{ .Card.AccountID }}/edit" method="POST">
+    <p class="form-help">Moneda: <strong>{{ .Card.CurrencyCode }}</strong> (fija).</p>
+    {{ template "card_terms_fields" . }}
+    <div class="form-actions">
+      <a href="/cards/{{ .Card.AccountID }}" class="btn btn-secondary">Cancelar</a>
+      <button type="submit" class="btn btn-primary">Guardar condiciones</button>
+    </div>
+  </form>
+</div>
+{{ end }}

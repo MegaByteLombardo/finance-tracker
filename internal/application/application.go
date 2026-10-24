@@ -10,6 +10,10 @@
 //     cannot call it; an income committed without its suggestion, or a
 //     suggestion computed from an income that then failed to commit, would each
 //     be a state no screen could explain.
+//   - Opening a credit card, and recording what happens on one (account +
+//     creditcard + ledger, M8.1): the card's terms, its charges and the request
+//     key that makes a form submission idempotent commit with the ledger's
+//     rows. See card.go.
 //
 // This is not a general application layer and it is not a home for
 // pass-through wrappers. A service belongs here when, and only when, it
@@ -25,6 +29,7 @@ import (
 	"strings"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/account"
+	"github.com/MegaByteLombardo/finance-tracker/internal/creditcard"
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
 	"github.com/MegaByteLombardo/finance-tracker/internal/savings"
@@ -104,6 +109,12 @@ func (s *Service) OpenAccount(ctx context.Context, in OpenAccountInput) (_ OpenA
 		}
 	}()
 
+	// The generic form opens assets. A credit card is opened with its terms,
+	// through OpenCreditCard; opened here it would have no statement day.
+	if err := account.RequireAsset(in.Account.Type); err != nil {
+		return OpenAccountResult{}, err
+	}
+
 	// Both steps run through the SAME transaction. That is the whole point of
 	// this method.
 	created, err := account.CreateTx(ctx, tx, in.Account)
@@ -178,12 +189,21 @@ func (s *Service) RecordIncome(ctx context.Context, in ledger.RecordIncomeInput)
 // corrected INTO an income becomes eligible, and an income corrected into an
 // expense stops being one. The suggestion follows -- revised, invalidated or
 // created -- and money already reserved against it (M7.2) is never touched.
+//
+// A card charge is refused here: it is corrected through UpdateCardCharge, which
+// keeps its kind and its account in step (creditcard.ErrChargeEditedAsCharge).
 func (s *Service) UpdateTransaction(
 	ctx context.Context, id int64, in ledger.UpdateTransactionInput,
 ) (ledger.TransactionView, error) {
 	var view ledger.TransactionView
 	err := s.inTx(ctx, "correcting a transaction", func(exec database.DBTX) error {
-		var err error
+		isCharge, err := creditcard.IsChargeTx(ctx, exec, id)
+		if err != nil {
+			return err
+		}
+		if isCharge {
+			return fmt.Errorf("%w: transaction %d", creditcard.ErrChargeEditedAsCharge, id)
+		}
 		if view, err = ledger.UpdateTransactionTx(ctx, exec, id, in); err != nil {
 			return err
 		}

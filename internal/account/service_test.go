@@ -85,7 +85,7 @@ func TestCreateAcceptsEveryType(t *testing.T) {
 
 	svc, _, _ := fixture(t)
 
-	for _, accountType := range account.Types() {
+	for _, accountType := range account.AssetTypes() {
 		// Only a bank account carries a subtype, and it must carry one.
 		var st *account.Subtype
 		if accountType == account.Bank {
@@ -526,7 +526,9 @@ func TestSubtypesForMatchesValidation(t *testing.T) {
 
 	svc, _, _ := fixture(t)
 
-	for _, accountType := range account.Types() {
+	// The generic Create opens assets; a card's subtype rule is the database's
+	// and is covered by the migration tests.
+	for _, accountType := range account.AssetTypes() {
 		allowed := account.SubtypesFor(accountType)
 
 		if accountType == account.Bank {
@@ -556,5 +558,99 @@ func TestSubtypesForMatchesValidation(t *testing.T) {
 		if len(allowed) > 0 && err == nil {
 			t.Errorf("%s offers subtypes but Create accepted an account without one", accountType)
 		}
+	}
+}
+
+// Every type has a nature, and only CREDIT_CARD is a liability (TD-089).
+func TestEveryTypeHasANature(t *testing.T) {
+	t.Parallel()
+
+	for _, accountType := range account.Types() {
+		want := account.Asset
+		if accountType == account.CreditCard {
+			want = account.Liability
+		}
+		if got := accountType.Nature(); got != want {
+			t.Errorf("%s.Nature() = %q, want %q", accountType, got, want)
+		}
+	}
+	if got := account.Type("LOAN").Nature(); got != "" {
+		t.Errorf("an unknown type has nature %q, want none", got)
+	}
+	for _, accountType := range account.AssetTypes() {
+		if accountType == account.CreditCard {
+			t.Error("AssetTypes lists the credit card")
+		}
+	}
+}
+
+// The generic Create opens assets only: a card without its terms would have no
+// statement day.
+func TestCreateRefusesACreditCard(t *testing.T) {
+	t.Parallel()
+
+	svc, _, db := fixture(t)
+	_, err := svc.Create(t.Context(), account.CreateInput{
+		Name: "Plaza Black", Type: account.CreditCard, CurrencyCode: "VES",
+	})
+	if !errors.Is(err, account.ErrInvalidInput) {
+		t.Fatalf("Create(CREDIT_CARD) = %v, want ErrInvalidInput", err)
+	}
+	var n int
+	if err := db.QueryRowContext(t.Context(), "SELECT count(*) FROM accounts").Scan(&n); err != nil {
+		t.Fatalf("counting accounts: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("%d accounts were written", n)
+	}
+}
+
+// An account changes type within its nature, never across it.
+func TestUpdateMetadataRefusesANatureChange(t *testing.T) {
+	t.Parallel()
+
+	svc, _, db := fixture(t)
+	ctx := t.Context()
+
+	bank, err := svc.Create(ctx, account.CreateInput{
+		Name: "Mercantil USD", Type: account.Bank, Subtype: checking(), CurrencyCode: "USD",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := svc.UpdateMetadata(ctx, bank.ID, account.UpdateMetadataInput{
+		Name: "Mercantil USD", Type: account.CreditCard,
+	}); !errors.Is(err, account.ErrNatureChange) {
+		t.Errorf("bank -> credit card = %v, want ErrNatureChange", err)
+	}
+	if _, err := svc.UpdateMetadata(ctx, bank.ID, account.UpdateMetadataInput{
+		Name: "Efectivo", Type: account.Cash,
+	}); err != nil {
+		t.Errorf("bank -> cash, within the nature: %v", err)
+	}
+
+	// A card exists only through internal/application; written directly here.
+	result, err := db.ExecContext(ctx,
+		`INSERT INTO accounts (name, account_type, currency_code) VALUES ('Plaza Black', 'CREDIT_CARD', 'VES')`)
+	if err != nil {
+		t.Fatalf("seeding a card: %v", err)
+	}
+	card, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("reading the card id: %v", err)
+	}
+	if _, err := svc.UpdateMetadata(ctx, card, account.UpdateMetadataInput{
+		Name: "Plaza", Type: account.Wallet,
+	}); !errors.Is(err, account.ErrNatureChange) {
+		t.Errorf("credit card -> wallet = %v, want ErrNatureChange", err)
+	}
+	renamed, err := svc.UpdateMetadata(ctx, card, account.UpdateMetadataInput{
+		Name: "Plaza Mastercard", Type: account.CreditCard, Institution: ptr("Banco Plaza"),
+	})
+	if err != nil {
+		t.Fatalf("renaming a card: %v", err)
+	}
+	if renamed.Type != account.CreditCard || renamed.Name != "Plaza Mastercard" {
+		t.Errorf("renamed card = %+v", renamed)
 	}
 }

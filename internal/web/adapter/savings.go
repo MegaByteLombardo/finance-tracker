@@ -418,6 +418,10 @@ func TranslateSavingsError(err error) error {
 		return translateError(web.ErrSavingsDistributionExceeded, err)
 	case errors.Is(err, savings.ErrNotLinkable):
 		return translateError(web.ErrSavingsNotLinkable, err)
+	// After ErrNotLinkable: a plan naming a card is the plan's error, which
+	// the movement forms already answer with a 422.
+	case errors.Is(err, savings.ErrLiabilityAccount):
+		return translateError(web.ErrSavingsLiabilityAccount, err)
 	default:
 		return err
 	}

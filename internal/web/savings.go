@@ -437,7 +437,7 @@ func savingsAlert(q url.Values) *FlashAlert {
 			"insufficient-free":     "La cuenta no tiene suficientes USD libres: su saldo menos lo ya reservado no cubre ese importe.",
 			"insufficient-reserved": "No hay tanto reservado ahí.",
 			"exceeds-suggestion":    "Eso supera lo que queda de la sugerencia. Si de verdad quieres apartar más, marca la excepción e indica el motivo.",
-			"not-usd":               "El ahorro solo se respalda con cuentas en USD.",
+			"not-usd":               "El ahorro solo se respalda con cuentas en USD que sean activos, nunca con una tarjeta.",
 			"account-inactive":      "Esa cuenta está archivada: no puede respaldar ahorro nuevo.",
 			"account":               "Elige una cuenta en USD.",
 			"request-key":           "El formulario caducó. Vuelve a intentarlo desde la página actualizada.",

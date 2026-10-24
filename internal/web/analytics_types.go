@@ -156,6 +156,8 @@ type NetWorthAccount struct {
 	AccountID   int64
 	AccountName string
 	AccountType string
+	// Nature is ASSET or LIABILITY, derived by the backend from the type.
+	Nature      string
 	Institution *string
 	IsActive    bool
 
@@ -174,6 +176,9 @@ type NetWorthAccount struct {
 
 	Share Ratio
 }
+
+// IsLiability reports an account whose balance is money owed.
+func (a NetWorthAccount) IsLiability() bool { return a.Nature == "LIABILITY" }
 
 // ArchivedWithBalance reports the case a screen warns about: an archived account
 // still holding money, which is counted in the net worth (TD-064).

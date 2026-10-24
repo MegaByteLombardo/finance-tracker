@@ -89,6 +89,20 @@ func TestTablesHaveExactlyTheExpectedColumns(t *testing.T) {
 		"savings_issue_acknowledgements": {
 			"issue_key", "note", "created_at",
 		},
+		"credit_cards": {
+			"account_id", "product_name", "credit_limit_minor", "statement_day",
+			"due_days_after_statement", "payment_processing_days", "denomination",
+			"denomination_confirmed", "default_payment_method_id", "created_at", "updated_at",
+		},
+		"credit_charges": {
+			"transaction_id", "kind", "created_at",
+		},
+		"transaction_refunds": {
+			"refund_transaction_id", "original_transaction_id", "created_at",
+		},
+		"operation_requests": {
+			"request_key", "transaction_id", "account_id", "created_at",
+		},
 	}
 
 	for table, want := range tests {
@@ -317,6 +331,7 @@ func TestAccountAcceptsEveryValidType(t *testing.T) {
 		{"CASH", nil},
 		{"WALLET", nil},
 		{"OTHER", nil},
+		{"CREDIT_CARD", nil},
 	}
 
 	for _, tc := range valid {
@@ -652,6 +667,13 @@ func TestTransactionShapePerType(t *testing.T) {
 		{"FX_EXCHANGE", true, nil, false},
 		{"FX_EXCHANGE", false, methodBankTransfer, false},
 		{"FX_EXCHANGE", true, methodBankTransfer, false},
+		// A refund is shaped like an expense: categorised -- under an EXPENSE
+		// category, which Go checks -- and with a channel. Only its sign differs,
+		// and the sign lives on the movement.
+		{"REFUND", true, methodPOS, true},
+		{"REFUND", false, methodPOS, false},
+		{"REFUND", true, nil, false},
+		{"REFUND", false, nil, false},
 		// The column is a foreign key now, so an id nobody defined is refused.
 		{"INCOME", true, 9999, false},
 	}
@@ -665,7 +687,7 @@ func TestTransactionShapePerType(t *testing.T) {
 			var categoryID any
 			if tc.hasCategory {
 				categoryType := "INCOME"
-				if tc.txType == "EXPENSE" {
+				if tc.txType == "EXPENSE" || tc.txType == "REFUND" {
 					categoryType = "EXPENSE"
 				}
 				categoryID = seedCategory(t, db, "Test", categoryType)

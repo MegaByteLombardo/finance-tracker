@@ -1212,6 +1212,50 @@ acknowledgement changes no balance.
 
 ---
 
+## Credit *(M8.1)*
+
+Migration 00019 rebuilt `accounts` and `transactions` with SQLite's twelve-step
+procedure (TD-088) to widen two `CHECK` lists, and changed nothing else: same
+columns, defaults, constraints and indexes. `accounts.account_type` admits
+`CREDIT_CARD`, whose nature is LIABILITY (derived in Go, TD-089);
+`transactions.transaction_type` admits `REFUND`, which like `INCOME` and
+`EXPENSE` requires a category and a payment method (TD-090). 00020 and 00021 add
+four `STRICT` tables of terms, facts and assertions; none holds an amount that
+could be derived. See [m8-contract.md](m8-contract.md).
+
+### `credit_cards` *(00020)*
+
+| Column | Type | Null | Default | Constraints |
+| --- | --- | --- | --- | --- |
+| `account_id` | `INTEGER` | NOT NULL | — | **PRIMARY KEY**, FK → `accounts(id)` RESTRICT. Go checks the account is a `CREDIT_CARD`. |
+| `product_name` | `TEXT` | NULL | — | 1–120 trimmed characters |
+| `credit_limit_minor` | `INTEGER` | NULL | — | `> 0`; NULL is unknown |
+| `statement_day` | `INTEGER` | NOT NULL | — | `BETWEEN 1 AND 31` |
+| `due_days_after_statement` | `INTEGER` | NULL | — | `BETWEEN 1 AND 60`; NULL is unknown |
+| `payment_processing_days` | `INTEGER` | NOT NULL | `0` | `BETWEEN 0 AND 10` |
+| `denomination` | `TEXT` | NOT NULL | `'NOMINAL'` | `IN ('NOMINAL','INDEXED')` |
+| `denomination_confirmed` | `INTEGER` | NOT NULL | `0` | `IN (0,1)` |
+| `default_payment_method_id` | `INTEGER` | NULL | — | FK → `payment_methods(id)` RESTRICT, indexed |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | now | the timestamp `GLOB` |
+
+### `credit_charges` *(00021)*
+
+`transaction_id` (PK, FK → `transactions`), `kind IN ('INTEREST','FEE','PENALTY')`,
+`created_at`. Go checks the transaction is an `EXPENSE` on a liability.
+
+### `transaction_refunds` *(00021)*
+
+`refund_transaction_id` (PK, FK → `transactions`), `original_transaction_id`
+(FK → `transactions`, indexed), `created_at`, `CHECK (refund <> original)`. Go
+checks the original is an `EXPENSE` of the same account and that the refunds
+linked to it never exceed it.
+
+### `operation_requests` *(00021)*
+
+`request_key` (PK, 16–64 `[0-9a-zA-Z_-]`), `transaction_id` and `account_id`
+(both nullable FKs, indexed, `CHECK` that at least one is set), `created_at`.
+The idempotency log of TD-095.
+
 ## The net worth is not in this document
 
 There is no `current_net_worth`, no `converted_balance` and no `cached_net_worth`

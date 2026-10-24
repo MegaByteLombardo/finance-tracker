@@ -30,6 +30,11 @@ var (
 
 	// ErrNotUSDAccount means the account is not in USD, the savings currency.
 	ErrNotUSDAccount = errors.New("savings can only be backed by a USD account")
+	// ErrLiabilityAccount means the account is a liability -- a credit card --
+	// whose balance is money owed, so it cannot back reserved money even when
+	// it holds a credit (TD-094). A reservation backed by a debt would be money
+	// set aside that does not exist.
+	ErrLiabilityAccount = errors.New("savings can only be backed by an asset account")
 
 	// ErrInsufficientFree means the account's free balance -- its balance today
 	// minus what is already reserved on it -- does not cover the reservation.
@@ -197,6 +202,10 @@ func (s *Service) GetFund(ctx context.Context) (Fund, error) {
 
 // fundTx computes the fund through exec, from the ledger's balances today and
 // the reserved sums: two queries, whatever the number of accounts.
+//
+// Only USD ASSETS back the fund (TD-094). A USD credit card is left out of the
+// balance, of what is free and of the per-account table, even when it holds a
+// credit: that credit is the issuer's debt to the user, not money in hand.
 func (s *Service) fundTx(ctx context.Context, exec database.DBTX) (Fund, error) {
 	balances, err := ledger.NewRepository(exec).ListBalances(ctx, true, s.today())
 	if err != nil {
@@ -214,7 +223,7 @@ func (s *Service) fundTx(ctx context.Context, exec database.DBTX) (Fund, error) 
 
 	fund := Fund{Accounts: make([]AccountAvailability, 0)}
 	for _, b := range balances {
-		if b.CurrencyCode != FundCurrency {
+		if b.CurrencyCode != FundCurrency || b.AccountType.Nature() != account.Asset {
 			continue
 		}
 		a := AccountAvailability{
@@ -429,7 +438,7 @@ func (s *Service) ListOperations(ctx context.Context, limit int) ([]Operation, e
 }
 
 // checkFundAccount verifies an account can take part in the fund: it exists,
-// it is in USD and, when backing new money, it is active.
+// it is an asset, it is in USD and, when backing new money, it is active.
 func checkFundAccount(ctx context.Context, exec database.DBTX, accountID int64, mustBeActive bool) error {
 	a, err := account.NewRepository(exec).Get(ctx, accountID)
 	switch {
@@ -437,6 +446,9 @@ func checkFundAccount(ctx context.Context, exec database.DBTX, accountID int64, 
 		return fmt.Errorf("account %d: %w", accountID, ErrAccountNotFound)
 	case err != nil:
 		return fmt.Errorf("looking up account %d: %w", accountID, err)
+	}
+	if a.Type.Nature() != account.Asset {
+		return fmt.Errorf("%w: %q is a %s", ErrLiabilityAccount, a.Name, a.Type)
 	}
 	if a.CurrencyCode != FundCurrency {
 		return fmt.Errorf("%w: %q is in %s", ErrNotUSDAccount, a.Name, a.CurrencyCode)

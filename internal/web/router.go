@@ -115,6 +115,30 @@ func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
 	mux.HandleFunc("POST /accounts/{id}/restore", handleSetAccountActive(logger, svcs, true))
 	mux.HandleFunc("GET /accounts/subtype-options", handleSubtypeOptions(logger, renderer))
 
+	// Credit cards (M8.1). A card is a liability account with the issuer's
+	// terms. A purchase and a charge are expenses on it; a payment is a
+	// transfer or an exchange into it, recorded on those forms. Every form
+	// carries a request key, so a double submission records once.
+	mux.HandleFunc("GET /cards", handleCards(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/new", handleNewCardForm(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards", handleOpenCard(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}", handleCard(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}/edit", handleEditCardTerms(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards/{id}/edit", handleUpdateCardTerms(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}/purchases/new", handleNewCardEntry(logger, renderer, svcs, "purchase"))
+	mux.HandleFunc("POST /cards/{id}/purchases", handleRecordCardEntry(logger, renderer, svcs, "purchase"))
+	mux.HandleFunc("GET /cards/{id}/charges/new", handleNewCardEntry(logger, renderer, svcs, "charge"))
+	mux.HandleFunc("POST /cards/{id}/charges", handleRecordCardEntry(logger, renderer, svcs, "charge"))
+	mux.HandleFunc("GET /cards/{id}/charges/{tid}/edit", handleEditCardCharge(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards/{id}/charges/{tid}", handleUpdateCardCharge(logger, renderer, svcs))
+
+	// Refunds (M8.1): money given back for an expense, on any account. Never
+	// income. Recorded and corrected only here.
+	mux.HandleFunc("GET /refunds/new", handleNewRefund(logger, renderer, svcs))
+	mux.HandleFunc("POST /refunds", handleRecordRefund(logger, renderer, svcs))
+	mux.HandleFunc("GET /refunds/{id}/edit", handleEditRefund(logger, renderer, svcs))
+	mux.HandleFunc("POST /refunds/{id}", handleUpdateRefund(logger, renderer, svcs))
+
 	// Transactions
 	mux.HandleFunc("GET /transactions", handleTransactionsList(logger, renderer, svcs))
 	mux.HandleFunc("GET /transactions/new", handleNewTransactionForm(logger, renderer, svcs))

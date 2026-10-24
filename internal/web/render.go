@@ -50,6 +50,30 @@ func NewRenderer(templateFS fs.FS) *Renderer {
 		"isBank": func(t AccountType) bool {
 			return t == AccountTypeBank
 		},
+		"chargeKindLabel": ChargeKindLabel,
+		"derefInt": func(p *int) int {
+			if p == nil {
+				return 0
+			}
+			return *p
+		},
+		// accountTypeLabel names an account type for a screen.
+		"accountTypeLabel": func(t any) string {
+			switch fmt.Sprintf("%v", t) {
+			case string(AccountTypeBank):
+				return "Banco"
+			case string(AccountTypeCash):
+				return "Efectivo"
+			case string(AccountTypeWallet):
+				return "Billetera"
+			case string(AccountTypeOther):
+				return "Otra"
+			case string(AccountTypeCreditCard):
+				return "Tarjeta de crédito"
+			default:
+				return fmt.Sprintf("%v", t)
+			}
+		},
 		"derefString": func(s *string) string {
 			if s == nil {
 				return ""
@@ -89,7 +113,7 @@ func NewRenderer(templateFS fs.FS) *Renderer {
 				return "-" + formatAmountString(tx.Exchange.SourceAmountFormatted)
 			}
 			amt := formatAmountString(tx.AmountFormatted)
-			if tx.Type == TransactionTypeIncome && !strings.HasPrefix(amt, "+") {
+			if (tx.Type == TransactionTypeIncome || tx.Type == TransactionTypeRefund) && !strings.HasPrefix(amt, "+") {
 				return "+" + amt
 			}
 			return amt
@@ -208,6 +232,7 @@ func (rn *Renderer) RenderPage(w http.ResponseWriter, r *http.Request, status in
 		"components/empty_state.html",
 		"components/net_worth_chart.html",
 		"components/help.html",
+		"components/card_terms_fields.html",
 		cleanPage,
 	)
 	if err != nil {

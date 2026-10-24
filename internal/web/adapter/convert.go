@@ -236,6 +236,7 @@ func toWebTransactionView(v *ledger.TransactionView) *web.TransactionView {
 		CategoryType:      toWebCategoryTypePtr(v.CategoryType),
 		Transfer:          toWebTransferDetail(v.Transfer),
 		Exchange:          toWebExchangeDetail(v.Exchange),
+		RefundOf:          v.RefundOf,
 		MovementID:        v.MovementID,
 		AccountID:         v.AccountID,
 		AccountName:       v.AccountName,

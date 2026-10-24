@@ -31,6 +31,15 @@ var (
 	// ErrCurrencyInactive means the requested currency exists but has been
 	// retired, so it cannot denominate a new account.
 	ErrCurrencyInactive = errors.New("account currency is inactive")
+	// ErrNatureChange means an edit would turn an asset into a liability or the
+	// reverse (TD-089).
+	//
+	// A bank account reclassified as cash is a correction of where money sits.
+	// A bank account reclassified as a credit card would turn every balance it
+	// ever had from money held into money owed, and every movement into its
+	// opposite in meaning, while no figure changed. Open the other kind of
+	// account and archive this one instead.
+	ErrNatureChange = errors.New("an account cannot change between an asset and a liability")
 )
 
 // Type classifies the logical container the money sits in.
@@ -53,10 +62,66 @@ const (
 	Wallet Type = "WALLET"
 	// Other is anything that fits none of the above.
 	Other Type = "OTHER"
+	// CreditCard is a revolving credit line (M8.1, TD-089): the first type whose
+	// balance is money OWED rather than money held. A purchase lowers it, a
+	// payment raises it, and a debt is a negative balance, so the ledger's
+	// arithmetic is unchanged. Its terms -- statement day, limit -- live in
+	// internal/creditcard; it is opened through internal/application, which
+	// writes both in one transaction.
+	CreditCard Type = "CREDIT_CARD"
 )
 
 // Types lists every valid type, in the order a UI would present them.
-func Types() []Type { return []Type{Bank, Cash, Wallet, Other} }
+//
+// CreditCard is last because it was appended: a caller rendering this list must
+// not have its order change underneath it. Knowing a value does not make it
+// offerable everywhere -- the generic account form offers AssetTypes, and a
+// card is opened with its terms through its own form.
+func Types() []Type { return []Type{Bank, Cash, Wallet, Other, CreditCard} }
+
+// AssetTypes lists the types whose nature is Asset, in the order of Types.
+func AssetTypes() []Type {
+	var assets []Type
+	for _, t := range Types() {
+		if t.Nature() == Asset {
+			assets = append(assets, t)
+		}
+	}
+	return assets
+}
+
+// Nature is whether an account holds money or owes it (TD-089).
+//
+// It is DERIVED from Type and stored nowhere: a second column could only ever
+// disagree with the first. Nothing infers it from a balance's sign -- a bank
+// account can be overdrawn and a card can hold a credit, and neither changes
+// what the account is -- and nothing infers it from a category or a name.
+type Nature string
+
+const (
+	// Asset is an account whose balance is money the user holds.
+	Asset Nature = "ASSET"
+	// Liability is an account whose balance is money the user owes, as a
+	// negative number. A future LOAN would be one too; none is built.
+	Liability Nature = "LIABILITY"
+)
+
+// Nature returns whether accounts of this type hold or owe money.
+//
+// The switch names every type it knows and returns "" for anything else, so a
+// type added later is neither an asset nor a liability until someone decides
+// which it is (TD-045). A caller asking "is this an asset?" compares with Asset
+// rather than testing for "not a liability".
+func (t Type) Nature() Nature {
+	switch t {
+	case Bank, Cash, Wallet, Other:
+		return Asset
+	case CreditCard:
+		return Liability
+	default:
+		return ""
+	}
+}
 
 // Valid reports whether t is a known type.
 func (t Type) Valid() bool {

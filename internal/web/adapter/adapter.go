@@ -10,6 +10,7 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/application"
 	"github.com/MegaByteLombardo/finance-tracker/internal/backup"
 	"github.com/MegaByteLombardo/finance-tracker/internal/category"
+	"github.com/MegaByteLombardo/finance-tracker/internal/creditcard"
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/fx"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
@@ -397,6 +398,9 @@ func New(db *sql.DB, backups *backup.Service, rates *fx.Service) *web.Services {
 
 		// M7.1. The savings policy and the suggestion of each eligible income.
 		Savings: &savingsAdapter{svc: savingsService},
+
+		// M8.1. Credit cards: every write through the application workflows.
+		Cards: &cardAdapter{svc: creditcard.NewService(db), ledger: ledgerService, app: applicationService},
 	}
 }
 

@@ -1,0 +1,104 @@
+{{ define "content" }}
+{{ $c := .Card }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>{{ $c.Name }} {{ if not $c.IsActive }}<span class="badge badge-inactive">Archivada</span>{{ end }}</h1>
+    <p class="page-subtitle">
+      {{ if $c.ProductName }}{{ derefString $c.ProductName }} · {{ end }}{{ if $c.Institution }}{{ derefString $c.Institution }} · {{ end }}{{ $c.CurrencyCode }} · Tarjeta de crédito (pasivo)
+    </p>
+  </div>
+  <div class="page-actions">
+    <a href="/cards" class="btn btn-secondary">&larr; Tarjetas</a>
+    <a href="/cards/{{ $c.AccountID }}/edit" class="btn btn-secondary">Condiciones</a>
+  </div>
+</div>
+
+<!-- Every figure here is derived on this request from the card's movements
+     dated today or earlier and its terms; nothing is stored (TD-052, TD-063). -->
+<section class="savings-kpis" aria-label="Posición de la tarjeta">
+  <article class="card dash-kpi">
+    <h2 class="dash-kpi-label">{{ if $c.CreditBalanceMinor }}Saldo a favor{{ else }}Deuda total{{ end }}</h2>
+    <div class="lcd">
+      {{ if $c.CreditBalanceMinor }}
+      <span class="lcd-value amount-income" data-fit>{{ formatAmount $c.CreditBalanceFormatted }}<span class="lcd-unit">{{ $c.CurrencyCode }}</span></span>
+      {{ else }}
+      <span class="lcd-value{{ if $c.DebtMinor }} is-down{{ end }}" data-fit>{{ formatAmount $c.DebtFormatted }}<span class="lcd-unit">{{ $c.CurrencyCode }}</span></span>
+      {{ end }}
+    </div>
+    <p class="dash-kpi-meta">{{ if $c.CreditBalanceMinor }}El banco te debe este monto; lo consumirán las próximas compras.{{ else }}Saldo del ledger al día de hoy.{{ end }}</p>
+  </article>
+  <article class="card dash-kpi">
+    <h2 class="dash-kpi-label">Disponible</h2>
+    <div class="lcd">
+      {{ if $c.HasLimit }}
+      <span class="lcd-value{{ if $c.OverLimit }} is-down{{ end }}" data-fit>{{ formatAmount $c.AvailableFormatted }}<span class="lcd-unit">{{ $c.CurrencyCode }}</span></span>
+      {{ else }}
+      <span class="lcd-value" data-fit>&mdash;</span>
+      {{ end }}
+    </div>
+    <p class="dash-kpi-meta">{{ if $c.HasLimit }}Límite {{ formatAmount $c.CreditLimitFormatted }} {{ $c.CurrencyCode }}{{ if $c.OverLimit }} · <span class="amount-expense">sobre el límite</span>{{ end }}{{ else }}Límite desconocido{{ end }}</p>
+  </article>
+  <article class="card dash-kpi">
+    <h2 class="dash-kpi-label">Corte</h2>
+    <div class="lcd"><span class="lcd-value" data-fit>Día {{ $c.StatementDay }}</span></div>
+    <p class="dash-kpi-meta">{{ if $c.DueDaysAfterStatement }}Vence {{ derefInt $c.DueDaysAfterStatement }} días después del corte{{ else }}Vencimiento desconocido{{ end }}</p>
+  </article>
+  <article class="card dash-kpi">
+    <h2 class="dash-kpi-label">Denominación</h2>
+    <div class="lcd"><span class="lcd-value" data-fit>{{ $c.DenominationLabel }}</span></div>
+    <p class="dash-kpi-meta">{{ if $c.DenominationConfirmed }}Verificada en el contrato{{ else }}<span class="badge badge-warning">supuesto</span> sin verificar en el contrato{{ end }}</p>
+  </article>
+</section>
+
+{{ if $c.FutureMovementCount }}
+<p class="dash-note"><span class="badge badge-neutral">{{ $c.FutureMovementCount }} {{ if eq $c.FutureMovementCount 1 }}movimiento futuro{{ else }}movimientos futuros{{ end }}</span>
+  Tienen fecha posterior a hoy: aún no forman parte de la deuda.</p>
+{{ end }}
+
+{{ if $c.IsActive }}
+<div class="page-actions" style="margin: var(--space-4) 0;">
+  <a href="/cards/{{ $c.AccountID }}/purchases/new" class="btn btn-primary">+ Compra</a>
+  <a href="/cards/{{ $c.AccountID }}/charges/new" class="btn btn-secondary">+ Cargo del banco</a>
+  <a href="/refunds/new?account_id={{ $c.AccountID }}&amp;return_to=/cards/{{ $c.AccountID }}" class="btn btn-secondary">+ Devolución</a>
+  <a href="/transfers/new?to_account_id={{ $c.AccountID }}" class="btn btn-secondary" title="Un pago es una transferencia hacia la tarjeta, en su moneda.">Pagar ({{ $c.CurrencyCode }})</a>
+  <a href="/exchanges/new" class="btn btn-secondary" title="Un pago desde otra moneda es un cambio de divisas con la tarjeta como destino.">Pagar desde otra moneda</a>
+</div>
+{{ end }}
+
+<section class="card dash-section" aria-labelledby="card-movements-title">
+  <div class="card-header"><h2 id="card-movements-title" class="card-title">Movimientos</h2></div>
+  <div class="card-body">
+    {{ if .Error }}<p class="text-muted">{{ .Error }}</p>{{ end }}
+    {{ if .Movements }}
+    <div class="table-container">
+      <table class="data-table">
+        <thead>
+          <tr><th>Fecha</th><th>Movimiento</th><th>Detalle</th><th class="cell-right">Efecto en la tarjeta</th><th class="cell-right"></th></tr>
+        </thead>
+        <tbody>
+          {{ range .Movements }}
+          {{ $t := .Transaction }}
+          <tr>
+            <td style="white-space: nowrap;">{{ formatDate $t.EffectiveDate }}</td>
+            <td><span class="badge {{ if eq .Kind "CHARGE" }}badge-warning{{ else if .Credit }}badge-active{{ else }}badge-neutral{{ end }}">{{ .KindLabel }}</span></td>
+            <td>{{ if $t.Description }}{{ derefString $t.Description }}{{ else if $t.CategoryName }}{{ derefString $t.CategoryName }}{{ end }}</td>
+            <td class="cell-right cell-mono" style="white-space: nowrap;">
+              <span class="{{ if .Credit }}amount-income{{ else }}amount-expense{{ end }}">{{ formatAmount .AmountFormatted }} {{ $c.CurrencyCode }}</span>
+            </td>
+            <td class="cell-right">
+              {{ if eq .Kind "CHARGE" }}<a href="/cards/{{ $c.AccountID }}/charges/{{ $t.ID }}/edit" class="btn btn-sm btn-secondary">Corregir</a>
+              {{ else if eq .Kind "REFUND" }}<a href="/refunds/{{ $t.ID }}/edit?return_to=/cards/{{ $c.AccountID }}" class="btn btn-sm btn-secondary">Corregir</a>
+              {{ else }}<a href="/transactions/{{ $t.ID }}/edit" class="btn btn-sm btn-secondary">Corregir</a>{{ end }}
+              {{ if eq .Kind "PURCHASE" }}<a href="/refunds/new?account_id={{ $c.AccountID }}&amp;original={{ $t.ID }}&amp;return_to=/cards/{{ $c.AccountID }}" class="btn btn-sm btn-secondary">Devolver</a>{{ end }}
+            </td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+    </div>
+    {{ else }}
+    <p class="text-muted">Sin movimientos todavía.</p>
+    {{ end }}
+  </div>
+</section>
+{{ end }}

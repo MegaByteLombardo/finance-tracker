@@ -1002,6 +1002,71 @@ completion against a real expense and the dashboard block (M7.4).
 
 ---
 
+## M8 — Credit & Debt Management · `IN PROGRESS`
+
+Credit cards as liability accounts, statements and payments, the FX effect on a
+debt denominated in bolívares, committed liquidity and a card dashboard. Five
+submilestones, each approved and closed on its own. The plan and its audit are
+[m8-plan.md](m8-plan.md); the contract for what is built is
+[m8-contract.md](m8-contract.md).
+
+| Submilestone | Status |
+| --- | --- |
+| M8.1 — Credit accounts & liability ledger | Delivered, awaiting functional validation |
+| M8.2 — Statements & payments | `PLANNED` |
+| M8.3 — FX benefit analytics | `PLANNED` |
+| M8.4 — Liquidity & M7 integration | `PLANNED` |
+| M8.5 — Credit dashboard & optimisation | `PLANNED` |
+
+### The rule the milestone hangs on
+
+**A card is an account and a debt is a negative balance.** The ledger's
+arithmetic does not change; M8 adds terms, facts and assertions, and stores
+nothing it can derive.
+
+### M8.1 delivered
+
+- **`CREDIT_CARD`, the first liability** (TD-089): nature derived from the type,
+  never changeable; terms in `credit_cards`, unknown terms NULL; the position
+  (debt, credit balance, available) derived on every read.
+- **The 12-step rebuild of two parent tables with guards** (TD-088, migration
+  00019), `database.CheckForeignKeys` after migrating, `foreign_key_check` in
+  `backup.Validate`.
+- **`REFUND`** (TD-090): positive, under an EXPENSE category, optional link to
+  the expense it refunds, never more than it; negative spending in the cash flow.
+- **Payments and charges without new types** (TD-091): a payment is a transfer
+  or an exchange into the card; interest, fees and penalties are expenses with a
+  `credit_charges` row, corrected only as charges.
+- **M7 under liabilities** (TD-094): only incomes on assets are eligible, only
+  USD assets back the fund.
+- **Idempotent forms** (TD-095): `operation_requests`.
+- **Valuation:** assets and liabilities split exactly; shares of the assets.
+- **Web:** `/cards` (list, open, detail, terms, purchase, charge),
+  `/refunds`, the type routing of the generic edit, Activos/Pasivos on the
+  dashboard.
+
+### M8.1 verification
+
+`go vet` clean, `gofmt` clean and `go test ./... -count=1` green. Against real
+SQLite: the 18 → 21 upgrade with M7 data (rows, savings, schema objects other
+than the two rebuilt tables all identical); 00019 run twice; each of its six
+guards made to fail, with the file intact and foreign keys on after reopening;
+00020/00021 rolled back; Plaza Black opened (VES, statement day 25, no limit, no
+due date, nominal unconfirmed) with a previous debt, once per request key; a
+back-dated purchase moving the history from its own date; refunds linked,
+unlinked, capped and corrected; charges classified and refused by the generic
+edit; cashback on a card not eligible even with an override; a USD card with a
+credit outside the fund; assets − liabilities = net worth. Smoke-tested on the
+binary over HTTP. `-race` pending in the Linux container.
+
+### Not in M8.1
+
+Statements, cycles, minimums, due dates, payment allocation and reconciliation
+(M8.2); FX analytics (M8.3); liquidity (M8.4); the card dashboard and mobile
+card screens (M8.5).
+
+---
+
 ## Roadmap
 
 Everything below is **provisional**. These are the currently expected shape of
@@ -1020,7 +1085,7 @@ below has acceptance criteria yet, by design.
 | M6.5 | Weekly & Monthly Recap | `IN PROGRESS` |
 | — | Production Deployment, Private Access & Continuous Backup | `POSTPONED` |
 | M7 | Savings Fund & Goals | `CLOSED` |
-| M8 | Credit & Debt | `PLANNED` |
+| M8 | Credit & Debt | `IN PROGRESS` |
 | M9 | Instalments & Calendar | `PLANNED` |
 | M10 | Hardening | `PLANNED` |
 

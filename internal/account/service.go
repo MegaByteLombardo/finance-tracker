@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
@@ -48,7 +49,15 @@ func (s *Service) Get(ctx context.Context, id int64) (Account, error) {
 //
 // Currency errors are translated into this package's own, so that callers never
 // need to import currency to interpret what Create returned.
+//
+// It creates ASSETS only. A credit card is an account plus its terms, and is
+// opened through internal/application, which writes both in one transaction;
+// created here it would be a card with no statement day.
 func (s *Service) Create(ctx context.Context, in CreateInput) (_ Account, err error) {
+	if err := RequireAsset(in.Type); err != nil {
+		return Account{}, err
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Account{}, fmt.Errorf("beginning transaction: %w", err)
@@ -70,6 +79,16 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (_ Account, err er
 		return Account{}, fmt.Errorf("committing account creation: %w", err)
 	}
 	return created, nil
+}
+
+// RequireAsset refuses a type whose nature is not Asset. It is the guard of
+// every generic way of opening an account; the card has its own.
+func RequireAsset(t Type) error {
+	normalized := Type(strings.ToUpper(strings.TrimSpace(string(t))))
+	if normalized.Valid() && normalized.Nature() != Asset {
+		return fmt.Errorf("%w: a %s is opened with its terms, through its own form", ErrInvalidInput, normalized)
+	}
+	return nil
 }
 
 // CreateTx is Create without the transaction, so that a workflow spanning more
@@ -122,16 +141,48 @@ func CreateTx(ctx context.Context, exec database.DBTX, in CreateInput) (Account,
 //
 // The currency cannot be reached from here: it is not a field of
 // UpdateMetadataInput and it appears in no UPDATE statement.
-func (s *Service) UpdateMetadata(ctx context.Context, id int64, in UpdateMetadataInput) (Account, error) {
+//
+// The type may change only within its nature: a bank account may become cash,
+// but no asset may become a credit card or the reverse (ErrNatureChange,
+// TD-089). The current type is read in the same transaction as the update, so
+// the comparison is made against what is actually being overwritten.
+func (s *Service) UpdateMetadata(ctx context.Context, id int64, in UpdateMetadataInput) (_ Account, err error) {
 	in.normalize()
 	if err := in.validate(); err != nil {
 		return Account{}, err
 	}
 
-	if err := s.repo.UpdateMetadata(ctx, id, in.Name, in.Type, in.Subtype, in.Institution, database.Now()); err != nil {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Account{}, fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer func() {
+		if rerr := tx.Rollback(); rerr != nil && !errors.Is(rerr, sql.ErrTxDone) {
+			err = errors.Join(err, fmt.Errorf("rolling back the edit of account %d: %w", id, rerr))
+		}
+	}()
+
+	repo := NewRepository(tx)
+	current, err := repo.Get(ctx, id)
+	if err != nil {
 		return Account{}, err
 	}
-	return s.repo.Get(ctx, id)
+	if current.Type.Nature() != in.Type.Nature() {
+		return Account{}, fmt.Errorf("%w: %q is %s and cannot become %s",
+			ErrNatureChange, current.Name, current.Type, in.Type)
+	}
+
+	if err := repo.UpdateMetadata(ctx, id, in.Name, in.Type, in.Subtype, in.Institution, database.Now()); err != nil {
+		return Account{}, err
+	}
+	updated, err := repo.Get(ctx, id)
+	if err != nil {
+		return Account{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Account{}, fmt.Errorf("committing the edit of account %d: %w", id, err)
+	}
+	return updated, nil
 }
 
 // SetActive archives an account, or brings it back. Both directions are

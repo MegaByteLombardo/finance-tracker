@@ -486,7 +486,26 @@ func handleEditTransactionForm(logger *slog.Logger, renderer *Renderer, svcs *Se
 		case TransactionTypeFXExchange:
 			http.Redirect(w, r, "/exchanges/"+idStr+"/edit", http.StatusSeeOther)
 			return
-		case TransactionTypeIncome, TransactionTypeExpense, TransactionTypeOpeningBalance:
+		case TransactionTypeRefund:
+			http.Redirect(w, r, "/refunds/"+idStr+"/edit", http.StatusSeeOther)
+			return
+		case TransactionTypeExpense:
+			// A card charge is an expense whose correction must keep its kind
+			// and its card in step: it has its own form (M8.1).
+			if svcs.Cards != nil {
+				_, isCharge, err := svcs.Cards.ChargeKind(ctx, id)
+				if err != nil {
+					logger.Error("reading whether an expense is a card charge", slog.Any("error", err))
+					http.Error(w, "Failed to load transaction", http.StatusInternalServerError)
+					return
+				}
+				if isCharge {
+					http.Redirect(w, r, "/cards/"+strconv.FormatInt(tx.AccountID, 10)+"/charges/"+idStr+"/edit",
+						http.StatusSeeOther)
+					return
+				}
+			}
+		case TransactionTypeIncome, TransactionTypeOpeningBalance:
 			// Handled below.
 		default:
 			logger.Error("no edit screen for this transaction type",
@@ -634,6 +653,10 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 			return
 		case TransactionTypeFXExchange:
 			http.Error(w, "This form records income and expenses only. Use the exchange form to update a currency exchange.",
+				http.StatusBadRequest)
+			return
+		case TransactionTypeRefund:
+			http.Error(w, "This form records income and expenses only. Use the refund form to correct a refund.",
 				http.StatusBadRequest)
 			return
 		default:
@@ -834,6 +857,13 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 				form.TargetCurrencyCode = selectedCurrency
 			case errors.Is(err, ErrTypeChangeNotAllowed):
 				form.Errors["type"] = "Cannot change transaction to or from an opening balance."
+			case errors.Is(err, ErrChargeEditedAsCharge):
+				status = http.StatusConflict
+				form.Errors["general"] = "Este egreso es un cargo de una tarjeta: corrígelo desde la tarjeta."
+			case errors.Is(err, ErrRefundExceedsOriginal):
+				form.Errors["amount"] = "Este egreso tiene devoluciones que sumarían más que él."
+			case errors.Is(err, ErrRefundOriginal):
+				form.Errors["general"] = "Este egreso tiene devoluciones vinculadas: debe seguir siendo un egreso de la misma cuenta."
 			case errors.Is(err, ErrInvalidAmount):
 				form.Errors["amount"] = "Invalid amount format. Must be a positive number."
 			case errors.Is(err, ErrAccountNotFound):

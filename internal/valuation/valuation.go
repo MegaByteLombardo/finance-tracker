@@ -28,6 +28,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/MegaByteLombardo/finance-tracker/internal/account"
 	"github.com/MegaByteLombardo/finance-tracker/internal/fx"
 )
 
@@ -56,6 +57,22 @@ type NetWorth struct {
 	// show the warning alongside it.
 	TotalMinor     int64
 	TotalFormatted string
+
+	// AssetsMinor and LiabilitiesMinor split the total by the nature of the
+	// accounts (M8.1, TD-089): the converted lines of ASSET accounts summed, and
+	// the converted lines of LIABILITY accounts summed and negated, so that what
+	// is owed is a positive figure. AssetsMinor - LiabilitiesMinor ==
+	// TotalMinor, exactly, because both are sums of the same allocated lines
+	// (TD-070) -- the total is not computed a second way.
+	//
+	// An overdrawn bank account lowers AssetsMinor rather than counting as a
+	// liability, and a card holding a credit lowers LiabilitiesMinor: what an
+	// account IS does not change with the sign of its balance. Lines that could
+	// not be valued are in neither, as they are not in the total.
+	AssetsMinor          int64
+	AssetsFormatted      string
+	LiabilitiesMinor     int64
+	LiabilitiesFormatted string
 
 	// Complete is false when at least one currency could not be valued.
 	//
@@ -100,6 +117,9 @@ type AccountComponent struct {
 	AccountID   int64
 	AccountName string
 	AccountType string
+	// Nature is whether the account holds money or owes it, derived from its
+	// type (TD-089).
+	Nature      account.Nature
 	Institution *string
 
 	// IsActive is false for an archived account. It does not change how the
@@ -122,7 +142,9 @@ type AccountComponent struct {
 	ConvertedFormatted string
 	Valued             bool
 
-	// Share is ConvertedMinor as a part of the total. See Share.
+	// Share is ConvertedMinor as a part of the ASSETS (M8.1). It is defined
+	// only for an asset account, when the total is complete and the assets are
+	// greater than zero; a debt is not a part of what the user holds. See Share.
 	Share Share
 }
 

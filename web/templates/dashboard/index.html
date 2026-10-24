@@ -222,19 +222,38 @@
       </div>
       <div class="card-body">
         {{ if .NetWorth.Accounts }}
+        <!-- Two groups by nature (M8.1): what is held and what is owed. The
+             backend split the total; assets minus liabilities is the net worth. -->
+        <h3 class="dash-kpi-label">Activos · {{ formatAmount .NetWorth.AssetsFormatted }} {{ $base }}</h3>
         <ul class="ledger">
-          {{ range .NetWorth.Accounts }}
+          {{ range .NetWorth.AssetAccounts }}
           <li class="ledger-row">
             <span class="ledger-name">{{ .AccountName }}</span>
             <span class="ledger-figure"><span class="{{ if isNegative .BalanceMinor }}amount-expense{{ end }}">{{ formatAmount .BalanceFormatted }}</span><span class="currency-badge">{{ .CurrencyCode }}</span></span>
             <span class="ledger-sub">
-              {{ .AccountType }}{{ if .Institution }} · {{ derefString .Institution }}{{ end }}
+              {{ accountTypeLabel .AccountType }}{{ if .Institution }} · {{ derefString .Institution }}{{ end }}
               {{ if .ArchivedWithBalance }}<span class="badge badge-warning">archivada con saldo</span>{{ else if not .IsActive }}<span class="badge badge-neutral">archivada</span>{{ end }}
             </span>
             <span class="ledger-sub ledger-sub-right">{{ if .Valued }}{{ formatAmount .ConvertedFormatted }} {{ $base }}{{ else }}&mdash;{{ end }} · {{ ratio .Share }}</span>
           </li>
           {{ end }}
         </ul>
+        {{ with .NetWorth.LiabilityAccounts }}
+        <h3 class="dash-kpi-label">Pasivos · {{ formatAmount $.NetWorth.LiabilitiesFormatted }} {{ $base }}</h3>
+        <ul class="ledger">
+          {{ range . }}
+          <li class="ledger-row">
+            <span class="ledger-name"><a href="/cards/{{ .AccountID }}">{{ .AccountName }}</a></span>
+            <span class="ledger-figure"><span class="{{ if isNegative .BalanceMinor }}amount-expense{{ else }}amount-income{{ end }}">{{ formatAmount .BalanceFormatted }}</span><span class="currency-badge">{{ .CurrencyCode }}</span></span>
+            <span class="ledger-sub">
+              {{ accountTypeLabel .AccountType }}{{ if .Institution }} · {{ derefString .Institution }}{{ end }}
+              {{ if .ArchivedWithBalance }}<span class="badge badge-warning">archivada con saldo</span>{{ else if not .IsActive }}<span class="badge badge-neutral">archivada</span>{{ end }}
+            </span>
+            <span class="ledger-sub ledger-sub-right">{{ if .Valued }}{{ formatAmount .ConvertedFormatted }} {{ $base }}{{ else }}&mdash;{{ end }}</span>
+          </li>
+          {{ end }}
+        </ul>
+        {{ end }}
         {{ else }}
         <p class="text-muted">Sin cuentas todavía.</p>
         {{ end }}
@@ -477,7 +496,7 @@
                 <span class="amount-transfer">-{{ formatAmount .Exchange.SourceAmountFormatted }} {{ .Exchange.SourceCurrencyCode }}</span><br>
                 <span class="amount-transfer">+{{ formatAmount .Exchange.DestinationAmountFormatted }} {{ .Exchange.DestinationCurrencyCode }}</span>
                 {{ else }}
-                <span class="{{ if eq .Type "INCOME" }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else if eq .Type "TRANSFER" }}amount-transfer{{ else }}amount-opening{{ end }}">{{ formatSignedAmount . }} {{ .CurrencyCode }}</span>
+                <span class="{{ if or (eq .Type "INCOME") (eq .Type "REFUND") }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else if eq .Type "TRANSFER" }}amount-transfer{{ else }}amount-opening{{ end }}">{{ formatSignedAmount . }} {{ .CurrencyCode }}</span>
                 {{ end }}
               </td>
             </tr>

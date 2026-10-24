@@ -36,8 +36,9 @@ type ReserveSlice struct {
 // AccountImpact is what an outflow of an amount from an account would do to the
 // reservations on it.
 type AccountImpact struct {
-	// Applies is false for an account that is not in USD: savings are never
-	// backed by it, and nothing is shown.
+	// Applies is false for an account that is not a USD asset: savings are
+	// never backed by it, and nothing is shown. A credit card is never one,
+	// whatever its currency (TD-094).
 	Applies     bool
 	AccountName string
 
@@ -104,7 +105,7 @@ func (s *Service) AccountImpact(ctx context.Context, accountID int64, amount str
 		if err != nil {
 			return fmt.Errorf("looking up account %d: %w", accountID, err)
 		}
-		if a.CurrencyCode != FundCurrency {
+		if a.CurrencyCode != FundCurrency || a.Type.Nature() != account.Asset {
 			return nil
 		}
 		fund, err := s.fundTx(ctx, exec)

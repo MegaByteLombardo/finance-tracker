@@ -2672,3 +2672,178 @@ never told "you acknowledged this" about a deficit larger than the one they saw.
 
 **Alternatives considered.** An issues table with a status — a second source of
 truth. Hiding acknowledged issues — the approval forbids it (§C).
+
+## TD-088 — A parent table with children is rebuilt by SQLite's twelve-step procedure, with guards
+
+**Status:** Accepted · **Milestone:** M8.1
+
+**Decision.** Migration 00019 widens two `CHECK` constraints on `accounts` and
+`transactions`, both parents of `account_movements` and of five M7 tables. It is
+`-- +goose NO TRANSACTION` and follows the procedure of
+<https://www.sqlite.org/lang_altertable.html> §8: `PRAGMA foreign_keys = OFF`
+outside any transaction, `BEGIN IMMEDIATE`, create `X_new`, copy, `DROP X`,
+`ALTER TABLE X_new RENAME TO X`, recreate the indexes, `COMMIT`,
+`PRAGMA foreign_keys = ON`. Nothing that references the two tables is rebuilt:
+the children keep naming `accounts` and `transactions`, which resolve to the new
+tables. Plain SQL cannot branch, so every precondition is an `INSERT` into a
+`TEMP` table whose `CHECK (ok = 1)` fails the statement: `legacy_alter_table`
+off, `foreign_keys` off inside the transaction, equal row counts before each
+`DROP`, an empty `pragma_foreign_key_check` and `integrity_check = 'ok'` before
+`COMMIT`. After a failure `migrations.Up` returns the error and the `*sql.DB`
+must be closed (documented on `Up`): that discards the open transaction and the
+connection that still has foreign keys off. After success `migrations.Up` checks
+`database.CheckForeignKeys`. The body is idempotent, so a crash between our
+`COMMIT` and goose's version insert re-runs it safely. `backup.Validate` now also
+runs `foreign_key_check`, which `integrity_check` does not cover.
+
+This is a scoped exception to TD-037, which still applies to a parent whose only
+child is rebuilt by the same migration.
+
+**Rationale.** TD-037's device — rebuild the child too and drop it first — would
+have meant rebuilding six tables, M7's included, to change two lists of words.
+The official procedure touches only the two parents. goose v3.27.3 runs a
+no-transaction SQL migration statement by statement on one `*sql.Conn`, and the
+pool holds one connection, so the PRAGMAs and the `BEGIN` reach the same
+connection. Every guard was made to fail in a test: the migration stops, and
+after reopening the file the schema, the rows and the version are exactly what
+they were and foreign keys are on.
+
+**Alternatives considered.** Renaming the old table first — the documentation
+warns it "might corrupt references to that table in triggers, views, and
+foreign key constraints". A Go migration — it would use the `*sql.DB` and wait
+forever for the connection goose holds. `PRAGMA defer_foreign_keys` — fails at
+`COMMIT` (TD-037). Moving the enumerations to Go only — gives up the database's
+last word on a ledger's shape.
+
+## TD-089 — An account's nature, asset or liability, is derived from its type; `CREDIT_CARD` is the first liability
+
+**Status:** Accepted · **Milestone:** M8.1 · **Replaces:** "No credit" in `CLAUDE.md`
+
+**Decision.** `account_type` gains `CREDIT_CARD`. `account.Type.Nature()`
+returns `ASSET` for `BANK`, `CASH`, `WALLET`, `OTHER` and `LIABILITY` for
+`CREDIT_CARD`, naming every type and returning nothing for an unknown one
+(TD-045); it is stored nowhere. A debt is a negative balance, so the ledger's
+arithmetic, the balance queries and the valuation are unchanged. An account
+cannot change nature (`ErrNatureChange`); within a nature the type stays
+editable. The generic account form and `account.Service.Create` open assets only
+(`account.RequireAsset`); a card is opened by `application.OpenCreditCard` with
+its terms in `credit_cards` (`internal/creditcard`): statement day, optional
+limit, optional due days, processing days, denomination (`NOMINAL`/`INDEXED`,
+with whether it was verified) and a default payment method. Unknown terms are
+NULL, never zero. The valuation splits the total into `AssetsMinor` and
+`LiabilitiesMinor` from the same allocated account lines, so assets minus
+liabilities equals the total exactly; an account's `Share` is of the assets.
+
+**Rationale.** A purchase with a card is spending that touches no bank account;
+modelled as a liability account, it is one movement on the card and the net
+worth falls by exactly that. A stored nature column could disagree with the
+type. Changing nature would reinterpret every balance the account ever had
+without any figure changing.
+
+**Alternatives considered.** A `nature` column — a second source of truth. A
+separate debts table outside the ledger — a second ledger. Recording card
+purchases as expenses of a bank account — false on the day of the purchase.
+Inferring a liability from a negative balance — an overdrawn bank account is
+still an asset, a card with a credit is still a liability.
+
+## TD-090 — `REFUND` is its own transaction type: a positive movement under an EXPENSE category
+
+**Status:** Accepted · **Milestone:** M8.1
+
+**Decision.** `transaction_type` gains `REFUND`: one positive movement, with an
+EXPENSE category and a payment method (the table `CHECK` treats it like
+`INCOME`/`EXPENSE`; the category type is checked in Go). It may name the expense
+it refunds in `transaction_refunds`; the link is optional, and when present the
+original must be an `EXPENSE` of the same account and the refunds linked to it
+never add up to more than it — checked after every write that could break it,
+the original's own edits included. It is recorded and corrected only through
+`ledger.RecordRefundTx`/`UpdateRefundTx` (the application commits it with a
+request key); `UpdateTransaction` refuses it and the web layer routes it to
+`/refunds`. In the cash flow (`ListFlows`) a refund is reported as `EXPENSE` and
+nets against its category's spending on its own day (TD-068), so M6 and M6.5
+figures move with refunds; it is never among the largest expenses
+(`ListExpenses`) and never income.
+
+**Rationale.** An `EXPENSE` is negative by construction, so a refund cannot be
+one. An `INCOME` would put a returned purchase in "what did I earn" and make it
+eligible for savings. A refund is spending undone, in the category it was spent
+in.
+
+**Alternatives considered.** A negative expense — breaks the sign rule every
+expense relies on. An `ADJUSTMENT` type — postponed (D-6), it would be a
+catch-all. Excluding refunds from the cash flow — the expense would stay
+overstated forever.
+
+## TD-091 — A card payment is a `TRANSFER` or an `FX_EXCHANGE` into the card; "payment" is a label, never a type
+
+**Status:** Accepted · **Milestone:** M8.1
+
+**Decision.** Nothing called `CARD_PAYMENT` or `CARD_PURCHASE` is stored. A
+purchase is an `EXPENSE` on the card; a payment in the card's currency is a
+`TRANSFER` into it, and from another currency an `FX_EXCHANGE` whose destination
+is the card; a cash advance is a `TRANSFER` out of it; a previous debt is a
+negative `OPENING_BALANCE`; a charge is an `EXPENSE` with a row in
+`credit_charges` (`INTEREST`, `FEE`, `PENALTY`). A screen infers the label from
+the type, the direction and whether the charge row exists — structurally, never
+from a category or a description (TD-044). A charge is corrected only through
+`application.UpdateCardCharge`, which keeps it an expense on a liability;
+`application.UpdateTransaction` refuses one (`ErrChargeEditedAsCharge`).
+
+**Rationale.** The existing types already say what happened: a payment moves
+money between two of the user's accounts and is neither income nor expense
+(I4), which is exactly a transfer or an exchange. A new type would duplicate
+them and fork every rule that names them.
+
+**Alternatives considered.** `CARD_PAYMENT` and `CARD_PURCHASE` types — two
+names for events the ledger already spells. Classifying charges by category —
+renaming a category would change what is interest.
+
+## TD-094 — An income is saved from only when credited to an asset; only assets back reserved money
+
+**Status:** Accepted · **Milestone:** M8.1 (moved from M8.4)
+
+**Decision.** `rules.decide` gains a first step, before the policy and before
+any override: an income whose movement lands in an account whose nature is not
+`ASSET` is not eligible ("Se acreditó a «X», que es un pasivo…").
+`ledger.IncomeItem` carries `AccountType` for it. The fund counts USD
+**assets** only: `fundTx` leaves a USD card out of the balance, the free figure
+and the table even when it holds a credit; `checkFundAccount` refuses a
+liability (`ErrLiabilityAccount`), so a reservation, a release, a `SPEND`, a
+`RELEASE` or a `REBACK` with a card at either end is refused as a plan error
+(422), while the movement without the plan records as always (TD-086);
+`AccountImpact` reports `Applies = false` for a card. Before M8 no liability
+existed, so neither rule changes any suggestion, reservation or issue M7
+already holds — M7's suite runs unchanged.
+
+**Rationale.** Cashback on a card lowers a debt and adds nothing anyone could
+set aside; a suggestion from it, or a reservation backed by a card's credit,
+would be savings with nothing behind them. The rule had to arrive with the first
+liability, not three submilestones later.
+
+**Alternatives considered.** Leaving it to categories — an override could
+re-include it. Excluding by the sign of the balance — a card with a credit has a
+positive balance.
+
+## TD-095 — Form submissions are idempotent through `operation_requests`
+
+**Status:** Accepted · **Milestone:** M8.1
+
+**Decision.** Every M8 form carries a request key rendered by the server (16 to
+64 `[0-9a-zA-Z_-]`). The workflow looks it up inside the transaction that would
+write — which holds the write lock from `BEGIN` (TD-075) — and, if found, returns
+what it produced; otherwise it records the operation and the key together in
+`operation_requests(request_key, transaction_id, account_id)`, where at least
+one of the two is set (opening a card produces an account, and with a previous
+debt a transaction too). The primary key is the backstop. A refused submission
+re-renders with the same key, so correcting it and resubmitting still records
+once.
+
+**Rationale.** A double click or a browser retry must not record a purchase
+twice. M7's `request_key` lives on `savings_operations` and covers savings only;
+the ledger's own operations needed the same guarantee without a column on
+`transactions`.
+
+**Alternatives considered.** A key column on `transactions` — a ledger column
+for a presentation concern, and no place for an account. Client-side disabling of
+the button — does not survive a retry. Deduplicating by content — two identical
+coffees on one day are two purchases.
