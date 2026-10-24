@@ -344,4 +344,7 @@ func TestPagesRenderAScheduledPolicyAndAValuationInstant(t *testing.T) {
 	if !strings.Contains(page, "valorada 2026-10-05") {
 		t.Error("the valuation instant is not shown")
 	}
+	if !strings.Contains(page, `/transactions/5/edit?return_to=/savings/incomes/5"`) {
+		t.Error("editing the income does not come back to its page")
+	}
 }

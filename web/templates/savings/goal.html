@@ -206,7 +206,7 @@
       <thead><tr><th>Fecha</th><th>Gasto</th><th class="text-right">Importe</th><th class="text-right">De la meta</th></tr></thead>
       <tbody>
         {{ range $g.LinkedExpenses }}
-        <tr><td class="savings-figure">{{ formatDate .Date }}</td><td><a href="/transactions/{{ .TransactionID }}/edit">{{ if .Description }}{{ derefString .Description }}{{ else }}Gasto #{{ .TransactionID }}{{ end }}</a></td>
+        <tr><td class="savings-figure">{{ formatDate .Date }}</td><td><a href="/transactions/{{ .TransactionID }}/edit?return_to=/savings/goals/{{ $g.ID }}">{{ if .Description }}{{ derefString .Description }}{{ else }}Gasto #{{ .TransactionID }}{{ end }}</a></td>
           <td class="text-right savings-figure">{{ formatAmount .AmountFormatted }}</td><td class="text-right savings-figure">{{ formatAmount .SpentFormatted }}</td></tr>
         {{ end }}
       </tbody>

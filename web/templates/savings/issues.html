@@ -31,7 +31,7 @@
           {{ if .AccountName }}<div class="text-muted savings-sub">{{ .AccountName }}</div>{{ end }}</td>
         <td>{{ .Detail }}
           {{ with .IncomeTransactionID }}<div class="savings-sub"><a href="/savings/incomes/{{ . }}">Ver el ingreso</a></div>{{ end }}
-          {{ with .TransactionID }}<div class="savings-sub"><a href="/transactions/{{ . }}/edit">Ver el gasto</a></div>{{ end }}
+          {{ with .TransactionID }}<div class="savings-sub"><a href="/transactions/{{ . }}/edit?return_to=/savings/issues">Ver el gasto</a></div>{{ end }}
           {{ if .Acknowledged }}<div class="text-muted savings-sub">Reconocida el {{ formatDate .AckAt }}: «{{ .AckNote }}»</div>{{ end }}</td>
         <td class="text-right savings-figure">{{ formatAmount .AmountFormatted }}</td>
         <td>
