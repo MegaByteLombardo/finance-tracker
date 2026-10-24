@@ -310,6 +310,55 @@
 }
 
 /* ==========================================================================
+   Ticker tape display (TD-096)
+   An emissive display behind black glass, so its glass is the same in both
+   finishes; only the bay it sits in follows the chassis. The LED colour is the
+   viewer's choice, set by tape.js on the root element.
+   ========================================================================== */
+:root {
+  --tape-amber: #ffb02e;
+  --tape-green: #6dff86;
+  --tape-cyan: #4fe9f2;
+  --tape-red: #ff4b38;
+  --tape-white: #e6eeff;
+
+  --tape-glass-top: #070807;
+  --tape-glass-bottom: #141513;
+  --tape-glass-edge: rgba(0, 0, 0, 0.9);
+  --tape-sheen: rgba(255, 255, 255, 0.07);
+  --tape-dot: rgba(0, 0, 0, 0.42);
+
+  --tape-fg: var(--tape-amber);
+  --tape-dim: rgba(255, 176, 46, 0.55);
+  --tape-glow: 0 0 6px rgba(255, 160, 40, 0.55);
+
+  --tape-good: #63ff7e;
+  --tape-good-glow: 0 0 6px rgba(99, 255, 126, 0.5);
+  --tape-bad: #ff5544;
+  --tape-bad-glow: 0 0 6px rgba(255, 85, 68, 0.55);
+}
+:root[data-tape-color="green"] {
+  --tape-fg: var(--tape-green);
+  --tape-dim: rgba(109, 255, 134, 0.5);
+  --tape-glow: 0 0 6px rgba(109, 255, 134, 0.5);
+}
+:root[data-tape-color="cyan"] {
+  --tape-fg: var(--tape-cyan);
+  --tape-dim: rgba(79, 233, 242, 0.5);
+  --tape-glow: 0 0 7px rgba(79, 233, 242, 0.55);
+}
+:root[data-tape-color="red"] {
+  --tape-fg: var(--tape-red);
+  --tape-dim: rgba(255, 75, 56, 0.55);
+  --tape-glow: 0 0 6px rgba(255, 75, 56, 0.6);
+}
+:root[data-tape-color="white"] {
+  --tape-fg: var(--tape-white);
+  --tape-dim: rgba(230, 238, 255, 0.5);
+  --tape-glow: 0 0 6px rgba(200, 220, 255, 0.45);
+}
+
+/* ==========================================================================
    Base
    ========================================================================== */
 *, *::before, *::after {
@@ -457,6 +506,7 @@ a:hover { color: var(--accent-hover); }
 .nav-mobile-btn,
 .dash-period,
 .segment-btn,
+.tape-speed,
 .dp-nav-btn {
   background: linear-gradient(180deg, var(--key-top), var(--key-bottom));
   color: var(--key-text);
@@ -471,6 +521,7 @@ a:hover { color: var(--accent-hover); }
 .nav-mobile-btn:hover,
 .dash-period:hover,
 .segment-btn:hover,
+.tape-speed:hover,
 .dp-nav-btn:hover {
   filter: brightness(1.04);
   color: var(--key-text);
@@ -480,6 +531,7 @@ a:hover { color: var(--accent-hover); }
 .nav-mobile-btn:active,
 .dash-period:active,
 .segment-btn:active,
+.tape-speed:active,
 .dp-nav-btn:active {
   transform: translateY(2px);
   box-shadow: inset 0 1px 0 var(--key-hi), 0 0 0 var(--key-base), 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -2082,6 +2134,18 @@ input[data-type="currency"] {
     transition: none !important;
     animation: none !important;
   }
+  /* The ticker's one exception (TD-096): tape.js stills it here unless the
+     viewer explicitly chose "Siempre", and then it runs. */
+  :root[data-tape-motion="run"] .tape-track.is-running {
+    animation: tape-scroll var(--tape-duration, 60s) linear infinite !important;
+  }
+  /* That shorthand also forces animation-play-state to running, so the pause
+     on hover and on focus must be restated here, just as important and more
+     specific, or the tape would never stop. */
+  :root[data-tape-motion="run"] .tape-window:hover .tape-track.is-running,
+  :root[data-tape-motion="run"] .tape-window:focus-within .tape-track.is-running {
+    animation-play-state: paused !important;
+  }
 }
 
 /* Savings fund (M7.2): the exception toggle under a confirmation. */
@@ -2123,3 +2187,199 @@ input[data-type="currency"] {
 .dash-savings .dash-section-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--space-2); }
 .dash-savings .card-title { margin: 0; }
 .savings-ack-form { display: grid; gap: var(--space-2); margin-top: var(--space-2); }
+
+/* ==========================================================================
+   Ticker tape (TD-096): a recessed LED window in the header's chassis
+   ========================================================================== */
+.tape-bay {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 var(--space-6) var(--space-2);
+}
+
+.tape-window {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, var(--tape-glass-top), var(--tape-glass-bottom));
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.85), inset 0 0 0 1px var(--tape-glass-edge), 0 1px 0 var(--panel-bevel-hi);
+  color: var(--tape-fg);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 30px;
+}
+/* The LED matrix -- a grid of dark gaps over the lit segments -- and the glass. */
+.tape-window::before,
+.tape-window::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.tape-window::before {
+  background: radial-gradient(circle at center, transparent 0 0.55px, var(--tape-dot) 0.95px) 0 0 / 2px 2px;
+}
+.tape-window::after {
+  border-radius: inherit;
+  background: linear-gradient(180deg, var(--tape-sheen), transparent 48%);
+}
+
+.tape-track {
+  display: flex;
+  width: max-content;
+  height: 100%;
+}
+.tape-track.is-running { animation: tape-scroll var(--tape-duration, 60s) linear infinite; }
+.tape-window:hover .tape-track,
+.tape-window:focus-within .tape-track { animation-play-state: paused; }
+
+@keyframes tape-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.tape-run {
+  display: flex;
+  flex: none;
+  align-items: center;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  white-space: nowrap;
+}
+.tape-item { display: flex; align-items: center; }
+.tape-item[hidden] { display: none; }
+.tape-item::after {
+  content: "\25C6";
+  margin: 0 1.1em;
+  font-size: 0.55em;
+  color: var(--tape-dim);
+}
+
+.tape-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45em;
+  color: inherit;
+  text-decoration: none;
+  text-shadow: var(--tape-glow);
+}
+.tape-link:hover { color: inherit; }
+.tape-link:hover .tape-value { text-decoration: underline; text-underline-offset: 3px; }
+.tape-link:focus-visible { outline: 1px solid var(--tape-fg); outline-offset: -3px; }
+
+.tape-unit,
+.tape-note { color: var(--tape-dim); }
+.tape-item[data-tone="good"] .tape-arrow,
+.tape-item[data-tone="good"] .tape-delta { color: var(--tape-good); text-shadow: var(--tape-good-glow); }
+.tape-item[data-tone="bad"] .tape-arrow,
+.tape-item[data-tone="bad"] .tape-delta { color: var(--tape-bad); text-shadow: var(--tape-bad-glow); }
+.tape-value[data-tone="good"] { color: var(--tape-good); text-shadow: var(--tape-good-glow); }
+.tape-value[data-tone="bad"] { color: var(--tape-bad); text-shadow: var(--tape-bad-glow); }
+.tape-arrow { font-size: 0.8em; }
+
+.tape-idle {
+  margin: 0;
+  padding: 0 var(--space-4);
+  color: var(--tape-dim);
+  text-shadow: var(--tape-glow);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tape-bay-mobile .tape-bay { padding: 0 var(--space-3) var(--space-3); }
+
+@media (max-width: 840px) {
+  .tape-bay { padding: 0 var(--space-4) var(--space-2); }
+}
+
+/* A still tape -- reduced motion, or the viewer's choice -- scrolls by hand.
+   tape.js decides, from the system setting and the stored preference. */
+:root[data-tape-motion="still"] .tape-window { overflow-x: auto; scrollbar-width: none; }
+:root[data-tape-motion="still"] .tape-track.is-running { animation: none; }
+
+/* The ticker's settings screen */
+.tape-settings { display: grid; gap: var(--space-6); }
+.tape-settings-fieldset { border: 0; margin: 0 0 var(--space-4); padding: 0; }
+.tape-settings-fieldset:last-child { margin-bottom: 0; }
+.tape-settings-note { margin: 0 0 var(--space-4); color: var(--text-muted); font-size: 0.875rem; line-height: 1.5; }
+
+.tape-swatches,
+.tape-speeds { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.tape-swatch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--well-bg);
+  box-shadow: var(--well-shadow);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.tape-swatch:has(input:checked) { border-color: var(--border-focus); box-shadow: var(--well-shadow), 0 0 0 2px var(--focus-ring); }
+.tape-swatch input,
+.tape-speed input { position: absolute; opacity: 0; pointer-events: none; }
+.tape-swatch:has(input:focus-visible),
+.tape-speed:has(input:focus-visible) { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+.tape-swatch-led { width: 12px; height: 12px; border-radius: 50%; }
+.tape-swatch-led[data-swatch="amber"] { background: var(--tape-amber); box-shadow: 0 0 6px var(--tape-amber); }
+.tape-swatch-led[data-swatch="green"] { background: var(--tape-green); box-shadow: 0 0 6px var(--tape-green); }
+.tape-swatch-led[data-swatch="cyan"] { background: var(--tape-cyan); box-shadow: 0 0 6px var(--tape-cyan); }
+.tape-swatch-led[data-swatch="red"] { background: var(--tape-red); box-shadow: 0 0 6px var(--tape-red); }
+.tape-swatch-led[data-swatch="white"] { background: var(--tape-white); box-shadow: 0 0 6px var(--tape-white); }
+
+.tape-speed {
+  position: relative;
+  padding: 0.4rem 0.9rem;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+.tape-speed:has(input:checked) {
+  transform: translateY(2px);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 0 var(--key-base);
+}
+
+.tape-settings-list { list-style: none; margin: 0 0 var(--space-4); padding: 0; display: grid; gap: var(--space-2); }
+.tape-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+.tape-settings-toggle { display: flex; align-items: center; gap: var(--space-3); min-width: 0; cursor: pointer; }
+.tape-settings-code {
+  flex: none;
+  min-width: 4.5rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, var(--tape-glass-top), var(--tape-glass-bottom));
+  color: var(--tape-fg);
+  text-shadow: var(--tape-glow);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+.tape-settings-row:has([data-tape-toggle]:not(:checked)) .tape-settings-code { opacity: 0.4; text-shadow: none; }
+.tape-settings-text { display: flex; flex-direction: column; min-width: 0; font-size: 0.875rem; }
+.tape-settings-text small { color: var(--text-muted); font-size: 0.8125rem; }
+.tape-settings-move { display: inline-flex; gap: var(--space-1); flex: none; }

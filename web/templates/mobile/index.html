@@ -7,6 +7,9 @@
     <!-- Encabezado móvil -->
     {{ template "mobile_header" .Header }}
 
+    <!-- Ticker (TD-096): the same tape as the desktop header, on Inicio only. -->
+    <div class="tape-bay-mobile">{{ template "ticker_bay" . }}</div>
+
     <!-- Contenido desplazable verticalmente -->
     <main class="mobile-scrollable-content" id="main-mobile-content">
       <!-- 1-3. Patrimonio neto, evolución y flujo de caja: computed by the same

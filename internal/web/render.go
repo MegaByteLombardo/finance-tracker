@@ -233,6 +233,7 @@ func (rn *Renderer) RenderPage(w http.ResponseWriter, r *http.Request, status in
 		"components/net_worth_chart.html",
 		"components/help.html",
 		"components/card_terms_fields.html",
+		"components/ticker_bay.html",
 		cleanPage,
 	)
 	if err != nil {
@@ -283,6 +284,7 @@ func (rn *Renderer) RenderMobilePage(w http.ResponseWriter, r *http.Request, sta
 		"components/mobile/categories_view.html",
 		"components/mobile/payment_methods_view.html",
 		"components/help.html",
+		"components/ticker_bay.html",
 		cleanPage,
 	)
 	if err != nil {

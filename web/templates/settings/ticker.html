@@ -1,0 +1,97 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Ticker</h1>
+    <p class="page-subtitle">Qué recorre la cinta bajo el encabezado, en qué orden, con qué color y a qué velocidad</p>
+  </div>
+  <a href="/settings" class="btn btn-secondary">Volver a configuración</a>
+</div>
+
+<div class="alert alert-info" role="note" style="margin-bottom: var(--space-6);">
+  <p style="margin: 0;">
+    Estas preferencias se guardan <strong>en este navegador</strong>: otro navegador u otro dispositivo tiene las suyas.
+    La cinta de arriba es la vista previa y cada cambio se aplica al instante.
+  </p>
+</div>
+
+<noscript>
+  <div class="alert alert-warning" role="alert" style="margin-bottom: var(--space-6);">
+    Configurar el ticker requiere JavaScript, que está desactivado en este navegador.
+  </div>
+</noscript>
+
+<div class="tape-settings" data-tape-settings>
+  <div class="card">
+    <div class="card-header">
+      <h2 class="card-title" style="font-size: 1rem;">Display</h2>
+    </div>
+    <div class="card-body" style="padding: var(--space-4);">
+      <fieldset class="tape-settings-fieldset">
+        <legend class="form-label">Color</legend>
+        <div class="tape-swatches">
+          <label class="tape-swatch"><input type="radio" name="tape-color" value="amber"><span class="tape-swatch-led" data-swatch="amber"></span>Ámbar</label>
+          <label class="tape-swatch"><input type="radio" name="tape-color" value="green"><span class="tape-swatch-led" data-swatch="green"></span>Verde fósforo</label>
+          <label class="tape-swatch"><input type="radio" name="tape-color" value="cyan"><span class="tape-swatch-led" data-swatch="cyan"></span>Cian VFD</label>
+          <label class="tape-swatch"><input type="radio" name="tape-color" value="red"><span class="tape-swatch-led" data-swatch="red"></span>Rojo LED</label>
+          <label class="tape-swatch"><input type="radio" name="tape-color" value="white"><span class="tape-swatch-led" data-swatch="white"></span>Blanco frío</label>
+        </div>
+      </fieldset>
+
+      <fieldset class="tape-settings-fieldset">
+        <legend class="form-label">Velocidad</legend>
+        <div class="tape-speeds">
+          <label class="tape-speed"><input type="radio" name="tape-speed" value="slow">Lenta</label>
+          <label class="tape-speed"><input type="radio" name="tape-speed" value="normal">Normal</label>
+          <label class="tape-speed"><input type="radio" name="tape-speed" value="fast">Rápida</label>
+        </div>
+      </fieldset>
+
+      <fieldset class="tape-settings-fieldset">
+        <legend class="form-label">Movimiento</legend>
+        <div class="tape-speeds">
+          <label class="tape-speed"><input type="radio" name="tape-motion" value="auto">Automático</label>
+          <label class="tape-speed"><input type="radio" name="tape-motion" value="on">Siempre</label>
+          <label class="tape-speed"><input type="radio" name="tape-motion" value="off">Nunca</label>
+        </div>
+        <p class="tape-settings-note" style="margin: var(--space-2) 0 0;">
+          Automático respeta la preferencia del sistema de reducir el movimiento: con ella activa, la cinta queda
+          quieta y se desplaza a mano. Siempre la hace correr de todos modos.
+        </p>
+      </fieldset>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h2 class="card-title" style="font-size: 1rem;">Indicadores</h2>
+    </div>
+    <div class="card-body" style="padding: var(--space-4);">
+      <p class="tape-settings-note">
+        Encienda los que quiera ver y ordénelos con las teclas. Las variaciones comparan el mes en curso
+        con los mismos días del mes anterior, como el recap. Un indicador sin datos no aparece en la cinta.
+      </p>
+      <ol class="tape-settings-list" data-tape-list>
+        {{ range .Catalogue }}
+        <li class="tape-settings-row" data-key="{{ .Key }}">
+          <label class="tape-settings-toggle">
+            <input type="checkbox" data-tape-toggle checked>
+            <span class="tape-settings-code">{{ .Key }}</span>
+            <span class="tape-settings-text">
+              <strong>{{ .Label }}</strong>
+              <small>{{ .Description }}</small>
+            </span>
+          </label>
+          <span class="tape-settings-move">
+            <button type="button" class="btn btn-secondary btn-sm" data-tape-move="up" aria-label="Subir {{ .Label }}" title="Subir">▲</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-tape-move="down" aria-label="Bajar {{ .Label }}" title="Bajar">▼</button>
+          </span>
+        </li>
+        {{ end }}
+      </ol>
+      <button type="button" class="btn btn-secondary" data-tape-reset>Restaurar valores predeterminados</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/ticker_settings.js" defer></script>
+{{ end }}

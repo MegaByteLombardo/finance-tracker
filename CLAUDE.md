@@ -372,6 +372,12 @@ the fund (M7.2), goals (M7.3), ledger integration and reconciliation (M7.4).
   number. Every amount a template shows goes through `formatAmount`.
 - **Fonts are embedded** (`web/static/fonts`, OFL). No Google Fonts, no CDN, no
   request to another host from any page.
+- **The ticker tape** (TD-096) sits in the sticky header on every desktop page
+  and on mobile Inicio. `GET /ticker` is loaded by htmx after the page; it
+  composes existing reads (the month-in-progress recap, the fund, the latest
+  transactions), computes nothing and never fails a page. What it shows, its
+  order, colour, speed and motion live in `localStorage`, applied by `tape.js`,
+  which measures widths only. A new group goes into `TickerCatalogue()`.
 - The desktop dashboard is a grid: summary; evolution beside accounts;
   currencies beside the wide cash-flow card; recent movements at full width.
   A new block goes into that grid, not appended below it.

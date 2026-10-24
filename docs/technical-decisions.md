@@ -2847,3 +2847,56 @@ the ledger's own operations needed the same guarantee without a column on
 for a presentation concern, and no place for an account. Client-side disabling of
 the button — does not survive a retry. Deduplicating by content — two identical
 coffees on one day are two purchases.
+
+## TD-096 — A ticker tape under the header, composed from existing reads, configured in the browser
+
+**Status:** Accepted · **Milestone:** Design overhaul
+
+**Decision.** Every desktop page carries an LED ticker tape inside the sticky
+header, below the navigation; `/mobile` carries it on Inicio only. Its content is
+`GET /ticker`, an HTML fragment htmx loads after the page has rendered. The
+handler composes it from reads that already exist: one `Analytics.Recap` of the
+**month in progress** (compared like for like with the same days of the previous
+month, TD-072), `Savings.Overview` and the latest eight transactions. It renders
+ten groups — `NWTH`, `DEBT`, `CFLOW`, `SRATE`, `BURN`, `FX`, `CASH`, `FUND`,
+`CAT`, `TX` — in a fixed catalogue order, and leaves out a group that has nothing
+to show. A source that fails drops its groups and is logged; the fragment always
+answers 200, and with nothing at all it says `SIN DATOS`.
+
+The handler computes nothing. Every figure arrives formatted; arrows and tones
+come from what the backend already decided — a `Change`'s sign, a category's
+`Direction`, a transaction's type, named case by case (TD-045). No two amounts
+are compared, and no figure is stored. The arrow and the delta take the tone of
+the change, so a fall that is bad is red. A movement's own amount, and a negative
+net cash flow, take the tone of their sign. A rate on the tape is shown at two
+decimals, rounded half to even by the adapter (`RateLegView.RateShort`). It is
+display only; the rates screen and every conversion keep the full value.
+
+**What the tape shows is the viewer's choice and lives in `localStorage`**
+(`ft.ticker`): which groups, their order, the LED colour (amber, green, cyan,
+red, white), the speed and the motion. The server always renders every group;
+`web/static/js/tape.js` hides, orders and loops them. Like `fit.js` it measures
+widths only and never reads a number. `GET /settings/ticker`, reached from
+Configuración, lists the catalogue and edits those choices; it has no POST. The
+tape itself carries no keys. The loop is two identical runs, each at
+least as wide as the window, scrolled by half, at a constant speed in px/s. It
+pauses while the pointer is over it, and while a link in it has keyboard focus. "Automático" honours
+`prefers-reduced-motion`: the tape stands still and scrolls by hand. "Siempre"
+runs it anyway — the one exception to the global reduced-motion rule in
+`app.css`.
+
+**Rationale.** A ticker is a readout of figures other screens already compute, so
+it must not grow a second way of computing them. Loading it after the page means
+a slow valuation never delays a page and a failure never breaks one, the same
+rule the rate provider follows. The settings are presentation preferences for one
+screen in one browser. A table would have needed a schema change, a migration
+and a write path for something that never affects a figure, and
+`internal/settings` is explicitly not a preferences system.
+
+**Alternatives considered.** A table of ticker items — schema and a write path
+for a cosmetic choice. Rendering the tape inline in every handler — every page
+would wait for a recap. A block in the dashboard grid — it would compete with the
+headline LCD and appear on one page only. A budget item (`BGET`) or per-category
+limits — budgets are out of scope. "Anomalies" — anomaly detection is out of
+scope; `CAT` shows the three largest movements in the order the recap already
+ranks them.

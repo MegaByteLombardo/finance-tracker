@@ -620,6 +620,14 @@ Grafito, all tokens in `web/static/css/app.css`; `mobile.css` aliases them
 container and computes nothing. Fonts (Archivo, DM Mono) are embedded under
 `web/static/fonts`; no page requests anything from another host.
 
+An LED **ticker tape** sits inside the sticky header on every desktop page and
+on mobile Inicio (TD-096). htmx loads `GET /ticker` after the page renders. The
+handler composes the month in progress from `Analytics.Recap`, the savings fund
+and the latest transactions, computes nothing, and always answers 200. Which
+groups appear, their order, the LED colour, the speed and the motion are kept in
+the browser's `localStorage` and applied by `web/static/js/tape.js`;
+`/settings/ticker` edits them.
+
 ## Lifecycle
 
 Startup, in order:

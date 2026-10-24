@@ -200,9 +200,12 @@ type RateLegView struct {
 	QuoteCurrencyCode string
 	Pair              string
 	Rate              string
-	EffectiveDate     time.Time
-	Source            RateSource
-	SourceLabel       string
+	// RateShort is Rate at two decimals, half to even, for a readout with no
+	// room for the full precision. Display only.
+	RateShort     string
+	EffectiveDate time.Time
+	Source        RateSource
+	SourceLabel   string
 
 	// Inverted is true when the observation was read backwards, because the
 	// application stores what a source published and never its mirror.

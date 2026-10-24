@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
@@ -270,6 +271,18 @@ func toWebShare(share valuation.Share) web.Ratio {
 	return web.Ratio{BasisPoints: share.BasisPoints, Defined: true, Formatted: money.Format(share.BasisPoints, 2)}
 }
 
+// shortRate states a rate at two decimals, half to even, for a readout with no
+// room for the observation's full precision (the ticker, TD-096). It is for
+// reading only: nothing converts with it, and Rate keeps the full value.
+func shortRate(value money.Decimal) string {
+	d, _, err := money.NewDecimalFromRat(value.Rat(), 2)
+	if err != nil {
+		return value.String()
+	}
+	whole, frac, _ := strings.Cut(d.String(), ".")
+	return whole + "." + (frac + "00")[:2]
+}
+
 func toWebResolution(resolution fx.Resolution) web.RateResolutionView {
 	method := web.RateMethod(resolution.Method)
 
@@ -288,6 +301,7 @@ func toWebResolution(resolution fx.Resolution) web.RateResolutionView {
 			QuoteCurrencyCode: leg.Observation.QuoteCurrencyCode,
 			Pair:              leg.Observation.Pair(),
 			Rate:              leg.Observation.Value.String(),
+			RateShort:         shortRate(leg.Observation.Value),
 			EffectiveDate:     leg.Observation.EffectiveDate,
 			Source:            source,
 			SourceLabel:       source.Label(),

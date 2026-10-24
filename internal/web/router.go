@@ -191,6 +191,12 @@ func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
 	mux.HandleFunc("GET /settings/{$}", handleSettingsIndex(logger, renderer, svcs))
 	mux.HandleFunc("POST /settings/base-currency", handleSetBaseCurrency(logger, renderer, svcs))
 
+	// The ticker tape under the header (TD-096). /ticker is the fragment htmx
+	// loads into it; what it shows is chosen in the browser, so the settings
+	// screen has no POST.
+	mux.HandleFunc("GET /ticker", handleTicker(logger, renderer, svcs))
+	mux.HandleFunc("GET /settings/ticker", handleTickerSettings(logger, renderer))
+
 	// Exchange rates (M5). These are REFERENCE rates, used to value balances;
 	// no transaction carries a rate.
 	mux.HandleFunc("GET /settings/exchange-rates", handleExchangeRatesList(logger, renderer, svcs))
