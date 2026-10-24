@@ -15,7 +15,7 @@
     <label class="form-label" for="credit_limit">Límite de crédito</label>
     <input type="text" inputmode="decimal" class="form-control font-mono {{ if .HasError "credit_limit" }}is-invalid{{ end }}"
            id="credit_limit" name="credit_limit" value="{{ .Terms.CreditLimit }}" placeholder="Vacío si no lo conoces"
-           data-type="currency" data-minor-unit="{{ .MinorUnit }}" autocomplete="off">
+           data-type="currency" data-minor-unit="{{ .MinorUnit }}" data-minor-unit-from="currency_code" autocomplete="off">
     {{ if .HasError "credit_limit" }}<div class="form-error">{{ .Error "credit_limit" }}</div>{{ end }}
   </div>
 </div>

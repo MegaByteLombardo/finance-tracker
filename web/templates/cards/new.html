@@ -37,7 +37,7 @@
 
     <div class="form-group">
       <label class="form-label" for="currency_code">Moneda <span class="required-indicator">*</span></label>
-      <select class="form-control {{ if .HasError "currency_code" }}is-invalid{{ end }}" id="currency_code" name="currency_code" required data-currency-select>
+      <select class="form-control {{ if .HasError "currency_code" }}is-invalid{{ end }}" id="currency_code" name="currency_code" required>
         {{ range .Currencies }}
         <option value="{{ .Code }}" data-minor-unit="{{ .MinorUnit }}" {{ if eq $.CurrencyCode .Code }}selected{{ end }}>{{ .Code }} · {{ .Name }}</option>
         {{ end }}
@@ -55,7 +55,7 @@
         <label class="form-label" for="opening_debt">Monto</label>
         <input type="text" inputmode="decimal" class="form-control font-mono {{ if .HasError "opening_debt" }}is-invalid{{ end }}"
                id="opening_debt" name="opening_debt" value="{{ .OpeningDebt }}" placeholder="Vacío si no debías nada"
-               data-type="currency" data-minor-unit="{{ .MinorUnit }}" autocomplete="off">
+               data-type="currency" data-minor-unit-from="currency_code" autocomplete="off">
         {{ if .HasError "opening_debt" }}<div class="form-error">{{ .Error "opening_debt" }}</div>{{ end }}
         <div class="form-help">Lo que debías antes de registrarla, como monto positivo. Se registra como saldo inicial negativo.</div>
       </div>

@@ -49,13 +49,19 @@
     if (destinationBadge) destinationBadge.textContent = currencyOf(destination) || '';
   }
 
+  // amountOf reads a field the currency formatter has grouped: the comma there
+  // only ever separates thousands.
+  function amountOf(input) {
+    return Number(input ? input.value.replace(/,/g, '') : NaN);
+  }
+
   function updateImpliedRate() {
     if (!impliedRate) return;
 
     const sourceCurrency = currencyOf(source);
     const destinationCurrency = currencyOf(destination);
-    const delivered = Number(sourceAmount && sourceAmount.value);
-    const received = Number(destinationAmount && destinationAmount.value);
+    const delivered = amountOf(sourceAmount);
+    const received = amountOf(destinationAmount);
 
     if (!sourceCurrency || !destinationCurrency ||
         !isFinite(delivered) || !isFinite(received) || delivered <= 0 || received <= 0) {

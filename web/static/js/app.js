@@ -149,25 +149,45 @@
     });
   }
 
-  // followCurrencySelect keeps a form's amounts at the scale of the currency
-  // chosen in that same form, for forms where the currency is a plain select
-  // whose options carry data-minor-unit (opening a card, for one) rather than
-  // the htmx currency box.
-  function followCurrencySelect(form) {
-    const select = form.querySelector('select[data-currency-select]');
-    if (!select || select._currencyFollowInit) return;
-    select._currencyFollowInit = true;
+  // An htmx request that includes a form -- the savings hint under a transfer
+  // or an expense, sent while the user types -- carries the amount fields too,
+  // and must carry them canonical like a submission does. The conversion lives
+  // here, where the grouping was added, never in the backend (m3-contract §4).
+  document.addEventListener('htmx:configRequest', (e) => {
+    const formData = e.detail.formData;
+    const form = e.target && e.target.closest && e.target.closest('form');
+    if (!formData || !form) return;
+    form.querySelectorAll('input[data-type="currency"]').forEach(input => {
+      if (input.name && formData.has(input.name)) {
+        formData.set(input.name, input.value.trim().replace(/,/g, ''));
+      }
+    });
+  });
 
-    select.addEventListener('change', () => {
+  // followCurrencySelect keeps an amount at the scale of the currency chosen in
+  // the select its data-minor-unit-from names -- the card's currency, or the
+  // account an amount leaves or enters -- whose options carry data-minor-unit.
+  // An exchange has two amounts in two currencies, so each follows its own.
+  //
+  // A value with more decimals than the new scale is left as typed rather than
+  // reformatted: reformatting would drop digits silently, and the backend
+  // refuses the extra decimals with a message instead.
+  function followCurrencySelect(input) {
+    const select = document.getElementById(input.dataset.minorUnitFrom);
+    if (!select) return;
+
+    function apply() {
       const option = select.options[select.selectedIndex];
       if (!option || option.dataset.minorUnit === undefined) return;
-      form.querySelectorAll('input[data-type="currency"]').forEach(input => {
-        input.dataset.minorUnit = option.dataset.minorUnit;
-        if (input.value) {
-          handleCurrencyBlur({ target: input });
-        }
-      });
-    });
+      input.dataset.minorUnit = option.dataset.minorUnit;
+      const decimals = (input.value.split('.')[1] || '').length;
+      if (input.value && decimals <= scaleFor(input)) {
+        handleCurrencyBlur({ target: input });
+      }
+    }
+
+    select.addEventListener('change', apply);
+    apply();
   }
 
   function initCurrencyInputs(root) {
@@ -182,13 +202,111 @@
 
       if (input.form) {
         canonicaliseOnSubmit(input.form);
-        followCurrencySelect(input.form);
+      }
+      if (input.dataset.minorUnitFrom) {
+        followCurrencySelect(input);
       }
 
       if (input.value) {
         handleCurrencyBlur({ target: input });
       }
     });
+  }
+
+  // Labels for the account-type filter. A row's key is its type, refined by
+  // its subtype for banks; a key with no label here shows as it is stored.
+  const ACCOUNT_TYPE_LABELS = {
+    BANK: 'Banco',
+    BANK_CHECKING: 'Banco: Corriente',
+    BANK_SAVINGS: 'Banco: Ahorro',
+    CASH: 'Efectivo',
+    WALLET: 'Billetera digital',
+    CREDIT_CARD: 'Tarjeta de crédito',
+    OTHER: 'Otro',
+  };
+
+  function accountTypeKey(row) {
+    const type = (row.getAttribute('data-account-type') || '').toUpperCase();
+    const subtype = (row.getAttribute('data-account-subtype') || '').toUpperCase();
+    return type === 'BANK' && subtype ? `BANK_${subtype}` : type;
+  }
+
+  // initMultiSelect turns a .tx-ms shell into a checkbox dropdown. values are
+  // the keys found in the rows; '' stands for rows without one and is listed
+  // last as emptyLabel. Nothing checked means the filter is off.
+  function initMultiSelect(root, values, labelFor, emptyLabel, onChange) {
+    const trigger = root.querySelector('.tx-ms-trigger');
+    const text = root.querySelector('.tx-ms-text');
+    const badge = root.querySelector('.tx-ms-badge');
+    const panel = root.querySelector('.tx-ms-panel');
+    const list = root.querySelector('.tx-ms-options');
+    const baseLabel = root.dataset.label || '';
+
+    const sorted = values.filter(v => v !== '').sort((a, b) => labelFor(a).localeCompare(labelFor(b)));
+    if (values.includes('')) sorted.push('');
+
+    const boxes = sorted.map(value => {
+      const item = document.createElement('label');
+      item.className = 'tx-ms-option' + (value === '' ? ' is-empty' : '');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.value = value;
+      const span = document.createElement('span');
+      span.textContent = value === '' ? emptyLabel : labelFor(value);
+      item.append(box, span);
+      list.appendChild(item);
+      box.addEventListener('change', () => { refresh(); onChange(); });
+      return box;
+    });
+
+    if (boxes.length === 0) trigger.disabled = true;
+
+    function refresh() {
+      const picked = boxes.filter(b => b.checked);
+      root.classList.toggle('is-active', picked.length > 0);
+      if (picked.length === 1) {
+        text.textContent = picked[0].nextSibling.textContent;
+        badge.hidden = true;
+      } else {
+        text.textContent = baseLabel;
+        badge.hidden = picked.length === 0;
+        badge.textContent = picked.length === boxes.length ? 'todas' : String(picked.length);
+      }
+    }
+
+    function setAll(checked) {
+      boxes.forEach(b => { b.checked = checked; });
+      refresh();
+    }
+
+    function open(state) {
+      panel.hidden = !state;
+      root.classList.toggle('is-open', state);
+      trigger.setAttribute('aria-expanded', state ? 'true' : 'false');
+    }
+
+    trigger.addEventListener('click', () => {
+      const willOpen = panel.hidden;
+      document.querySelectorAll('.tx-ms.is-open').forEach(other => {
+        if (other !== root) other._msOpen(false);
+      });
+      open(willOpen);
+    });
+    root.querySelector('[data-ms-all]').addEventListener('click', () => { setAll(true); onChange(); });
+    root.querySelector('[data-ms-none]').addEventListener('click', () => { setAll(false); onChange(); });
+
+    root._msOpen = open;
+    refresh();
+
+    return {
+      selected: () => boxes.filter(b => b.checked).map(b => b.value),
+      clear: () => setAll(false),
+      // select checks every value accepted by match, for deep links.
+      select: match => {
+        boxes.forEach(b => { if (match(b.value)) b.checked = true; });
+        refresh();
+      },
+    };
   }
 
   function initTransactionFilters() {
@@ -202,178 +320,79 @@
 
     const dateFromInput = document.getElementById('filter-date-from');
     const dateToInput = document.getElementById('filter-date-to');
-    const institutionSelect = document.getElementById('filter-institution');
-    const accountNameSelect = document.getElementById('filter-account-name');
-    const accountTypeSelect = document.getElementById('filter-account-type');
-    const categorySelect = document.getElementById('filter-category');
-    const paymentMethodSelect = document.getElementById('filter-payment-method');
     const searchInput = document.getElementById('filter-search-text');
     const resetBtn = document.getElementById('tx-filter-reset-btn');
     const emptyResetBtn = document.getElementById('tx-filter-empty-reset-btn');
     const countSpan = document.getElementById('tx-filter-count');
     const emptyRow = document.getElementById('tx-filter-empty-row');
 
-    // Populate dynamic Institution, Account Name, Category and Payment Method options from existing rows
-    const institutions = new Set();
-    const accountNames = new Set();
-    const categories = new Set();
-    const paymentMethods = new Set();
+    const attr = (row, name) => (row.getAttribute(name) || '').trim();
 
-    rows.forEach(row => {
-      const inst = (row.getAttribute('data-institution') || '').trim();
-      if (inst) institutions.add(inst);
+    // Each multi-select filter: the keys a row offers and how a key is shown.
+    // The account filter matches a transfer's source or its destination.
+    const specs = [
+      { id: 'filter-institution', param: 'institution', empty: 'Sin institución',
+        keys: row => [attr(row, 'data-institution')] },
+      { id: 'filter-account-name', param: 'account', empty: 'Sin cuenta',
+        keys: row => {
+          const dest = attr(row, 'data-dest-account-name');
+          return dest ? [attr(row, 'data-account-name'), dest] : [attr(row, 'data-account-name')];
+        } },
+      { id: 'filter-account-type', param: 'account_type', empty: 'Sin tipo',
+        keys: row => [accountTypeKey(row)],
+        label: v => ACCOUNT_TYPE_LABELS[v] || v,
+        // ?account_type=BANK selects every kind of bank account.
+        match: (v, want) => v === want || v.startsWith(`${want}_`) },
+      { id: 'filter-category', param: 'category', empty: 'Sin categoría',
+        keys: row => [attr(row, 'data-category')] },
+      { id: 'filter-payment-method', param: 'payment_method', empty: 'Sin método',
+        keys: row => [attr(row, 'data-payment-method')] },
+    ];
 
-      const acctName = (row.getAttribute('data-account-name') || '').trim();
-      if (acctName) accountNames.add(acctName);
-
-      const destAcctName = (row.getAttribute('data-dest-account-name') || '').trim();
-      if (destAcctName) accountNames.add(destAcctName);
-
-      const cat = (row.getAttribute('data-category') || '').trim();
-      if (cat) categories.add(cat);
-
-      const pm = (row.getAttribute('data-payment-method') || '').trim();
-      if (pm) paymentMethods.add(pm);
+    const filters = [];
+    specs.forEach(spec => {
+      const root = document.getElementById(spec.id);
+      if (!root) return;
+      const rowKeys = rows.map(spec.keys);
+      const values = Array.from(new Set(rowKeys.flat()));
+      const ms = initMultiSelect(root, values, spec.label || (v => v), spec.empty, applyFilters);
+      filters.push({ spec, ms, rowKeys });
     });
-
-    if (institutionSelect) {
-      Array.from(institutions).sort((a, b) => a.localeCompare(b)).forEach(inst => {
-        const opt = document.createElement('option');
-        opt.value = inst;
-        opt.textContent = inst;
-        institutionSelect.appendChild(opt);
-      });
-    }
-
-    if (accountNameSelect) {
-      Array.from(accountNames).sort((a, b) => a.localeCompare(b)).forEach(name => {
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
-        accountNameSelect.appendChild(opt);
-      });
-    }
-
-    if (categorySelect) {
-      Array.from(categories).sort((a, b) => a.localeCompare(b)).forEach(cat => {
-        const opt = document.createElement('option');
-        opt.value = cat;
-        opt.textContent = cat;
-        categorySelect.appendChild(opt);
-      });
-    }
-
-    if (paymentMethodSelect) {
-      Array.from(paymentMethods).sort((a, b) => a.localeCompare(b)).forEach(pm => {
-        const opt = document.createElement('option');
-        opt.value = pm;
-        opt.textContent = pm;
-        paymentMethodSelect.appendChild(opt);
-      });
-    }
 
     function applyFilters() {
       const dateFrom = (dateFromInput && dateFromInput.value) || '';
       const dateTo = (dateToInput && dateToInput.value) || '';
-      const instFilter = (institutionSelect && institutionSelect.value.trim().toLowerCase()) || '';
-      const acctNameFilter = (accountNameSelect && accountNameSelect.value.trim().toLowerCase()) || '';
-      const acctType = (accountTypeSelect && accountTypeSelect.value) || '';
-      const cat = (categorySelect && categorySelect.value.trim().toLowerCase()) || '';
-      const pm = (paymentMethodSelect && paymentMethodSelect.value.trim().toLowerCase()) || '';
       const search = (searchInput && searchInput.value.trim().toLowerCase()) || '';
+      const active = filters
+        .map(f => ({ rowKeys: f.rowKeys, picked: new Set(f.ms.selected()) }))
+        .filter(a => a.picked.size > 0);
 
       let visibleCount = 0;
 
-      rows.forEach(row => {
+      rows.forEach((row, i) => {
         const rowDate = row.getAttribute('data-date') || '';
-        const rowInst = (row.getAttribute('data-institution') || '').trim().toLowerCase();
-        const rowAcctName = (row.getAttribute('data-account-name') || '').trim().toLowerCase();
-        const rowDestAcctName = (row.getAttribute('data-dest-account-name') || '').trim().toLowerCase();
-        const rowAcctType = (row.getAttribute('data-account-type') || '').toUpperCase();
-        const rowAcctSubtype = (row.getAttribute('data-account-subtype') || '').toUpperCase();
-        const rowCat = (row.getAttribute('data-category') || '').trim().toLowerCase();
-        const rowPm = (row.getAttribute('data-payment-method') || '').trim().toLowerCase();
-        const rowSearch = (row.getAttribute('data-search') || '').toLowerCase();
-
-        // 1. Date filter (YYYY-MM-DD string comparison)
-        if (dateFrom && rowDate < dateFrom) {
-          row.style.display = 'none';
-          return;
+        // Dates compare as YYYY-MM-DD strings.
+        let visible = !(dateFrom && rowDate < dateFrom) && !(dateTo && rowDate > dateTo);
+        if (visible) {
+          visible = active.every(a => a.rowKeys[i].some(k => a.picked.has(k)));
         }
-        if (dateTo && rowDate > dateTo) {
-          row.style.display = 'none';
-          return;
+        if (visible && search) {
+          visible = (row.getAttribute('data-search') || '').toLowerCase().includes(search);
         }
-
-        // 2. Institution filter
-        if (instFilter && rowInst !== instFilter) {
-          row.style.display = 'none';
-          return;
-        }
-
-        // 3. Account Name filter (matches either source or destination account in transfers/exchanges)
-        if (acctNameFilter && rowAcctName !== acctNameFilter && rowDestAcctName !== acctNameFilter) {
-          row.style.display = 'none';
-          return;
-        }
-
-        // 4. Account type filter
-        if (acctType) {
-          if (acctType === 'BANK') {
-            if (rowAcctType !== 'BANK') {
-              row.style.display = 'none';
-              return;
-            }
-          } else if (acctType === 'BANK_CHECKING') {
-            if (rowAcctType !== 'BANK' || rowAcctSubtype !== 'CHECKING') {
-              row.style.display = 'none';
-              return;
-            }
-          } else if (acctType === 'BANK_SAVINGS') {
-            if (rowAcctType !== 'BANK' || rowAcctSubtype !== 'SAVINGS') {
-              row.style.display = 'none';
-              return;
-            }
-          } else if (rowAcctType !== acctType) {
-            row.style.display = 'none';
-            return;
-          }
-        }
-
-        // 5. Category filter
-        if (cat && rowCat !== cat) {
-          row.style.display = 'none';
-          return;
-        }
-
-        // 6. Payment method filter
-        if (pm && rowPm !== pm) {
-          row.style.display = 'none';
-          return;
-        }
-
-        // 7. Search text filter
-        if (search && !rowSearch.includes(search)) {
-          row.style.display = 'none';
-          return;
-        }
-
-        row.style.display = '';
-        visibleCount++;
+        row.style.display = visible ? '' : 'none';
+        if (visible) visibleCount++;
       });
 
-      const hasActive = Boolean(dateFrom || dateTo || instFilter || acctNameFilter || acctType || cat || pm || search);
+      const hasActive = Boolean(dateFrom || dateTo || search || active.length > 0);
 
       if (resetBtn) {
         resetBtn.style.display = hasActive ? 'inline-flex' : 'none';
       }
 
       if (countSpan) {
-        if (hasActive) {
-          countSpan.textContent = `Mostrando ${visibleCount} de ${rows.length} transacciones`;
-        } else {
-          countSpan.textContent = `Mostrando ${rows.length} transacciones`;
-        }
+        countSpan.textContent = hasActive
+          ? `${visibleCount} de ${rows.length} transacciones`
+          : `${rows.length} transacciones`;
       }
 
       if (emptyRow) {
@@ -382,18 +401,18 @@
     }
 
     function resetFilters() {
-      [dateFromInput, dateToInput, institutionSelect, accountNameSelect, accountTypeSelect, categorySelect, paymentMethodSelect].forEach(el => {
+      [dateFromInput, dateToInput].forEach(el => {
         if (el) {
           el.value = '';
           el.dispatchEvent(new Event('change', { bubbles: true }));
         }
       });
+      filters.forEach(f => f.ms.clear());
       if (searchInput) searchInput.value = '';
       applyFilters();
     }
 
-    // Attach listeners
-    [dateFromInput, dateToInput, institutionSelect, accountNameSelect, accountTypeSelect, categorySelect, paymentMethodSelect].forEach(el => {
+    [dateFromInput, dateToInput].forEach(el => {
       if (el) el.addEventListener('change', applyFilters);
     });
 
@@ -408,55 +427,45 @@
       emptyResetBtn.addEventListener('click', resetFilters);
     }
 
-    // Pre-populate filters from URL query parameters if present
+    // Close an open multi-select on a click outside it or on Escape. Capture
+    // phase, because the custom date picker stops its clicks from bubbling.
+    document.addEventListener('click', e => {
+      document.querySelectorAll('.tx-ms.is-open').forEach(ms => {
+        if (!ms.contains(e.target)) ms._msOpen(false);
+      });
+    }, true);
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.tx-ms.is-open').forEach(ms => ms._msOpen(false));
+      }
+    });
+
+    // Pre-populate filters from the query string. A multi-select parameter may
+    // repeat (?category=A&category=B).
     try {
       const params = new URLSearchParams(window.location.search);
-      let filterChanged = false;
       if (params.has('from') && dateFromInput) {
         dateFromInput.value = params.get('from');
         dateFromInput.dispatchEvent(new Event('change', { bubbles: true }));
-        filterChanged = true;
       }
       if (params.has('to') && dateToInput) {
         dateToInput.value = params.get('to');
         dateToInput.dispatchEvent(new Event('change', { bubbles: true }));
-        filterChanged = true;
       }
-      if (params.has('institution') && institutionSelect) {
-        institutionSelect.value = params.get('institution');
-        institutionSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        filterChanged = true;
-      }
-      if ((params.has('account') || params.has('account_name')) && accountNameSelect) {
-        accountNameSelect.value = params.get('account') || params.get('account_name');
-        accountNameSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        filterChanged = true;
-      }
-      if (params.has('account_type') && accountTypeSelect) {
-        accountTypeSelect.value = params.get('account_type');
-        accountTypeSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        filterChanged = true;
-      }
-      if (params.has('category') && categorySelect) {
-        categorySelect.value = params.get('category');
-        categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
-        filterChanged = true;
-      }
-      if (params.has('payment_method') && paymentMethodSelect) {
-        paymentMethodSelect.value = params.get('payment_method');
-        paymentMethodSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        filterChanged = true;
-      }
+      filters.forEach(({ spec, ms }) => {
+        const wanted = params.getAll(spec.param);
+        if (spec.param === 'account') wanted.push(...params.getAll('account_name'));
+        if (wanted.length === 0) return;
+        const match = spec.match || ((v, want) => v === want);
+        ms.select(v => wanted.some(want => match(v, want)));
+      });
       if (params.has('q') && searchInput) {
         searchInput.value = params.get('q');
-        filterChanged = true;
-      }
-      if (filterChanged) {
-        applyFilters();
       }
     } catch (e) {
-      // Ignore URL parsing errors
+      console.warn('transaction filters: ignoring the query string', e);
     }
+    applyFilters();
   }
 
   document.addEventListener('DOMContentLoaded', () => {

@@ -492,6 +492,10 @@ type TransferForm struct {
 	// does a successful save. Always a local path (see returnTo).
 	ReturnTo string
 
+	// MinorUnits is every currency's decimals, so each account option can
+	// tell an amount field the scale it is typed at. nil when unavailable.
+	MinorUnits map[string]int
+
 	SourceAccountID      int64
 	DestinationAccountID int64
 	Amount               string
@@ -526,6 +530,10 @@ type EditTransferForm struct {
 	// ReturnTo is the page the form came from: Cancel goes back there, and so
 	// does a successful save. Always a local path (see returnTo).
 	ReturnTo string
+
+	// MinorUnits is every currency's decimals, so each account option can
+	// tell an amount field the scale it is typed at. nil when unavailable.
+	MinorUnits map[string]int
 
 	ID                   int64
 	SourceAccountID      int64
@@ -573,6 +581,10 @@ type ExchangeForm struct {
 	// ReturnTo is the page the form came from: Cancel goes back there, and so
 	// does a successful save. Always a local path (see returnTo).
 	ReturnTo string
+
+	// MinorUnits is every currency's decimals, so each account option can
+	// tell an amount field the scale it is typed at. nil when unavailable.
+	MinorUnits map[string]int
 
 	SourceAccountID      int64
 	SourceAmount         string
@@ -622,6 +634,10 @@ type EditExchangeForm struct {
 	// ReturnTo is the page the form came from: Cancel goes back there, and so
 	// does a successful save. Always a local path (see returnTo).
 	ReturnTo string
+
+	// MinorUnits is every currency's decimals, so each account option can
+	// tell an amount field the scale it is typed at. nil when unavailable.
+	MinorUnits map[string]int
 
 	ID                   int64
 	SourceAccountID      int64

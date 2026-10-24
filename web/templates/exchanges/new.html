@@ -29,7 +29,7 @@
               required>
         <option value="">Select the account the money leaves...</option>
         {{ range .Accounts }}
-        <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}" {{ if eq $.SourceAccountID .ID }}selected{{ end }}>
+        <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}"{{ if $.MinorUnits }} data-minor-unit="{{ index $.MinorUnits .CurrencyCode }}"{{ end }} {{ if eq $.SourceAccountID .ID }}selected{{ end }}>
           {{ .Name }} ({{ .CurrencyCode }}){{ if .Institution }} &middot; {{ derefString .Institution }}{{ end }}
         </option>
         {{ end }}
@@ -51,6 +51,9 @@
              value="{{ .SourceAmount }}"
              placeholder="0.00"
              inputmode="decimal"
+             data-type="currency"
+             data-minor-unit-from="source_account_id"
+             autocomplete="off"
              required>
       {{ if .HasError "source_amount" }}
       <div class="form-error">{{ .Error "source_amount" }}</div>
@@ -69,7 +72,7 @@
               required>
         <option value="">Select the account the money arrives in...</option>
         {{ range .Accounts }}
-        <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}" {{ if eq $.DestinationAccountID .ID }}selected{{ end }}>
+        <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}"{{ if $.MinorUnits }} data-minor-unit="{{ index $.MinorUnits .CurrencyCode }}"{{ end }} {{ if eq $.DestinationAccountID .ID }}selected{{ end }}>
           {{ .Name }} ({{ .CurrencyCode }}){{ if .Institution }} &middot; {{ derefString .Institution }}{{ end }}
         </option>
         {{ end }}
@@ -95,6 +98,9 @@
              value="{{ .DestinationAmount }}"
              placeholder="0.00"
              inputmode="decimal"
+             data-type="currency"
+             data-minor-unit-from="destination_account_id"
+             autocomplete="off"
              required>
       {{ if .HasError "destination_amount" }}
       <div class="form-error">{{ .Error "destination_amount" }}</div>

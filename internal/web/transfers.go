@@ -48,6 +48,7 @@ func handleNewTransferForm(logger *slog.Logger, renderer *Renderer, svcs *Servic
 
 		form := TransferForm{
 			ReturnTo:                  returnTo(r, "/transactions"),
+			MinorUnits:                currencyMinorUnits(r, logger, svcs),
 			SourceAccountID:           fromID,
 			DestinationAccountID:      toID,
 			EffectiveDate:             TodayDate(),
@@ -112,6 +113,7 @@ func handleCreateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 
 		form := TransferForm{
 			ReturnTo:                  returnTo(r, "/transactions"),
+			MinorUnits:                currencyMinorUnits(r, logger, svcs),
 			SourceAccountID:           sourceID,
 			DestinationAccountID:      destID,
 			Amount:                    amount,
@@ -261,6 +263,7 @@ func handleEditTransferForm(logger *slog.Logger, renderer *Renderer, svcs *Servi
 
 		form := EditTransferForm{
 			ReturnTo:                  returnTo(r, "/transactions"),
+			MinorUnits:                currencyMinorUnits(r, logger, svcs),
 			ID:                        tx.ID,
 			SourceAccountID:           tx.Transfer.SourceAccountID,
 			DestinationAccountID:      tx.Transfer.DestinationAccountID,
@@ -348,6 +351,7 @@ func handleUpdateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 
 		form := EditTransferForm{
 			ReturnTo:                  returnTo(r, "/transactions"),
+			MinorUnits:                currencyMinorUnits(r, logger, svcs),
 			ID:                        id,
 			SourceAccountID:           sourceID,
 			DestinationAccountID:      destID,

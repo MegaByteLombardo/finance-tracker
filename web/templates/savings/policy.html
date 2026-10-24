@@ -28,25 +28,25 @@
     {{ if .Form.Errors.general }}<div class="alert alert-danger" role="alert">{{ .Form.Errors.general }}</div>{{ end }}
     <form action="/savings/policy" method="POST">
       <input type="hidden" name="return" value="{{ .Return }}">
-      <div class="form-row">
-        <div class="form-group">
+      <div class="form-inline">
+        <div class="form-group form-inline-short">
           <label for="rate" class="form-label">Porcentaje de cada ingreso</label>
           <input type="text" id="rate" name="rate" class="form-control" inputmode="decimal"
                  value="{{ .Form.Rate }}" placeholder="20" autocomplete="off" required>
-          <p class="form-help">Entre 0 y 100, con hasta dos decimales. 0 deja de sugerir desde esa fecha.</p>
           {{ if .Form.Errors.rate }}<p class="form-error">{{ .Form.Errors.rate }}</p>{{ end }}
         </div>
-        <div class="form-group">
+        <div class="form-group form-inline-date">
           <label for="effective_from" class="form-label">Vigente desde</label>
           <input type="date" id="effective_from" name="effective_from" class="form-control" value="{{ .Form.EffectiveFrom }}" required>
-          <p class="form-help">
-            {{ if .Policy.IsSet }}Hoy o más adelante: un cambio nunca altera las sugerencias de ingresos fechados antes.
-            {{ else }}Puede ser una fecha pasada. Los ingresos desde entonces se te mostrarán para confirmarlos antes de calcular nada.{{ end }}
-          </p>
           {{ if .Form.Errors.effective_from }}<p class="form-error">{{ .Form.Errors.effective_from }}</p>{{ end }}
         </div>
+        <button type="submit" class="btn btn-primary">Guardar</button>
       </div>
-      <button type="submit" class="btn btn-primary">Guardar</button>
+      <p class="form-help">Porcentaje entre 0 y 100, con hasta dos decimales; 0 deja de sugerir desde esa fecha.</p>
+      <p class="form-help">
+        {{ if .Policy.IsSet }}La fecha es hoy o más adelante: un cambio nunca altera las sugerencias de ingresos fechados antes.
+        {{ else }}La fecha puede ser pasada. Los ingresos desde entonces se te mostrarán para confirmarlos antes de calcular nada.{{ end }}
+      </p>
     </form>
   </div>
 </div>

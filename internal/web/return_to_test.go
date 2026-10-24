@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -100,7 +101,8 @@ func TestExchangeFormPreselectsTheDestination(t *testing.T) {
 	router := testRouter(t, fs)
 
 	page := get(t, router, "/exchanges/new?to_account_id="+strconv.FormatInt(ves.ID, 10)+"&return_to=/cards/7").Body.String()
-	if !strings.Contains(page, `value="`+strconv.FormatInt(ves.ID, 10)+`" data-currency="VES" selected`) {
+	selected := regexp.MustCompile(`<option value="` + strconv.FormatInt(ves.ID, 10) + `"[^>]*selected`)
+	if !selected.MatchString(page) {
 		t.Error("the destination account is not preselected")
 	}
 	if !strings.Contains(page, `<a href="/cards/7" class="btn btn-secondary">Cancel</a>`) {

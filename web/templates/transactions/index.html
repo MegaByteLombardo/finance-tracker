@@ -26,85 +26,101 @@
 </div>
 {{ else }}
 <div class="tx-filter-card" id="tx-filter-card">
-  <div class="tx-filter-header">
-    <div class="tx-filter-header-title">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
-      </svg>
-      <span>Filtros de transacciones</span>
+  <div class="tx-filter-bar">
+  <span class="tx-filter-title" title="Filtros de transacciones">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+    </svg>
+  </span>
+
+  <div class="tx-filter-dates">
+    <input type="date" id="filter-date-from" class="form-control form-control-sm" placeholder="Desde" aria-label="Fecha desde">
+    <span class="tx-filter-dash" aria-hidden="true">&ndash;</span>
+    <input type="date" id="filter-date-to" class="form-control form-control-sm" placeholder="Hasta" aria-label="Fecha hasta">
+  </div>
+
+  <!-- Multi-select filters: options are built from the rows by app.js.
+       Nothing checked means no filter. -->
+  <div class="tx-ms" id="filter-institution" data-label="Institución">
+    <button type="button" class="tx-ms-trigger" aria-haspopup="true" aria-expanded="false">
+      <span class="tx-ms-text">Institución</span>
+      <span class="tx-ms-badge" hidden></span>
+      <svg class="tx-ms-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </button>
+    <div class="tx-ms-panel" hidden>
+      <div class="tx-ms-actions">
+        <button type="button" class="tx-ms-action" data-ms-all>Marcar todas</button>
+        <button type="button" class="tx-ms-action" data-ms-none>Desmarcar</button>
+      </div>
+      <div class="tx-ms-options" role="group" aria-label="Institución"></div>
     </div>
-    <div class="tx-filter-counter-wrap">
-      <span id="tx-filter-count" class="tx-filter-count">Mostrando {{ len .Transactions }} transacciones</span>
-      <button type="button" id="tx-filter-reset-btn" class="btn btn-sm btn-secondary" style="display: none;">
-        Limpiar filtros
-      </button>
+  </div>
+  <div class="tx-ms" id="filter-account-name" data-label="Cuenta">
+    <button type="button" class="tx-ms-trigger" aria-haspopup="true" aria-expanded="false">
+      <span class="tx-ms-text">Cuenta</span>
+      <span class="tx-ms-badge" hidden></span>
+      <svg class="tx-ms-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </button>
+    <div class="tx-ms-panel" hidden>
+      <div class="tx-ms-actions">
+        <button type="button" class="tx-ms-action" data-ms-all>Marcar todas</button>
+        <button type="button" class="tx-ms-action" data-ms-none>Desmarcar</button>
+      </div>
+      <div class="tx-ms-options" role="group" aria-label="Cuenta"></div>
+    </div>
+  </div>
+  <div class="tx-ms" id="filter-account-type" data-label="Tipo">
+    <button type="button" class="tx-ms-trigger" aria-haspopup="true" aria-expanded="false">
+      <span class="tx-ms-text">Tipo</span>
+      <span class="tx-ms-badge" hidden></span>
+      <svg class="tx-ms-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </button>
+    <div class="tx-ms-panel" hidden>
+      <div class="tx-ms-actions">
+        <button type="button" class="tx-ms-action" data-ms-all>Marcar todas</button>
+        <button type="button" class="tx-ms-action" data-ms-none>Desmarcar</button>
+      </div>
+      <div class="tx-ms-options" role="group" aria-label="Tipo"></div>
+    </div>
+  </div>
+  <div class="tx-ms" id="filter-category" data-label="Categoría">
+    <button type="button" class="tx-ms-trigger" aria-haspopup="true" aria-expanded="false">
+      <span class="tx-ms-text">Categoría</span>
+      <span class="tx-ms-badge" hidden></span>
+      <svg class="tx-ms-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </button>
+    <div class="tx-ms-panel" hidden>
+      <div class="tx-ms-actions">
+        <button type="button" class="tx-ms-action" data-ms-all>Marcar todas</button>
+        <button type="button" class="tx-ms-action" data-ms-none>Desmarcar</button>
+      </div>
+      <div class="tx-ms-options" role="group" aria-label="Categoría"></div>
+    </div>
+  </div>
+  <div class="tx-ms" id="filter-payment-method" data-label="Método">
+    <button type="button" class="tx-ms-trigger" aria-haspopup="true" aria-expanded="false">
+      <span class="tx-ms-text">Método</span>
+      <span class="tx-ms-badge" hidden></span>
+      <svg class="tx-ms-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </button>
+    <div class="tx-ms-panel" hidden>
+      <div class="tx-ms-actions">
+        <button type="button" class="tx-ms-action" data-ms-all>Marcar todas</button>
+        <button type="button" class="tx-ms-action" data-ms-none>Desmarcar</button>
+      </div>
+      <div class="tx-ms-options" role="group" aria-label="Método"></div>
     </div>
   </div>
 
-  <div class="tx-filter-grid">
-    <!-- Fecha Desde -->
-    <div class="tx-filter-field">
-      <label for="filter-date-from" class="tx-filter-label">Fecha desde</label>
-      <input type="date" id="filter-date-from" class="form-control form-control-sm" placeholder="YYYY-MM-DD">
-    </div>
+  <div class="tx-filter-search">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+    <input type="search" id="filter-search-text" class="form-control form-control-sm" placeholder="Buscar..." aria-label="Buscar texto">
+  </div>
 
-    <!-- Fecha Hasta -->
-    <div class="tx-filter-field">
-      <label for="filter-date-to" class="tx-filter-label">Fecha hasta</label>
-      <input type="date" id="filter-date-to" class="form-control form-control-sm" placeholder="YYYY-MM-DD">
-    </div>
-
-    <!-- Institución -->
-    <div class="tx-filter-field">
-      <label for="filter-institution" class="tx-filter-label">Institución</label>
-      <select id="filter-institution" class="form-control form-control-sm">
-        <option value="">Todas las instituciones</option>
-      </select>
-    </div>
-
-    <!-- Cuenta -->
-    <div class="tx-filter-field">
-      <label for="filter-account-name" class="tx-filter-label">Cuenta</label>
-      <select id="filter-account-name" class="form-control form-control-sm">
-        <option value="">Todas las cuentas</option>
-      </select>
-    </div>
-
-    <!-- Tipo de cuenta -->
-    <div class="tx-filter-field">
-      <label for="filter-account-type" class="tx-filter-label">Tipo de cuenta</label>
-      <select id="filter-account-type" class="form-control form-control-sm">
-        <option value="">Todos los tipos</option>
-        <option value="BANK">Banco (Todas)</option>
-        <option value="BANK_CHECKING">Banco: Corriente</option>
-        <option value="BANK_SAVINGS">Banco: Ahorro</option>
-        <option value="CASH">Efectivo</option>
-        <option value="WALLET">Billetera digital</option>
-        <option value="OTHER">Otro</option>
-      </select>
-    </div>
-
-    <!-- Categoría -->
-    <div class="tx-filter-field">
-      <label for="filter-category" class="tx-filter-label">Categoría</label>
-      <select id="filter-category" class="form-control form-control-sm">
-        <option value="">Todas las categorías</option>
-      </select>
-    </div>
-
-    <!-- Método de pago -->
-    <div class="tx-filter-field">
-      <label for="filter-payment-method" class="tx-filter-label">Método de pago</label>
-      <select id="filter-payment-method" class="form-control form-control-sm">
-        <option value="">Todos los métodos</option>
-      </select>
-    </div>
-
-    <!-- Búsqueda rápida de texto -->
-    <div class="tx-filter-field tx-filter-search">
-      <label for="filter-search-text" class="tx-filter-label">Buscar texto</label>
-      <input type="search" id="filter-search-text" class="form-control form-control-sm" placeholder="Descripción, cuenta...">
-    </div>
+  <div class="tx-filter-status">
+    <span id="tx-filter-count" class="tx-filter-count">{{ len .Transactions }} transacciones</span>
+    <button type="button" id="tx-filter-reset-btn" class="btn btn-sm btn-secondary" style="display: none;">Limpiar</button>
+  </div>
   </div>
 </div>
 
