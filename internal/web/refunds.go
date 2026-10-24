@@ -49,15 +49,6 @@ type RefundOriginal struct {
 // IsEdit reports the correction of an existing refund.
 func (f RefundForm) IsEdit() bool { return f.TransactionID != 0 }
 
-// refundReturn reads where a refund form comes back to: one of this
-// application's own pages, never another host.
-func refundReturn(raw string, fallback string) string {
-	if strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") && !strings.Contains(raw, "\\") {
-		return raw
-	}
-	return fallback
-}
-
 // loadRefundOptions fills the lists a refund form offers for its account.
 func loadRefundOptions(r *http.Request, svcs *Services, form *RefundForm) error {
 	ctx := r.Context()
@@ -116,7 +107,7 @@ func refundFromForm(r *http.Request) RefundForm {
 		Description:           strings.TrimSpace(r.FormValue("description")),
 		EffectiveDate:         strings.TrimSpace(r.FormValue("effective_date")),
 		OriginalTransactionID: original,
-		Return:                refundReturn(r.FormValue("return_to"), "/transactions"),
+		Return:                safeReturn(r.FormValue("return_to"), "/transactions"),
 		FormErrors:            FormErrors{},
 	}
 }
@@ -159,7 +150,7 @@ func handleNewRefund(logger *slog.Logger, renderer *Renderer, svcs *Services) ht
 		q := r.URL.Query()
 		form := RefundForm{
 			Action: "/refunds", RequestKey: key, EffectiveDate: TodayDate(),
-			Return: refundReturn(q.Get("return_to"), "/transactions"), FormErrors: FormErrors{},
+			Return: safeReturn(q.Get("return_to"), "/transactions"), FormErrors: FormErrors{},
 		}
 		form.AccountID, _ = strconv.ParseInt(q.Get("account_id"), 10, 64)
 		form.OriginalTransactionID, _ = strconv.ParseInt(q.Get("original"), 10, 64)
@@ -257,7 +248,7 @@ func handleEditRefund(logger *slog.Logger, renderer *Renderer, svcs *Services) h
 			Action: "/refunds/" + strconv.FormatInt(tx.ID, 10), TransactionID: tx.ID,
 			AccountID: tx.AccountID, Amount: tx.AmountFormatted,
 			EffectiveDate: tx.EffectiveDate.Format("2006-01-02"),
-			Return:        refundReturn(r.URL.Query().Get("return_to"), "/transactions"), FormErrors: FormErrors{},
+			Return:        safeReturn(r.URL.Query().Get("return_to"), "/transactions"), FormErrors: FormErrors{},
 		}
 		if tx.CategoryID != nil {
 			form.CategoryID = *tx.CategoryID

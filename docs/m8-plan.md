@@ -643,7 +643,8 @@ no depende del orden: 50 − 18 − 275/13 − 2 = 50 − 20 − 250/13 − 25/1
 6. **`CLAUDE.md` prohíbe hoy parte de M8.** Resuelto en R9.
 7. **Observado fuera de M8:**
    - `transfers.go:207` y `transactions.go:344` aceptan `return_to` con `//host`
-     (posible *open redirect*);
+     (posible *open redirect*). **Resuelto en M8.1:** todo `return_to` pasa por
+     `safeReturn`, que solo acepta una ruta local;
    - los errores enviados desde el móvil se renderizan en la plantilla de
      escritorio.
 

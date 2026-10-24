@@ -5,7 +5,7 @@
     <p class="page-subtitle">Update initial balance amount or effective date</p>
   </div>
   <div class="page-actions">
-    <a href="/transactions" class="btn btn-secondary">&larr; Back to Transactions</a>
+    <a href="{{ .ReturnTo }}" class="btn btn-secondary">&larr; Back</a>
   </div>
 </div>
 
@@ -17,6 +17,7 @@
   {{ end }}
 
   <form action="/transactions/{{ .ID }}" method="POST">
+    <input type="hidden" name="return_to" value="{{ .ReturnTo }}">
     <div class="form-group">
       <label class="form-label">
         Account (Read-only)
@@ -74,7 +75,7 @@
     </div>
 
     <div class="form-actions">
-      <a href="/transactions" class="btn btn-secondary">Cancel</a>
+      <a href="{{ .ReturnTo }}" class="btn btn-secondary">Cancel</a>
       <button type="submit" class="btn btn-primary">Save Changes</button>
     </div>
   </form>

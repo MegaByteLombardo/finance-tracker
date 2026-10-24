@@ -149,6 +149,27 @@
     });
   }
 
+  // followCurrencySelect keeps a form's amounts at the scale of the currency
+  // chosen in that same form, for forms where the currency is a plain select
+  // whose options carry data-minor-unit (opening a card, for one) rather than
+  // the htmx currency box.
+  function followCurrencySelect(form) {
+    const select = form.querySelector('select[data-currency-select]');
+    if (!select || select._currencyFollowInit) return;
+    select._currencyFollowInit = true;
+
+    select.addEventListener('change', () => {
+      const option = select.options[select.selectedIndex];
+      if (!option || option.dataset.minorUnit === undefined) return;
+      form.querySelectorAll('input[data-type="currency"]').forEach(input => {
+        input.dataset.minorUnit = option.dataset.minorUnit;
+        if (input.value) {
+          handleCurrencyBlur({ target: input });
+        }
+      });
+    });
+  }
+
   function initCurrencyInputs(root) {
     const container = root || document;
     const inputs = container.querySelectorAll('input[data-type="currency"]');
@@ -161,6 +182,7 @@
 
       if (input.form) {
         canonicaliseOnSubmit(input.form);
+        followCurrencySelect(input.form);
       }
 
       if (input.value) {

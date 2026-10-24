@@ -147,6 +147,16 @@ reservation or issue M7 already holds.
 PRG 303 on success, 422 on a refused form, 409 for a currency change that needs
 confirmation, 404 for an id that is not a card, a charge or a refund.
 
+A card's page opens the ledger's own forms with `return_to=/cards/{id}`: a
+payment (`/transfers/new?to_account_id=`), a payment from another currency
+(`/exchanges/new?to_account_id=`, which preselects the card as destination), and
+the correction of a purchase or a payment (`/transactions/{id}/edit`, which
+keeps the query when it hands over to the type's own screen). Those forms carry
+it in a hidden field; Cancel, the back button and the redirect after a save all
+lead there, and without it they lead to `/transactions` as before. `return_to`
+is honoured only as a local path — `//host`, `/\host` and absolute URLs fall
+back (`safeReturn`).
+
 ### Invariants M8.1 guarantees
 
 | # | Invariant | Where |

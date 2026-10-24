@@ -846,6 +846,19 @@ a:hover { color: var(--accent-hover); }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tbody tr:hover td { background-color: var(--paper-hover); }
 
+/* A row that opens its record. The row's one real link is stretched over the
+   whole row, so a click anywhere follows it, the keyboard still reaches a
+   single link and a middle click opens a tab. Other controls in the row sit
+   above it. */
+.data-table tr.row-link { position: relative; cursor: pointer; }
+.data-table tr.row-link .row-link-target::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.data-table tr.row-link .btn { position: relative; z-index: 1; }
+.data-table tbody tr.row-link:focus-within td { background-color: var(--paper-hover); }
+
 /* Figures in a column never wrap and always line up. */
 .cell-mono,
 .numeric,

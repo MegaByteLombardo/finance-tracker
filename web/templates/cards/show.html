@@ -60,8 +60,8 @@
   <a href="/cards/{{ $c.AccountID }}/purchases/new" class="btn btn-primary">+ Compra</a>
   <a href="/cards/{{ $c.AccountID }}/charges/new" class="btn btn-secondary">+ Cargo del banco</a>
   <a href="/refunds/new?account_id={{ $c.AccountID }}&amp;return_to=/cards/{{ $c.AccountID }}" class="btn btn-secondary">+ Devolución</a>
-  <a href="/transfers/new?to_account_id={{ $c.AccountID }}" class="btn btn-secondary" title="Un pago es una transferencia hacia la tarjeta, en su moneda.">Pagar ({{ $c.CurrencyCode }})</a>
-  <a href="/exchanges/new" class="btn btn-secondary" title="Un pago desde otra moneda es un cambio de divisas con la tarjeta como destino.">Pagar desde otra moneda</a>
+  <a href="/transfers/new?to_account_id={{ $c.AccountID }}&amp;return_to=/cards/{{ $c.AccountID }}" class="btn btn-secondary" title="Un pago es una transferencia hacia la tarjeta, en su moneda.">Pagar ({{ $c.CurrencyCode }})</a>
+  <a href="/exchanges/new?to_account_id={{ $c.AccountID }}&amp;return_to=/cards/{{ $c.AccountID }}" class="btn btn-secondary" title="Un pago desde otra moneda es un cambio de divisas con la tarjeta como destino.">Pagar desde otra moneda</a>
 </div>
 {{ end }}
 
@@ -88,7 +88,7 @@
             <td class="cell-right">
               {{ if eq .Kind "CHARGE" }}<a href="/cards/{{ $c.AccountID }}/charges/{{ $t.ID }}/edit" class="btn btn-sm btn-secondary">Corregir</a>
               {{ else if eq .Kind "REFUND" }}<a href="/refunds/{{ $t.ID }}/edit?return_to=/cards/{{ $c.AccountID }}" class="btn btn-sm btn-secondary">Corregir</a>
-              {{ else }}<a href="/transactions/{{ $t.ID }}/edit" class="btn btn-sm btn-secondary">Corregir</a>{{ end }}
+              {{ else }}<a href="/transactions/{{ $t.ID }}/edit?return_to=/cards/{{ $c.AccountID }}" class="btn btn-sm btn-secondary">Corregir</a>{{ end }}
               {{ if eq .Kind "PURCHASE" }}<a href="/refunds/new?account_id={{ $c.AccountID }}&amp;original={{ $t.ID }}&amp;return_to=/cards/{{ $c.AccountID }}" class="btn btn-sm btn-secondary">Devolver</a>{{ end }}
             </td>
           </tr>

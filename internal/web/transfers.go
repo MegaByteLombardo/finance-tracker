@@ -47,6 +47,7 @@ func handleNewTransferForm(logger *slog.Logger, renderer *Renderer, svcs *Servic
 		}
 
 		form := TransferForm{
+			ReturnTo:                  returnTo(r, "/transactions"),
 			SourceAccountID:           fromID,
 			DestinationAccountID:      toID,
 			EffectiveDate:             TodayDate(),
@@ -110,6 +111,7 @@ func handleCreateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 		}
 
 		form := TransferForm{
+			ReturnTo:                  returnTo(r, "/transactions"),
 			SourceAccountID:           sourceID,
 			DestinationAccountID:      destID,
 			Amount:                    amount,
@@ -213,16 +215,7 @@ func handleCreateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 			return
 		}
 
-		redirectURL := "/transactions"
-		if ret := r.FormValue("return_to"); ret != "" && strings.HasPrefix(ret, "/") {
-			redirectURL = ret
-		}
-		if IsHXRequest(r) {
-			w.Header().Set("HX-Redirect", redirectURL)
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+		redirectTo(w, r, form.ReturnTo)
 	}
 }
 
@@ -267,6 +260,7 @@ func handleEditTransferForm(logger *slog.Logger, renderer *Renderer, svcs *Servi
 		}
 
 		form := EditTransferForm{
+			ReturnTo:                  returnTo(r, "/transactions"),
 			ID:                        tx.ID,
 			SourceAccountID:           tx.Transfer.SourceAccountID,
 			DestinationAccountID:      tx.Transfer.DestinationAccountID,
@@ -353,6 +347,7 @@ func handleUpdateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 		}
 
 		form := EditTransferForm{
+			ReturnTo:                  returnTo(r, "/transactions"),
 			ID:                        id,
 			SourceAccountID:           sourceID,
 			DestinationAccountID:      destID,
@@ -464,11 +459,6 @@ func handleUpdateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 			return
 		}
 
-		if IsHXRequest(r) {
-			w.Header().Set("HX-Redirect", "/transactions")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		http.Redirect(w, r, "/transactions", http.StatusSeeOther)
+		redirectTo(w, r, form.ReturnTo)
 	}
 }

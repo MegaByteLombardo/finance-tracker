@@ -164,20 +164,27 @@ func handleNewExchangeForm(logger *slog.Logger, renderer *Renderer, svcs *Servic
 			return
 		}
 
-		var sourceID int64
+		var sourceID, destinationID int64
 		if raw := r.URL.Query().Get("from_account_id"); raw != "" {
 			sourceID, _ = strconv.ParseInt(raw, 10, 64)
 		}
+		// A card's "pay from another currency" button preselects the card as
+		// the destination: such a payment is an exchange into it (TD-091).
+		if raw := r.URL.Query().Get("to_account_id"); raw != "" {
+			destinationID, _ = strconv.ParseInt(raw, 10, 64)
+		}
 
 		form := ExchangeForm{
-			SourceAccountID: sourceID,
+			ReturnTo:             returnTo(r, "/transactions"),
+			SourceAccountID:      sourceID,
+			DestinationAccountID: destinationID,
 			// The business date in Venezuela, not UTC: this form records money
 			// moving, and after 20:00 in Caracas a UTC "today" is tomorrow.
 			EffectiveDate: todayForForms(),
 			Accounts:      accounts,
 			Errors:        make(map[string]string),
 		}
-		sourceCurrency, destinationCurrency := exchangeCurrencies(r, svcs, accounts, sourceID, 0)
+		sourceCurrency, destinationCurrency := exchangeCurrencies(r, svcs, accounts, sourceID, destinationID)
 		applyExchangeCurrencies(&form, sourceCurrency, destinationCurrency)
 
 		pageData := PageData{
@@ -216,6 +223,7 @@ func handleCreateExchange(logger *slog.Logger, renderer *Renderer, svcs *Service
 		}
 
 		form := ExchangeForm{
+			ReturnTo:             returnTo(r, "/transactions"),
 			SourceAccountID:      sourceID,
 			SourceAmount:         sourceAmount,
 			DestinationAccountID: destinationID,
@@ -320,6 +328,7 @@ func handleEditExchangeForm(logger *slog.Logger, renderer *Renderer, svcs *Servi
 
 		detail := tx.Exchange
 		form := EditExchangeForm{
+			ReturnTo:             returnTo(r, "/transactions"),
 			ID:                   tx.ID,
 			SourceAccountID:      detail.SourceAccountID,
 			SourceAmount:         detail.SourceAmountFormatted,
@@ -403,6 +412,7 @@ func handleUpdateExchange(logger *slog.Logger, renderer *Renderer, svcs *Service
 		}
 
 		form := EditExchangeForm{
+			ReturnTo:             returnTo(r, "/transactions"),
 			ID:                   id,
 			SourceAccountID:      sourceID,
 			SourceAmount:         sourceAmount,
@@ -465,15 +475,32 @@ func handleUpdateExchange(logger *slog.Logger, renderer *Renderer, svcs *Service
 	}
 }
 
-// returnTo is where the form should send the browser once it has succeeded.
+// returnTo is the page a form came from: where Cancel leads and where the
+// browser goes once the form has succeeded.
 //
-// It honours an explicit return_to, which is how the mobile screens come back to
-// where they started, and falls back otherwise. The prefix checks are what stop
-// it being an open redirect: a value that does not begin with a single "/" is
-// ignored rather than followed.
+// It honours an explicit return_to -- in the query when the form is shown, in a
+// hidden field when it is posted -- which is how a card's page or a mobile
+// screen gets its user back, and falls back otherwise.
 func returnTo(r *http.Request, fallback string) string {
-	if ret := r.FormValue("return_to"); strings.HasPrefix(ret, "/") && !strings.HasPrefix(ret, "//") {
-		return ret
+	return safeReturn(r.FormValue("return_to"), fallback)
+}
+
+// safeReturn accepts one of this application's own pages and nothing else. A
+// value that does not begin with a single "/" is ignored rather than followed,
+// which is what stops it being an open redirect: "//host" and "/\host" both
+// name another host to a browser.
+func safeReturn(raw string, fallback string) string {
+	if strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") && !strings.Contains(raw, "\\") {
+		return raw
 	}
 	return fallback
+}
+
+// keepQuery carries the request's query string over to path, so a page that
+// hands over to another keeps its return_to.
+func keepQuery(path string, r *http.Request) string {
+	if r.URL.RawQuery == "" {
+		return path
+	}
+	return path + "?" + r.URL.RawQuery
 }

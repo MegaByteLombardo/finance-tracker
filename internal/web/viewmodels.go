@@ -405,6 +405,10 @@ func (f PaymentMethodForm) Error(field string) string {
 
 // EditTransactionForm holds state and validation for editing a regular transaction
 type EditTransactionForm struct {
+	// ReturnTo is the page the form came from: Cancel goes back there, and so
+	// does a successful save. Always a local path (see returnTo).
+	ReturnTo string
+
 	ID                  int64
 	AccountID           int64
 	Type                TransactionType // INCOME or EXPENSE
@@ -447,6 +451,10 @@ func (f EditTransactionForm) Error(field string) string {
 
 // EditOpeningBalanceForm holds state and validation for editing an opening balance transaction
 type EditOpeningBalanceForm struct {
+	// ReturnTo is the page the form came from: Cancel goes back there, and so
+	// does a successful save. Always a local path (see returnTo).
+	ReturnTo string
+
 	ID                int64
 	AccountID         int64
 	AccountName       string
@@ -480,6 +488,10 @@ type BackupsView struct {
 
 // TransferForm holds state and validation for the new internal transfer form
 type TransferForm struct {
+	// ReturnTo is the page the form came from: Cancel goes back there, and so
+	// does a successful save. Always a local path (see returnTo).
+	ReturnTo string
+
 	SourceAccountID      int64
 	DestinationAccountID int64
 	Amount               string
@@ -511,6 +523,10 @@ func (f TransferForm) Error(field string) string {
 
 // EditTransferForm holds state and validation for editing an internal transfer
 type EditTransferForm struct {
+	// ReturnTo is the page the form came from: Cancel goes back there, and so
+	// does a successful save. Always a local path (see returnTo).
+	ReturnTo string
+
 	ID                   int64
 	SourceAccountID      int64
 	DestinationAccountID int64
@@ -554,6 +570,10 @@ func (f EditTransferForm) Error(field string) string {
 // derived by the backend from the two amounts, and the form only ever previews
 // it.
 type ExchangeForm struct {
+	// ReturnTo is the page the form came from: Cancel goes back there, and so
+	// does a successful save. Always a local path (see returnTo).
+	ReturnTo string
+
 	SourceAccountID      int64
 	SourceAmount         string
 	DestinationAccountID int64
@@ -599,6 +619,10 @@ func (f ExchangeForm) Error(field string) string {
 // changing an account reinterprets nothing — it corrects which currency that
 // side was in, and the amount beside it says how much.
 type EditExchangeForm struct {
+	// ReturnTo is the page the form came from: Cancel goes back there, and so
+	// does a successful save. Always a local path (see returnTo).
+	ReturnTo string
+
 	ID                   int64
 	SourceAccountID      int64
 	SourceAmount         string

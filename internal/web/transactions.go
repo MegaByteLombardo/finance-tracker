@@ -344,16 +344,7 @@ func handleCreateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 		}
 
 		// Success: PRG redirect
-		redirectURL := "/transactions"
-		if ret := r.FormValue("return_to"); ret != "" && strings.HasPrefix(ret, "/") {
-			redirectURL = ret
-		}
-		if IsHXRequest(r) {
-			w.Header().Set("HX-Redirect", redirectURL)
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+		redirectTo(w, r, returnTo(r, "/transactions"))
 	}
 }
 
@@ -481,13 +472,13 @@ func handleEditTransactionForm(logger *slog.Logger, renderer *Renderer, svcs *Se
 		// the one the ledger's guard prevents on the write side.
 		switch tx.Type {
 		case TransactionTypeTransfer:
-			http.Redirect(w, r, "/transfers/"+idStr+"/edit", http.StatusSeeOther)
+			http.Redirect(w, r, keepQuery("/transfers/"+idStr+"/edit", r), http.StatusSeeOther)
 			return
 		case TransactionTypeFXExchange:
-			http.Redirect(w, r, "/exchanges/"+idStr+"/edit", http.StatusSeeOther)
+			http.Redirect(w, r, keepQuery("/exchanges/"+idStr+"/edit", r), http.StatusSeeOther)
 			return
 		case TransactionTypeRefund:
-			http.Redirect(w, r, "/refunds/"+idStr+"/edit", http.StatusSeeOther)
+			http.Redirect(w, r, keepQuery("/refunds/"+idStr+"/edit", r), http.StatusSeeOther)
 			return
 		case TransactionTypeExpense:
 			// A card charge is an expense whose correction must keep its kind
@@ -517,6 +508,7 @@ func handleEditTransactionForm(logger *slog.Logger, renderer *Renderer, svcs *Se
 		if tx.Type == TransactionTypeOpeningBalance {
 			amountStr := tx.AmountFormatted
 			form := EditOpeningBalanceForm{
+				ReturnTo:          returnTo(r, "/transactions"),
 				ID:                tx.ID,
 				AccountID:         tx.AccountID,
 				AccountName:       tx.AccountName,
@@ -585,6 +577,7 @@ func handleEditTransactionForm(logger *slog.Logger, renderer *Renderer, svcs *Se
 		}
 
 		form := EditTransactionForm{
+			ReturnTo:                  returnTo(r, "/transactions"),
 			ID:                        tx.ID,
 			AccountID:                 tx.AccountID,
 			Type:                      tx.Type,
@@ -671,6 +664,7 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 			effectiveDate := strings.TrimSpace(r.FormValue("effective_date"))
 
 			form := EditOpeningBalanceForm{
+				ReturnTo:          returnTo(r, "/transactions"),
 				ID:                existing.ID,
 				AccountID:         existing.AccountID,
 				AccountName:       existing.AccountName,
@@ -728,12 +722,7 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 				return
 			}
 
-			if IsHXRequest(r) {
-				w.Header().Set("HX-Redirect", "/transactions")
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			http.Redirect(w, r, "/transactions", http.StatusSeeOther)
+			redirectTo(w, r, form.ReturnTo)
 			return
 		}
 
@@ -776,6 +765,7 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 		}
 
 		form := EditTransactionForm{
+			ReturnTo:                  returnTo(r, "/transactions"),
 			ID:                        id,
 			AccountID:                 accountID,
 			Type:                      txType,
@@ -896,12 +886,6 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 			return
 		}
 
-		if IsHXRequest(r) {
-			w.Header().Set("HX-Redirect", "/transactions")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		http.Redirect(w, r, "/transactions", http.StatusSeeOther)
+		redirectTo(w, r, form.ReturnTo)
 	}
 }

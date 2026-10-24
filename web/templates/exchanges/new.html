@@ -5,7 +5,7 @@
     <p class="page-subtitle">Record money actually exchanged between two of your accounts, in two different currencies</p>
   </div>
   <div class="page-actions">
-    <a href="/transactions" class="btn btn-secondary">&larr; Back to Transactions</a>
+    <a href="{{ .ReturnTo }}" class="btn btn-secondary">&larr; Back</a>
   </div>
 </div>
 
@@ -17,6 +17,7 @@
   {{ end }}
 
   <form action="/exchanges" method="POST">
+    <input type="hidden" name="return_to" value="{{ .ReturnTo }}">
     <!-- Source: the account the money leaves, and how much was delivered -->
     <div class="form-group">
       <label class="form-label" for="source_account_id">
@@ -143,7 +144,7 @@
 
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">Record Exchange</button>
-      <a href="/transactions" class="btn btn-secondary">Cancel</a>
+      <a href="{{ .ReturnTo }}" class="btn btn-secondary">Cancel</a>
     </div>
   </form>
 </div>

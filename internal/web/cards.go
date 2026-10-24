@@ -57,6 +57,21 @@ type CardOpenForm struct {
 	FormErrors
 }
 
+// MinorUnit is the scale of the currency the form has selected, for the
+// amount fields' formatting: the one chosen, else the first offered, which is
+// what the select shows.
+func (f CardOpenForm) MinorUnit() int {
+	for _, c := range f.Currencies {
+		if c.Code == f.CurrencyCode {
+			return c.MinorUnit
+		}
+	}
+	if len(f.Currencies) > 0 {
+		return f.Currencies[0].MinorUnit
+	}
+	return 2
+}
+
 // CardTermsFields are the terms as a form holds them: strings, as typed.
 type CardTermsFields struct {
 	ProductName            string
@@ -76,6 +91,9 @@ type CardTermsForm struct {
 	Methods []PaymentMethod
 	FormErrors
 }
+
+// MinorUnit is the scale of the card's currency, for the limit's formatting.
+func (f CardTermsForm) MinorUnit() int { return f.Card.MinorUnit }
 
 // CardEntryForm records or corrects a purchase or a charge on a card.
 type CardEntryForm struct {

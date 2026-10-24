@@ -31,9 +31,9 @@
     </thead>
     <tbody>
       {{ range .Cards }}
-      <tr>
+      <tr class="row-link">
         <td>
-          <a href="/cards/{{ .AccountID }}" style="font-weight: 600;">{{ .Name }}</a>
+          <a href="/cards/{{ .AccountID }}" class="row-link-target" style="font-weight: 600;">{{ .Name }}</a>
           <div class="text-muted" style="font-size: 0.8rem;">{{ if .ProductName }}{{ derefString .ProductName }} · {{ end }}{{ if .Institution }}{{ derefString .Institution }} · {{ end }}{{ .CurrencyCode }}</div>
         </td>
         <td>Día {{ .StatementDay }}</td>
