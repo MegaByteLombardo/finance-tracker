@@ -339,17 +339,24 @@ func (r Recap) IndicatorHelp(i Indicator) RecapHelp {
 	return h
 }
 
-// VerdictLabel is the verdict in words.
+// VerdictLabel says which way the figure moved, not whether that is good: the
+// chip's colour carries the verdict, and "Mejoró" read as ambiguous next to a
+// daily expense that went down.
 func (i Indicator) VerdictLabel() string {
-	switch i.Verdict {
-	case VerdictImproved:
-		return "Mejoró"
-	case VerdictWorsened:
-		return "Empeoró"
-	case VerdictUnchanged:
-		return "Sin cambio"
-	default:
+	if i.Verdict == VerdictUnavailable {
 		return "Sin datos"
+	}
+	sign := i.Change.AmountMinor
+	if i.IsPoints() {
+		sign = i.Points.BasisPoints
+	}
+	switch {
+	case sign > 0:
+		return "Aumentó"
+	case sign < 0:
+		return "Disminuyó"
+	default:
+		return "Sin cambio"
 	}
 }
 
