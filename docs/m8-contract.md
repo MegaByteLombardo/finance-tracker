@@ -123,7 +123,8 @@ in two groups, Activos and Pasivos.
    the plan, and the same movement without the plan records (TD-086).
 3. Paying a card from a USD account is an ordinary outflow: if it leaves the
    account below what is reserved, M7 reports `OVERALLOCATED` as it always has.
-   An automatic `SPEND` is postponed (D-12).
+   From M8.2 the payment form will offer to consume those reservations in the
+   same operation (D-12, approved 2026-10-25); in M8.1 there is no plan.
 4. An income moved onto a card has its live suggestion `INVALIDATED`;
    reservations confirmed against it are untouched and reported
    `OVER_CONFIRMED`.

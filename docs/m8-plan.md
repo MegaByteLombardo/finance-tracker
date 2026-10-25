@@ -4,8 +4,9 @@
 las correcciones del review. **M8.1 está implementado** (migraciones 00019–00021,
 TD-088 a TD-091, TD-094 y TD-095) y pendiente de validación funcional; lo
 construido está en [m8-contract.md](m8-contract.md). Se adoptaron las propuestas
-del §11 que tocan a M8.1: `foreign_key_check` en `backup.Validate`. D-11 y D-12
-siguen pendientes (afectan a M8.3 y M8.4). M8.2–M8.5 no tienen código.
+del §11 que tocan a M8.1: `foreign_key_check` en `backup.Validate`. D-11 se
+aprobó como valor por defecto provisional y D-12 se resolvió por la alternativa
+(ver R1). M8.2–M8.5 no tienen código.
 
 Desviación respecto de §4.2: `operation_requests` tiene, además de
 `transaction_id`, un `account_id` (ambos opcionales, al menos uno presente),
@@ -44,8 +45,8 @@ en las TD-088 y siguientes.
 | D-8 | Fecha de operación o de contabilización | **RESUELTA AQUÍ** (R7) | `effective_date` = fecha de operación, siempre. La pertenencia a un estado de cuenta se deriva y se corrige con una aserción persistida (`credit_statement_assignments`, M8.2). M8.1 no se bloquea. |
 | D-9 | `network` | APPROVED | Omitido. |
 | D-10 | `CLAUDE.md` | APPROVED | Una TD por cada prohibición que se reemplaza (R9). |
-| **D-11** | Orden de imputación dentro de un ciclo (capa de componentes) | **PROPOSED, nueva** | `COSTS_FIRST` por defecto, configurable por tarjeta (`CHRONOLOGICAL`). `UNKNOWN` para Plaza; hay que confirmarlo con el contrato. |
-| **D-12** | Plan `SPEND` de M7 al pagar una TDC con USD reservado | **PROPOSED, nueva** | Pospuesto. M8 solo muestra el impacto y la incidencia que M7 ya produce. |
+| **D-11** | Orden de imputación dentro de un ciclo (capa de componentes) | **APPROVED como valor por defecto provisional** (2026-10-25) | `COSTS_FIRST` por defecto, configurable por tarjeta (`CHRONOLOGICAL`). Para Plaza sigue `UNKNOWN`: el estado de cuenta solo muestra "mínimo" y "total", y la regla de imputación está en la cláusula de imputación de pagos del contrato. Solo afecta a la partición realizado/potencial de M8.3, nunca a la deuda ni al total (I6); sin intereses ni comisiones, las dos políticas coinciden. |
+| **D-12** | Plan de ahorro M7 al pagar una TDC con USD reservado | **APPROVED: alternativa** (2026-10-25) | El formulario de pago desde una cuenta USD ofrece, en la misma operación, consumir reservas de esa cuenta (como `SPEND` de un gasto, TD-086), vinculadas al pago y en la misma transacción. Sin plan, el pago se registra y M7 reporta `OVERALLOCATED` como hoy. Entra en **M8.2** con la pantalla de pago. |
 
 ### R2. Modelo de asignación de pagos
 
@@ -389,7 +390,7 @@ no depende del orden: 50 − 18 − 275/13 − 2 = 50 − 20 − 250/13 − 25/1
 | **Cashback acreditado a la TDC** (INCOME en la TDC) | Sí | **No** (regla 2) | Reduce la deuda | Sin sugerencia. Si un ingreso existente se mueve a la TDC, su revisión viva queda `INVALIDATED`. Las reservas confirmadas **no se tocan** y M7 reporta `OVER_CONFIRMED` (`issues.go:126`). | No |
 | **Devolución de una compra** (REFUND) | No: reduce gasto | No: no es INCOME | Reduce la deuda (TDC) o aumenta el saldo (banco) | Ninguno. Si la compra original consumió reservas (`SPEND`), la devolución **no** las restituye sola; el usuario puede reservar de nuevo a mano. Se documenta. | No |
 | **TDC USD con saldo a favor** | — | — | Saldo positivo en un pasivo | Excluida del fondo, de lo libre, del respaldo, de `AccountImpact` y de los planes | No: antes de M8.1 sí lo era, por eso este cambio entra **en M8.1** |
-| **Pago desde una cuenta USD** (FX_EXCHANGE USD→TDC) | No | No | Reduce la deuda | Baja el saldo USD del origen. Si queda por debajo de lo reservado, M7 reporta `OVERALLOCATED` (comportamiento existente). El formulario muestra antes el impacto (`AccountImpact` del origen). Es la **evidencia D-4** para C. Un `SPEND` automático queda pospuesto (D-12). | No |
+| **Pago desde una cuenta USD** (FX_EXCHANGE USD→TDC) | No | No | Reduce la deuda | Baja el saldo USD del origen. Si queda por debajo de lo reservado, M7 reporta `OVERALLOCATED` (comportamiento existente). El formulario muestra antes el impacto (`AccountImpact` del origen). Es la **evidencia D-4** para C. El formulario de pago ofrece consumir esas reservas en la misma operación (D-12, M8.2). | No |
 | **Pago desde una cuenta VES** (TRANSFER VES→TDC) | No | No | Reduce la deuda | Ninguno: M7 es solo USD y `ApplyTransferPlanTx` exige USD en ambos lados | No |
 
 #### R4.5 Historia de M7
@@ -565,7 +566,7 @@ no depende del orden: 50 − 18 − 275/13 − 2 = 50 − 20 − 250/13 − 25/1
 | RR4 | Falla de la migración 00019 | Guardas, rollback verificado, backup automático, re-ejecución idempotente | Bajo |
 | RR5 | No existen tasas BCV históricas para compras antiguas | `Missing` con enlace a la carga manual | Medio (dato) |
 | RR6 | Tarjeta indexada registrada como NOMINAL | `denomination_confirmed`; el motor rechaza INDEXED | Medio (depende del usuario) |
-| RR7 | Un USD reservado se usa para pagar la TDC | `OVERALLOCATED` de M7 más la vista previa del impacto; D-12 | Bajo |
+| RR7 | Un USD reservado se usa para pagar la TDC | Plan de ahorro en el formulario de pago (D-12); sin plan, `OVERALLOCATED` de M7 | Bajo |
 | RR8 | Las cifras de M6 y M6.5 cambian con los REFUND | Documentado y probado | Bajo |
 
 ### R11. Impacto en el alcance
@@ -845,8 +846,8 @@ Puertas de calidad: `gofmt -l .`, `go vet ./...`, `go test ./... -count=1`, y
 ## 11. Decisiones pendientes y datos `UNKNOWN`
 
 - **Requieren tu respuesta:**
-  - **D-11:** `COSTS_FIRST` por defecto;
-  - **D-12:** posponer el `SPEND` al pagar la TDC;
+  - ~~D-11~~: aprobado como provisional (`COSTS_FIRST`), pendiente de confirmar con el contrato de Plaza;
+  - ~~D-12~~: resuelto, plan de ahorro en el pago (M8.2);
   - la propuesta de añadir `foreign_key_check` a `backup.Validate`.
 - **`UNKNOWN`** (no bloquean; se muestran como pendientes o se verifican con la
   conciliación):

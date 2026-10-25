@@ -1057,7 +1057,7 @@ back-dated purchase moving the history from its own date; refunds linked,
 unlinked, capped and corrected; charges classified and refused by the generic
 edit; cashback on a card not eligible even with an override; a USD card with a
 credit outside the fund; assets − liabilities = net worth. Smoke-tested on the
-binary over HTTP. `-race` pending in the Linux container.
+binary over HTTP. `-race` green in the Linux container (golang:1.27-trixie).
 
 ### Not in M8.1
 
