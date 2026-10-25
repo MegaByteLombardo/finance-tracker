@@ -22,7 +22,8 @@ import (
 // money to the transfer's destination.
 
 // ErrNotLinkable means the transaction cannot carry the savings operation asked
-// of it: a SPEND needs an EXPENSE in a USD account, a REBACK a USD TRANSFER.
+// of it: a SPEND needs an EXPENSE in a USD account or a card payment from one,
+// a REBACK a USD TRANSFER.
 var ErrNotLinkable = errors.New("the transaction cannot be linked to savings this way")
 
 // ReserveSlice is the money reserved on one account for one goal, or -- with a
@@ -209,17 +210,9 @@ func (s *Service) ApplyExpensePlanTx(ctx context.Context, exec database.DBTX, tr
 	if plan.Empty() {
 		return nil
 	}
-	if err := validateRequestKey(plan.RequestKey + releaseSuffix); err != nil {
+	releaseReason, err := checkOutflowPlan(plan, "an expense")
+	if err != nil {
 		return err
-	}
-	// A release must explain itself; that is checked before any amount.
-	var releaseReason string
-	if len(plan.Release) > 0 {
-		r, err := normalizeReason(plan.Reason)
-		if err != nil {
-			return fmt.Errorf("releasing savings for an expense: %w", err)
-		}
-		releaseReason = r
 	}
 	tx, err := ledger.NewRepository(exec).GetTransaction(ctx, transactionID)
 	if err != nil {
@@ -235,13 +228,101 @@ func (s *Service) ApplyExpensePlanTx(ctx context.Context, exec database.DBTX, tr
 	if err := checkFundAccount(ctx, exec, movement.AccountID, false); err != nil {
 		return fmt.Errorf("%w: %w", ErrNotLinkable, err)
 	}
+	return s.applyOutflowPlanTx(ctx, exec, transactionID, movement.AccountID, -movement.AmountMinor, plan, releaseReason)
+}
 
-	budget := -movement.AmountMinor
-	spend, used, err := s.useEntries(ctx, exec, movement.AccountID, plan.Spend, budget)
+// ApplyCardPaymentPlanTx records, through exec, what paying a credit card from
+// a USD account does to savings (D-12, M8.2): SPEND for reserved money the
+// payment was for -- a goal of paying the card off -- and RELEASE, with a
+// reason, for reserved money given back to cover it. Both are linked to the
+// payment, exactly as an expense's are (TD-086), and exec must be the
+// transaction that recorded it (internal/application).
+//
+// The payment is a TRANSFER or an FX_EXCHANGE whose destination is a liability
+// and whose source is a USD asset (TD-091, TD-094). The budget is what left the
+// source, in USD: for an exchange into a VES card that is the dollars
+// delivered, not the bolívares received. Without a plan the payment records as
+// always and the fund reports the account overallocated if it fell below what
+// is reserved on it.
+func (s *Service) ApplyCardPaymentPlanTx(ctx context.Context, exec database.DBTX, transactionID int64, plan ExpensePlan) error {
+	if plan.Empty() {
+		return nil
+	}
+	releaseReason, err := checkOutflowPlan(plan, "a card payment")
 	if err != nil {
 		return err
 	}
-	release, _, err := s.useEntries(ctx, exec, movement.AccountID, plan.Release, budget-used, spend...)
+	lrepo := ledger.NewRepository(exec)
+	tx, err := lrepo.GetTransaction(ctx, transactionID)
+	if err != nil {
+		return fmt.Errorf("reading payment %d: %w", transactionID, err)
+	}
+	if tx.Type != ledger.Transfer && tx.Type != ledger.FXExchange {
+		return fmt.Errorf("%w: transaction %d is %s, not a card payment", ErrNotLinkable, transactionID, tx.Type)
+	}
+	source, destination, err := twoSides(ctx, lrepo, transactionID)
+	if err != nil {
+		return err
+	}
+	dest, err := account.NewRepository(exec).Get(ctx, destination.AccountID)
+	if err != nil {
+		return fmt.Errorf("looking up account %d: %w", destination.AccountID, err)
+	}
+	if dest.Type.Nature() != account.Liability {
+		return fmt.Errorf("%w: %q is not a card, so the transaction is not a card payment", ErrNotLinkable, dest.Name)
+	}
+	if err := checkFundAccount(ctx, exec, source.AccountID, false); err != nil {
+		return fmt.Errorf("%w: %w", ErrNotLinkable, err)
+	}
+	return s.applyOutflowPlanTx(ctx, exec, transactionID, source.AccountID, -source.AmountMinor, plan, releaseReason)
+}
+
+// checkOutflowPlan validates what does not need the database: the request key,
+// and the reason a release must give -- checked before any amount.
+func checkOutflowPlan(plan ExpensePlan, what string) (releaseReason string, err error) {
+	if err := validateRequestKey(plan.RequestKey + releaseSuffix); err != nil {
+		return "", err
+	}
+	if len(plan.Release) > 0 {
+		r, err := normalizeReason(plan.Reason)
+		if err != nil {
+			return "", fmt.Errorf("releasing savings for %s: %w", what, err)
+		}
+		releaseReason = r
+	}
+	return releaseReason, nil
+}
+
+// twoSides returns the source (negative) and destination (positive) movements
+// of a two-sided transaction.
+func twoSides(ctx context.Context, lrepo *ledger.Repository, transactionID int64) (source, destination ledger.Movement, err error) {
+	movements, err := lrepo.ListMovementsFor(ctx, transactionID)
+	if err != nil {
+		return ledger.Movement{}, ledger.Movement{}, err
+	}
+	for _, m := range movements {
+		if m.AmountMinor < 0 {
+			source = m
+		} else {
+			destination = m
+		}
+	}
+	if source.ID == 0 || destination.ID == 0 {
+		return ledger.Movement{}, ledger.Movement{}, fmt.Errorf("%w: transaction %d has no source and destination", ErrNotLinkable, transactionID)
+	}
+	return source, destination, nil
+}
+
+// applyOutflowPlanTx turns a plan into the SPEND and RELEASE operations of an
+// outflow of budget from an account, linked to its transaction.
+func (s *Service) applyOutflowPlanTx(ctx context.Context, exec database.DBTX, transactionID, accountID, budget int64,
+	plan ExpensePlan, releaseReason string,
+) error {
+	spend, used, err := s.useEntries(ctx, exec, accountID, plan.Spend, budget)
+	if err != nil {
+		return err
+	}
+	release, _, err := s.useEntries(ctx, exec, accountID, plan.Release, budget-used, spend...)
 	if err != nil {
 		return err
 	}

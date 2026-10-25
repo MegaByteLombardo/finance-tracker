@@ -1,0 +1,59 @@
+{{ define "card_obligations" }}
+{{/* What the bank asks for against the statement in force (M8.2). The dot is a
+     CardStandingView. Every figure and status was derived by the backend on
+     this request (TD-092); nothing here compares or adds amounts. */}}
+{{ $c := .Card }}
+<section class="savings-kpis" aria-label="Obligaciones de la tarjeta">
+  <article class="card dash-kpi">
+    <h2 class="dash-kpi-label">Facturado pendiente</h2>
+    <div class="lcd">
+      <span class="lcd-value{{ if .BilledPendingMinor }} is-down{{ end }}" data-fit>{{ formatAmount .BilledPendingFormatted }}<span class="lcd-unit">{{ $c.CurrencyCode }}</span></span>
+    </div>
+    <p class="dash-kpi-meta">
+      {{ if .HasCurrent }}Corte del {{ formatDate .Current.ClosingDate }}{{ if not .Current.Registered }} · <span class="badge badge-neutral">calculado</span>{{ end }}
+      {{ if .HasRefundsAfterClosing }}<br>Neto de devoluciones posteriores: {{ formatAmount .BilledNetOfRefundsFormatted }} ({{ refundPolicyLabel .RefundPolicy }}){{ end }}
+      {{ else }}Ningún ciclo ha cerrado todavía.{{ end }}
+    </p>
+  </article>
+  <article class="card dash-kpi">
+    <h2 class="dash-kpi-label">Mínimo pendiente</h2>
+    <div class="lcd">
+      {{ if .MinimumKnown }}
+      <span class="lcd-value{{ if .MinimumPendingMinor }} is-down{{ end }}" data-fit>{{ formatAmount .MinimumPendingFormatted }}<span class="lcd-unit">{{ $c.CurrencyCode }}</span></span>
+      {{ else }}
+      <span class="lcd-value" data-fit>&mdash;</span>
+      {{ end }}
+    </div>
+    <p class="dash-kpi-meta">{{ if .MinimumKnown }}Las devoluciones nunca lo reducen.{{ else if .HasCurrent }}El estado vigente no indica un mínimo{{ if not .Current.Registered }}: regístralo{{ end }}.{{ else }}Sin estado de cuenta vigente.{{ end }}</p>
+  </article>
+  <article class="card dash-kpi">
+    <h2 class="dash-kpi-label">Vencido</h2>
+    <div class="lcd">
+      <span class="lcd-value{{ if .PastDueMinor }} is-down{{ end }}" data-fit>{{ formatAmount .PastDueFormatted }}<span class="lcd-unit">{{ $c.CurrencyCode }}</span></span>
+    </div>
+    <p class="dash-kpi-meta">{{ if .PastDueMinor }}Mínimos atrasados de {{ range $i, $d := .PastDueCycles }}{{ if $i }}, {{ end }}{{ formatDate $d }}{{ end }}. Un pago de este monto los pone al día todos a la vez.{{ else }}Ningún mínimo atrasado con vencimiento conocido.{{ end }}</p>
+  </article>
+  <article class="card dash-kpi">
+    <h2 class="dash-kpi-label">Vencimiento</h2>
+    <div class="lcd">
+      {{ if and .HasCurrent .Current.DueDate }}
+      <span class="lcd-value" data-fit>{{ formatDate (derefTime .Current.DueDate) }}</span>
+      {{ else }}
+      <span class="lcd-value" data-fit>&mdash;</span>
+      {{ end }}
+    </div>
+    <p class="dash-kpi-meta">
+      {{ if .HasCurrent }}<span class="badge {{ if eq .Current.Status "OVERDUE" }}badge-expense{{ else if eq .Current.Status "PAID" }}badge-active{{ else }}badge-neutral{{ end }}">{{ .Current.StatusLabel }}</span>
+      {{ if .Current.DueEstimated }} · estimado por las condiciones{{ else if not .Current.DueDate }} · desconocido: nada se marca como vencido{{ end }}{{ end }}
+      {{ if .PrepaidMinor }}<br>Anticipado al próximo estado: {{ formatAmount .PrepaidFormatted }}{{ end }}
+    </p>
+  </article>
+</section>
+{{ if .Warnings }}
+<div class="alert alert-warning" role="alert">
+  <div>
+    {{ range .Warnings }}<p style="margin: 0 0 var(--space-1);">{{ .Text }}</p>{{ end }}
+  </div>
+</div>
+{{ end }}
+{{ end }}

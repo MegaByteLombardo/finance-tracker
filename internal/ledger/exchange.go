@@ -244,6 +244,20 @@ type resolvedExchange struct {
 	description            *string
 }
 
+// RecordExchangeTx is RecordExchange without the transaction, so that a card
+// payment from another currency commits with its request key and its savings
+// plan (M8.2, internal/application). The rules are RecordExchange's.
+func RecordExchangeTx(ctx context.Context, exec database.DBTX, in RecordExchangeInput) (TransactionView, error) {
+	return recordExchangeTx(ctx, exec, exchangeRequest{
+		sourceAccountID:      in.SourceAccountID,
+		sourceAmount:         in.SourceAmount,
+		destinationAccountID: in.DestinationAccountID,
+		destinationAmount:    in.DestinationAmount,
+		description:          in.Description,
+		effectiveDate:        in.EffectiveDate,
+	})
+}
+
 // recordExchangeTx validates a request and writes the transaction and its two
 // movements through exec.
 //

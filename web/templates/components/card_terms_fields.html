@@ -78,4 +78,18 @@
     <div class="form-help">Márcala solo si el contrato dice si la deuda es nominal o indexada a la UVC. Si no, se muestra como supuesto.</div>
   </div>
 </div>
+
+<h2 class="form-section-title">Devoluciones</h2>
+
+<div class="form-row form-row-aligned">
+  <div class="form-group">
+    <label class="form-label" for="refund_policy">Una devolución después del corte</label>
+    <select class="form-control {{ if .HasError "refund_policy" }}is-invalid{{ end }}" id="refund_policy" name="refund_policy">
+      <option value="NEXT_STATEMENT" {{ if ne .Terms.RefundPolicy "REDUCES_BILLED" }}selected{{ end }}>Aparece en el próximo estado de cuenta</option>
+      <option value="REDUCES_BILLED" {{ if eq .Terms.RefundPolicy "REDUCES_BILLED" }}selected{{ end }}>Reduce lo facturado del estado vigente</option>
+    </select>
+    <div class="form-help">Siempre baja la deuda. Esto solo decide si el banco descuenta la devolución de lo que ya facturó.
+      Nunca cuenta como pago ni reduce el mínimo. Si no lo sabes, deja la primera: el próximo estado de cuenta lo mostrará.</div>
+  </div>
+</div>
 {{ end }}

@@ -197,6 +197,7 @@ func resolveTerms(ctx context.Context, exec database.DBTX, accountID int64, in T
 		Denomination:           in.Denomination,
 		DenominationConfirmed:  in.DenominationConfirmed,
 		DefaultPaymentMethodID: in.DefaultPaymentMethodID,
+		RefundPolicy:           in.RefundPolicy,
 	}
 
 	if in.CreditLimit != nil {

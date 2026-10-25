@@ -1,0 +1,135 @@
+{{ define "content" }}
+{{ $r := .Recon }}
+{{ $c := $r.Card }}
+{{ $cy := $r.Cycle }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Conciliación del corte {{ formatDate $cy.ClosingDate }}</h1>
+    <p class="page-subtitle">
+      {{ $c.Name }} · período {{ formatDate $cy.PeriodStart }} &rarr; {{ formatDate $cy.ClosingDate }}.
+      Compara lo que dice el banco con lo que dicen tus movimientos. Solo informa: nada se corrige solo.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a href="/cards/{{ $c.AccountID }}/statements" class="btn btn-secondary">&larr; Estados de cuenta</a>
+    <a href="/cards/{{ $c.AccountID }}/statements/{{ $cy.StatementID }}/edit" class="btn btn-secondary">Corregir cifras</a>
+  </div>
+</div>
+
+{{ with .Alert }}<div class="alert alert-{{ .Type }}" role="alert"><div>{{ .Message }}</div></div>{{ end }}
+
+<section class="savings-kpis" aria-label="Diferencia con el banco">
+  <article class="card dash-kpi">
+    <h2 class="dash-kpi-label">Según el banco</h2>
+    <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $r.BankOwedFormatted }}<span class="lcd-unit">{{ $c.CurrencyCode }}</span></span></div>
+    <p class="dash-kpi-meta">Saldo al corte del estado de cuenta.</p>
+  </article>
+  <article class="card dash-kpi">
+    <h2 class="dash-kpi-label">Según tus movimientos</h2>
+    <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $r.LedgerOwedFormatted }}<span class="lcd-unit">{{ $c.CurrencyCode }}</span></span></div>
+    <p class="dash-kpi-meta">Todo lo que pertenece a este estado o a uno anterior.</p>
+  </article>
+  <article class="card dash-kpi">
+    <h2 class="dash-kpi-label">Diferencia</h2>
+    <div class="lcd"><span class="lcd-value{{ if not $r.Reconciled }} is-down{{ end }}" data-fit>{{ formatAmount $r.DifferenceFormatted }}<span class="lcd-unit">{{ $c.CurrencyCode }}</span></span></div>
+    <p class="dash-kpi-meta">{{ if $r.Reconciled }}<span class="badge badge-active">Conciliado</span>{{ else }}Banco menos movimientos. Positivo: el banco cobró algo que no registraste (un cargo, una compra) o no vio un pago.{{ end }}</p>
+  </article>
+</section>
+
+{{ if $r.Warnings }}
+<div class="alert alert-warning" role="alert"><div>{{ range $r.Warnings }}<p style="margin: 0 0 var(--space-1);">{{ .Text }}</p>{{ end }}</div></div>
+{{ end }}
+
+{{ if or $r.Previous $r.Payments $r.Debits $r.PastDue }}
+<section class="card dash-section" aria-labelledby="breakdown-title">
+  <div class="card-header"><h2 id="breakdown-title" class="card-title">De dónde sale la diferencia</h2></div>
+  <div class="card-body">
+    <div class="table-container">
+      <table class="data-table">
+        <thead><tr><th>Concepto</th><th class="cell-right">Banco</th><th class="cell-right">Tus movimientos</th><th class="cell-right">Diferencia</th></tr></thead>
+        <tbody>
+          {{ with $r.Previous }}<tr><td>Saldo anterior</td><td class="cell-right cell-mono">{{ formatAmount .BankFormatted }}</td><td class="cell-right cell-mono">{{ formatAmount .LedgerFormatted }}</td><td class="cell-right cell-mono {{ if not .Matches }}amount-expense{{ end }}">{{ formatAmount .DifferenceFormatted }}</td></tr>{{ end }}
+          {{ with $r.Payments }}<tr><td>Pagos y abonos</td><td class="cell-right cell-mono">{{ formatAmount .BankFormatted }}</td><td class="cell-right cell-mono">{{ formatAmount .LedgerFormatted }}</td><td class="cell-right cell-mono {{ if not .Matches }}amount-expense{{ end }}">{{ formatAmount .DifferenceFormatted }}</td></tr>{{ end }}
+          {{ with $r.Debits }}<tr><td>Consumos y cargos</td><td class="cell-right cell-mono">{{ formatAmount .BankFormatted }}</td><td class="cell-right cell-mono">{{ formatAmount .LedgerFormatted }}</td><td class="cell-right cell-mono {{ if not .Matches }}amount-expense{{ end }}">{{ formatAmount .DifferenceFormatted }}</td></tr>{{ end }}
+          {{ if $r.Unexplained }}<tr><td>Sin explicar por lo anterior</td><td></td><td></td><td class="cell-right cell-mono">{{ formatAmount $r.Unexplained }}</td></tr>{{ end }}
+          {{ with $r.PastDue }}<tr><td>Vencido (calculado al corte)</td><td class="cell-right cell-mono">{{ formatAmount .BankFormatted }}</td><td class="cell-right cell-mono">{{ formatAmount .LedgerFormatted }}</td><td class="cell-right cell-mono {{ if not .Matches }}amount-expense{{ end }}">{{ formatAmount .DifferenceFormatted }}</td></tr>{{ end }}
+        </tbody>
+      </table>
+    </div>
+    <p class="form-help">La diferencia total es saldo anterior &minus; pagos + consumos. Si el vencido del banco no coincide con el
+      calculado, puede que el mínimo no incluya lo atrasado como se supone, o que falte un pago.</p>
+  </div>
+</section>
+{{ end }}
+
+<section class="card dash-section" aria-labelledby="candidates-title">
+  <div class="card-header"><h2 id="candidates-title" class="card-title">Movimientos cerca del corte, en otro estado</h2></div>
+  <div class="card-body">
+    {{ if $r.Candidates }}
+    <p class="form-help">Si el banco incluyó alguno en este estado (por ejemplo, una compra que contabilizó tarde o un pago del día del corte),
+      asígnalo aquí. La fecha del movimiento no cambia: la tasa y la historia siguen usando la fecha de la operación.</p>
+    <div class="table-container">
+      <table class="data-table">
+        <thead><tr><th>Fecha</th><th>Movimiento</th><th>Detalle</th><th class="cell-right">Efecto</th><th>Hoy pertenece al corte</th><th class="cell-right"></th></tr></thead>
+        <tbody>
+          {{ range $r.Candidates }}
+          <tr>
+            <td style="white-space: nowrap;">{{ formatDate .Date }}</td>
+            <td>{{ .RoleLabel }}</td>
+            <td>{{ .Description }}</td>
+            <td class="cell-right cell-mono {{ if .Credit }}amount-income{{ else }}amount-expense{{ end }}">{{ formatAmount .AmountFormatted }}</td>
+            <td>{{ formatDate .ClosingDate }}{{ if .Asserted }} <span class="badge badge-warning">asignado</span>{{ end }}</td>
+            <td class="cell-right">
+              {{ if .CanAssert }}
+              <form action="/cards/{{ $c.AccountID }}/statements/{{ $cy.StatementID }}/assertions" method="POST" style="display: inline;">
+                <input type="hidden" name="transaction_id" value="{{ .TransactionID }}">
+                <input type="hidden" name="action" value="assign">
+                <button type="submit" class="btn btn-sm btn-secondary">Incluir en este estado</button>
+              </form>
+              {{ else }}<span class="text-muted" title="Ocurrió después de este corte">posterior al corte</span>{{ end }}
+            </td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+    </div>
+    {{ else }}
+    <p class="text-muted">Ningún movimiento de otro estado cae a menos de 5 días de este corte.</p>
+    {{ end }}
+  </div>
+</section>
+
+<section class="card dash-section" aria-labelledby="members-title">
+  <div class="card-header"><h2 id="members-title" class="card-title">Movimientos de este estado ({{ len $r.Members }})</h2></div>
+  <div class="card-body">
+    {{ if $r.Members }}
+    <div class="table-container">
+      <table class="data-table">
+        <thead><tr><th>Fecha</th><th>Movimiento</th><th>Detalle</th><th class="cell-right">Efecto</th><th class="cell-right"></th></tr></thead>
+        <tbody>
+          {{ range $r.Members }}
+          <tr>
+            <td style="white-space: nowrap;">{{ formatDate .Date }}</td>
+            <td>{{ .RoleLabel }}{{ if .Asserted }} <span class="badge badge-warning">asignado</span>{{ end }}</td>
+            <td>{{ .Description }}</td>
+            <td class="cell-right cell-mono {{ if .Credit }}amount-income{{ else }}amount-expense{{ end }}">{{ formatAmount .AmountFormatted }}</td>
+            <td class="cell-right">
+              {{ if .Asserted }}
+              <form action="/cards/{{ $c.AccountID }}/statements/{{ $cy.StatementID }}/assertions" method="POST" style="display: inline;">
+                <input type="hidden" name="transaction_id" value="{{ .TransactionID }}">
+                <input type="hidden" name="action" value="clear">
+                <button type="submit" class="btn btn-sm btn-secondary" title="Vuelve a decidir la fecha y el calendario">Quitar asignación</button>
+              </form>
+              {{ end }}
+            </td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+    </div>
+    {{ else }}
+    <p class="text-muted">Ningún movimiento registrado pertenece a este estado de cuenta.</p>
+    {{ end }}
+  </div>
+</section>
+{{ end }}

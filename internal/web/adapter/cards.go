@@ -144,6 +144,7 @@ func toDomainTerms(in web.CreditCardTermsInput) creditcard.TermsInput {
 		Denomination:           creditcard.Denomination(in.Denomination),
 		DenominationConfirmed:  in.DenominationConfirmed,
 		DefaultPaymentMethodID: in.DefaultPaymentMethodID,
+		RefundPolicy:           creditcard.RefundPolicy(in.RefundPolicy),
 	}
 }
 
@@ -165,6 +166,7 @@ func toWebCreditCard(v creditcard.View) web.CreditCardView {
 		Denomination:           string(c.Denomination),
 		DenominationConfirmed:  c.DenominationConfirmed,
 		DefaultPaymentMethodID: c.DefaultPaymentMethodID,
+		RefundPolicy:           string(c.RefundPolicy),
 		BalanceMinor:           p.BalanceMinor,
 		BalanceFormatted:       money.Format(p.BalanceMinor, v.MinorUnit),
 		DebtMinor:              p.DebtMinor,
@@ -270,6 +272,18 @@ func TranslateCardError(err error) error {
 		return translateError(web.ErrRefundExceedsOriginal, err)
 	case errors.Is(err, ledger.ErrInvalidRequestKey):
 		return translateError(web.ErrInvalidRequestKey, err)
+	case errors.Is(err, creditcard.ErrStatementNotFound):
+		return translateError(web.ErrStatementNotFound, translateError(web.ErrNotFound, err))
+	case errors.Is(err, creditcard.ErrInvalidStatement):
+		return translateError(web.ErrInvalidStatement, translateError(web.ErrInvalidInput, err))
+	case errors.Is(err, creditcard.ErrStatementExists):
+		return translateError(web.ErrStatementExists, err)
+	case errors.Is(err, creditcard.ErrStatementOverlap):
+		return translateError(web.ErrStatementOverlap, err)
+	case errors.Is(err, creditcard.ErrAssertionAfterClosing):
+		return translateError(web.ErrAssertionAfterClosing, err)
+	case errors.Is(err, creditcard.ErrNotACardMovement):
+		return translateError(web.ErrNotACardMovement, translateError(web.ErrNotFound, err))
 	case errors.Is(err, account.ErrNatureChange):
 		return translateError(web.ErrNatureChange, err)
 	}

@@ -1,12 +1,30 @@
 # M8 — Credit & Debt Management: auditoría y plan técnico (rev. 2)
 
 **Estado:** la arquitectura está APROBADA CONCEPTUALMENTE. La revisión 2 incorpora
-las correcciones del review. **M8.1 está implementado** (migraciones 00019–00021,
-TD-088 a TD-091, TD-094 y TD-095) y pendiente de validación funcional; lo
-construido está en [m8-contract.md](m8-contract.md). Se adoptaron las propuestas
-del §11 que tocan a M8.1: `foreign_key_check` en `backup.Validate`. D-11 se
-aprobó como valor por defecto provisional y D-12 se resolvió por la alternativa
-(ver R1). M8.2–M8.5 no tienen código.
+las correcciones del review. **M8.1 está implementado y validado** (migraciones
+00019–00021, TD-088 a TD-091, TD-094 y TD-095). **M8.2 está implementado**
+(migración 00022, TD-092) y pendiente de validación funcional; lo construido está
+en [m8-contract.md](m8-contract.md). Se adoptaron las propuestas del §11 que tocan
+a M8.1: `foreign_key_check` en `backup.Validate`. D-11 se aprobó como valor por
+defecto provisional y D-12 se resolvió por la alternativa (ver R1) y está
+construida en M8.2. M8.3–M8.5 no tienen código.
+
+Desviaciones de M8.2 respecto de este plan, todas documentadas en el contrato:
+- `AssertStatementMembership` vive en `creditcard.Service` (escribe un solo
+  dominio), no en `internal/application`.
+- Registrar un estado de cuenta es idempotente por su clave natural
+  (tarjeta, fecha de corte) en lugar de `operation_requests`: el mismo estado dos
+  veces devuelve el primero y uno distinto con el mismo corte es un 409.
+- El mínimo incumplido y el facturado no cancelado al vencimiento cuentan los
+  pagos hechos **hasta el día del vencimiento inclusive** (`D_j < t`), porque ese
+  día todavía se puede pagar.
+- Un estado registrado reemplaza el corte del calendario **más cercano** (además
+  de los que caen dentro de su período), para que un corte adelantado no abra un
+  ciclo de un día.
+- Un estado de cuenta no puede cerrar después de hoy, y una tarjeta solo se paga
+  desde una cuenta de activo.
+- La TD de hechos de calendario de M8.5 (llamada "TD-096" en R9) se renumerará a
+  la siguiente libre: TD-096 es el ticker tape.
 
 Desviación respecto de §4.2: `operation_requests` tiene, además de
 `transaction_id`, un `account_id` (ambos opcionales, al menos uno presente),

@@ -2798,6 +2798,71 @@ them and fork every rule that names them.
 names for events the ledger already spells. Classifying charges by category —
 renaming a category would change what is interest.
 
+## TD-092 — What a card owes and what a payment settled are derived; only the bank's facts and the user's assertions are stored
+
+**Status:** Accepted · **Milestone:** M8.2
+
+**Decision.** `credit_statements` stores what the issuer printed — period,
+closing, due date, the balance at the closing (ledger sign), the minimum and,
+when the bank reports them, the previous balance, payments, debits and past-due
+amount — and `credit_statement_assignments` stores the user's assertion that the
+bank billed a movement in a statement other than the one its date implies.
+Nothing else is stored. `creditcard.Derive(facts, asOf)` is a pure function that
+computes, on every read, the cycles (registered or computed from the calendar),
+their status (`OPEN`, `BILLED`, `PARTIALLY_PAID`, `MINIMUM_MET`, `PAID`,
+`OVERDUE`, `DUE_UNKNOWN`), the billed and minimum still pending, the overdue
+amount `V` as the **maximum** unmet minimum among cycles already due (never the
+sum: one payment raises every `P_j` at once), and the allocation of every
+payment as the partition of `[p, p+x)` over the thresholds of the statement in
+force (overdue, minimum, rest of the billed balance, prepaid, credit balance),
+bounded to stay monotone and flagged when bounded (plan R2.3). The rules:
+
+- **Membership** of a movement is the first cycle closing on or after its date;
+  a month without the statement day closes on its last day; a registered
+  statement replaces the calendar closing nearest to it (a bank that closed a
+  day early opens no one-day cycle); an assertion replaces the rule for one
+  movement and is honoured only while the statement closes on or after the
+  movement's date — otherwise it is reported and the rule applies.
+- **Refunds are never payments**: they never count towards the minimum or what
+  is overdue. Their effect on the billed balance is the card's `refund_policy`
+  (`NEXT_STATEMENT` by default, `REDUCES_BILLED`).
+- **An unknown due date never makes anything overdue.** A due date is the
+  statement's, else estimated from the card's terms, else unknown; an unknown
+  minimum removes the minimum segment.
+- A missed minimum and the billed balance unpaid at the due date are facts of
+  their cycle, counted with the payments made **on or before** the due date.
+- Reconciliation shows `Δ = B − L` per registered statement, broken down by the
+  bank's figures when present, with the movements within five days of the
+  closing as candidates for an assertion. It informs and never corrects.
+
+A statement closes no later than today and never overlaps another of the same
+card; moving its closing before a movement asserted into it is refused
+(`ErrAssertionAfterClosing`). Recording one is idempotent on its natural key:
+the same statement twice returns the first, a different one on the same closing
+is `ErrStatementExists` (409). Assertions are written by `creditcard.Service`,
+since they touch one domain.
+
+A payment is recorded by `application.RecordCardPayment`: a `TRANSFER` from an
+asset in the card's currency, an `FX_EXCHANGE` from one in another currency,
+idempotent on its request key, with the savings plan of D-12 applied in the same
+transaction (`savings.ApplyCardPaymentPlanTx`: `SPEND` / `RELEASE` linked to the
+payment, budget = what left the USD source).
+
+**Rationale.** An allocation stored when a payment is recorded is stale the
+moment a purchase is back-dated, a statement corrected or an earlier payment
+entered (plan R2.2, option P); it is the failure mode TD-052 forbids for the net
+worth. Derived allocations are exact for the facts in force, reproducible with
+their trace, and a history "as of" a date is the same function with the facts
+cut at that date. What the bank did differently from the rule is a fact the user
+states (an assertion) or a figure the bank printed (the statement), never a
+correction typed over a computed row.
+
+**Alternatives considered.** `payment_allocations` persisted at recording —
+cascading rewrites and a second source of truth. Derivation without assertions —
+cannot represent a movement the bank posted late. A `posted_date` column — an
+indirect stand-in for the one consequence it has, membership (R7). Summing the
+overdue deficits — counts one payment several times.
+
 ## TD-094 — An income is saved from only when credited to an asset; only assets back reserved money
 
 **Status:** Accepted · **Milestone:** M8.1 (moved from M8.4)

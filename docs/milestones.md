@@ -1012,8 +1012,8 @@ submilestones, each approved and closed on its own. The plan and its audit are
 
 | Submilestone | Status |
 | --- | --- |
-| M8.1 — Credit accounts & liability ledger | Delivered, awaiting functional validation |
-| M8.2 — Statements & payments | `PLANNED` |
+| M8.1 — Credit accounts & liability ledger | Delivered and validated |
+| M8.2 — Statements & payments | Delivered, awaiting functional validation |
 | M8.3 — FX benefit analytics | `PLANNED` |
 | M8.4 — Liquidity & M7 integration | `PLANNED` |
 | M8.5 — Credit dashboard & optimisation | `PLANNED` |
@@ -1064,6 +1064,53 @@ binary over HTTP. `-race` green in the Linux container (golang:1.27-trixie).
 Statements, cycles, minimums, due dates, payment allocation and reconciliation
 (M8.2); FX analytics (M8.3); liquidity (M8.4); the card dashboard and mobile
 card screens (M8.5).
+
+### M8.2 delivered
+
+- **Statements and assertions** (migration 00022, TD-092): what the bank printed
+  in `credit_statements`, "the bank billed this movement there" in
+  `credit_statement_assignments`, and the card's `refund_policy`.
+- **The calendar**: closing on `min(day, last day of the month)`, membership to
+  the first cycle closing on or after a movement's date, a registered statement
+  replacing the nearest calendar closing, an assertion replacing the rule.
+- **Layer O** (`creditcard.Derive`): cycles and their status, billed and minimum
+  pending, overdue as a maximum, missed minimums, prepaid, and every payment
+  partitioned over overdue / minimum / billed / prepaid / credit with its trace.
+  Derived on every read; an unknown due date never makes anything overdue.
+- **Reconciliation**: `Δ = B − L` per statement, broken down by the bank's
+  figures, with candidates near the closing; it informs, and the user asserts.
+- **Payments** (`application.RecordCardPayment`): a transfer or an exchange into
+  the card from an asset, idempotent, with the D-12 savings plan for a USD
+  source; M7's reconciliation follows a `SPEND` to its payment.
+- **Web:** `/cards/{id}/payments`, `/cards/{id}/statements` (list, record,
+  correct, reconcile, assert), the obligations panel on the card's page, the
+  refund policy among the terms.
+
+### M8.2 verification
+
+`go vet` clean, `gofmt` clean and `go test ./... -count=1` green. Pure tests of
+the engine: E1–E7 with the numbers of plan R2.4; I5 over 400 generated
+histories (random statement days, statements, due dates, minimums, payments,
+exchanges, refunds, purchases and assertions); `V` as a maximum; unknown minimum
+and due date; estimated due date; no statement in force; bounded thresholds with
+their warning; the calendar on the 25th, across a year, the 31st in February and
+a leap year; an early closing, an assertion across a year, an impossible and an
+orphan assertion; future movements left out. Against real SQLite: statements
+recorded, replayed, refused (same closing, overlap, due date, closing in the
+future, malformed amounts); an assertion before the closing refused; a closing
+moved before an asserted movement refused, and accepted once withdrawn; payments
+from VES and from USD with and without a plan, refused plans leaving nothing,
+a corrected payment reported as `SPEND_MISMATCH`; the 21 → 22 schema and the
+00022 rollback. M7's suite unchanged. Smoke-tested on the binary over a copy of
+the real database (migration 21 → 22 with its snapshot, a statement recorded and
+reconciled, a USD payment replayed once). `-race` pending in the Linux
+container.
+
+### Not in M8.2
+
+The components layer and the FX effect of a debt (M8.3); liquidity (M8.4); the
+card dashboard, history, simulation, calendar facts and mobile card screens
+(M8.5). Interest is never computed.
 
 ---
 

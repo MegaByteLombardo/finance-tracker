@@ -10,8 +10,8 @@ import (
 
 // M8.1 screens: the cards, opening one, its terms, and what is recorded on it
 // -- purchases, charges and refunds. A payment is a TRANSFER or an FX_EXCHANGE
-// into the card (TD-091), recorded on those forms; M8.2 adds the payment
-// screen with its suggested amounts.
+// into the card (TD-091); M8.2 records it on its own screen, with the amounts
+// the bank asks for (card_statements.go).
 //
 // Every form carries a request key rendered here (TD-095): a double submission
 // returns what the first one recorded. A refused submission re-renders with
@@ -36,7 +36,10 @@ type CardsView struct {
 
 // CardDetailView is /cards/{id}.
 type CardDetailView struct {
-	Card      CreditCardView
+	Card CreditCardView
+	// Standing is what the bank asks for (M8.2); nil when it could not be
+	// derived, which the page reports instead of failing.
+	Standing  *CardStandingView
 	Movements []CardMovement
 	Error     string
 }
@@ -82,6 +85,7 @@ type CardTermsFields struct {
 	Denomination           string
 	DenominationConfirmed  bool
 	DefaultPaymentMethodID int64
+	RefundPolicy           string
 }
 
 // CardTermsForm is /cards/{id}/edit.
@@ -128,6 +132,7 @@ func cardTermsFieldsFrom(c CreditCardView) CardTermsFields {
 		ProcessingDays:        strconv.Itoa(c.PaymentProcessingDays),
 		Denomination:          c.Denomination,
 		DenominationConfirmed: c.DenominationConfirmed,
+		RefundPolicy:          c.RefundPolicy,
 	}
 	if c.ProductName != nil {
 		f.ProductName = *c.ProductName
@@ -152,6 +157,7 @@ func cardTermsFieldsFromForm(r *http.Request) CardTermsFields {
 		Denomination:           strings.TrimSpace(r.FormValue("denomination")),
 		DenominationConfirmed:  r.FormValue("denomination_confirmed") == "1",
 		DefaultPaymentMethodID: method,
+		RefundPolicy:           strings.TrimSpace(r.FormValue("refund_policy")),
 	}
 }
 
@@ -163,6 +169,7 @@ func (f CardTermsFields) termsInput(errs FormErrors) CreditCardTermsInput {
 		CreditLimit:           OptionalString(f.CreditLimit),
 		Denomination:          f.Denomination,
 		DenominationConfirmed: f.DenominationConfirmed,
+		RefundPolicy:          f.RefundPolicy,
 	}
 	if day, err := strconv.Atoi(f.StatementDay); err != nil {
 		errs["statement_day"] = "Indica el día de corte (1 a 31)."
@@ -252,7 +259,7 @@ func handleNewCardForm(logger *slog.Logger, renderer *Renderer, svcs *Services) 
 			RequestKey:      key,
 			CurrencyCode:    "VES",
 			OpeningDebtDate: TodayDate(),
-			Terms:           CardTermsFields{StatementDay: "25", ProcessingDays: "0", Denomination: "NOMINAL"},
+			Terms:           CardTermsFields{StatementDay: "25", ProcessingDays: "0", Denomination: "NOMINAL", RefundPolicy: "NEXT_STATEMENT"},
 			FormErrors:      FormErrors{},
 		}
 		if !loadCardOpenOptions(w, r, logger, svcs, &form) {
@@ -362,6 +369,12 @@ func handleCard(logger *slog.Logger, renderer *Renderer, svcs *Services) http.Ha
 			return
 		}
 		view := CardDetailView{Card: card}
+		if standing, err := svcs.Cards.Standing(r.Context(), card.AccountID); err != nil {
+			logger.Error("deriving a card's obligations", slog.Any("error", err))
+			view.Error = "No se pudieron calcular los estados de cuenta."
+		} else {
+			view.Standing = &standing
+		}
 		movements, err := svcs.Cards.Movements(r.Context(), card.AccountID, 100)
 		if err != nil {
 			logger.Error("listing card movements", slog.Any("error", err))

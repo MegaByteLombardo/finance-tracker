@@ -1003,6 +1003,12 @@ input[data-type="currency"] {
   padding: var(--space-8);
 }
 
+/* A panel that introduces a form takes the form's column, so the two read as one. */
+.payment-due {
+  max-width: 680px;
+  margin: 0 auto var(--space-5);
+}
+
 .form-group { margin-bottom: var(--space-5); }
 
 .form-label {
@@ -2092,8 +2098,11 @@ input[data-type="currency"] {
 .savings-kpis {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-4);
+  gap: var(--space-6) var(--space-4);
 }
+/* Two KPI rows in a row (a card's position, then its obligations) keep the
+   same distance as the rows inside one grid. */
+.savings-kpis + .savings-kpis { margin-top: var(--space-6); }
 .savings-split {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

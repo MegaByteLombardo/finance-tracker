@@ -93,6 +93,7 @@ func TestTablesHaveExactlyTheExpectedColumns(t *testing.T) {
 			"account_id", "product_name", "credit_limit_minor", "statement_day",
 			"due_days_after_statement", "payment_processing_days", "denomination",
 			"denomination_confirmed", "default_payment_method_id", "created_at", "updated_at",
+			"refund_policy",
 		},
 		"credit_charges": {
 			"transaction_id", "kind", "created_at",
@@ -102,6 +103,14 @@ func TestTablesHaveExactlyTheExpectedColumns(t *testing.T) {
 		},
 		"operation_requests": {
 			"request_key", "transaction_id", "account_id", "created_at",
+		},
+		"credit_statements": {
+			"id", "card_account_id", "period_start", "closing_date", "due_date",
+			"closing_balance_minor", "minimum_payment_minor", "previous_balance_minor",
+			"payments_minor", "debits_minor", "past_due_minor", "created_at", "updated_at",
+		},
+		"credit_statement_assignments": {
+			"transaction_id", "statement_id", "created_at",
 		},
 	}
 

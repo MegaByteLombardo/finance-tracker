@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/MegaByteLombardo/finance-tracker/internal/account"
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
 	"github.com/MegaByteLombardo/finance-tracker/internal/money"
@@ -26,8 +27,9 @@ const (
 	// IssueOverConfirmed: an income has more confirmed than its live
 	// suggestion, or it is no longer eligible and money was confirmed for it.
 	IssueOverConfirmed IssueKind = "OVER_CONFIRMED"
-	// IssueSpendMismatch: a SPEND's expense was corrected -- it is no longer an
-	// expense, moved to another account, or is now smaller than what it spent.
+	// IssueSpendMismatch: a SPEND's expense or card payment was corrected -- it
+	// is no longer one, moved to another account, or is now smaller than what
+	// it spent.
 	IssueSpendMismatch IssueKind = "SPEND_MISMATCH"
 	// IssueArchivedBacking: an archived account still backs reserved money.
 	IssueArchivedBacking IssueKind = "ARCHIVED_BACKING"
@@ -147,7 +149,7 @@ func (s *Service) issuesTx(ctx context.Context, exec database.DBTX) ([]Issue, er
 		if op.TransactionID == nil || len(op.Entries) == 0 {
 			continue
 		}
-		detail, err := spendMismatch(ctx, lrepo, *op.TransactionID, op.Entries[0].AccountID, spent)
+		detail, err := spendMismatch(ctx, exec, lrepo, *op.TransactionID, op.Entries[0].AccountID, spent)
 		if err != nil {
 			return nil, err
 		}
@@ -178,13 +180,19 @@ func (s *Service) issuesTx(ctx context.Context, exec database.DBTX) ([]Issue, er
 	return issues, nil
 }
 
-// spendMismatch says why a SPEND no longer matches its expense, or "".
-func spendMismatch(ctx context.Context, lrepo *ledger.Repository, txID, accountID, spent int64) (string, error) {
+// spendMismatch says why a SPEND no longer matches its expense or its card
+// payment, or "". Each case names the type it accepts (TD-045): an EXPENSE, or
+// a TRANSFER or FX_EXCHANGE that pays a card (D-12).
+func spendMismatch(ctx context.Context, exec database.DBTX, lrepo *ledger.Repository, txID, accountID, spent int64) (string, error) {
 	tx, err := lrepo.GetTransaction(ctx, txID)
 	if err != nil {
 		return "", fmt.Errorf("reading transaction %d: %w", txID, err)
 	}
-	if tx.Type != ledger.Expense {
+	switch tx.Type {
+	case ledger.Expense:
+	case ledger.Transfer, ledger.FXExchange:
+		return paymentMismatch(ctx, exec, lrepo, txID, accountID, spent)
+	default:
 		return "El gasto que consumió este ahorro ya no es un gasto.", nil
 	}
 	m, err := lrepo.GetMovementFor(ctx, txID)
@@ -197,6 +205,34 @@ func spendMismatch(ctx context.Context, lrepo *ledger.Repository, txID, accountI
 	if -m.AmountMinor < spent {
 		return fmt.Sprintf("El gasto es ahora de %s USD y consumió %s USD de ahorro.",
 			money.Format(-m.AmountMinor, 2), money.Format(spent, 2)), nil
+	}
+	return "", nil
+}
+
+// paymentMismatch says why a SPEND no longer matches the card payment it was
+// linked to, or "": the money must still leave this account, still arrive in a
+// card, and still be at least what it spent.
+func paymentMismatch(ctx context.Context, exec database.DBTX, lrepo *ledger.Repository, txID, accountID, spent int64) (string, error) {
+	source, destination, err := twoSides(ctx, lrepo, txID)
+	if errors.Is(err, ErrNotLinkable) {
+		return "El pago que consumió este ahorro ya no tiene origen y destino.", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if source.AccountID != accountID {
+		return "El pago que consumió este ahorro ya no sale de esta cuenta.", nil
+	}
+	dest, err := account.NewRepository(exec).Get(ctx, destination.AccountID)
+	if err != nil {
+		return "", fmt.Errorf("looking up account %d: %w", destination.AccountID, err)
+	}
+	if dest.Type.Nature() != account.Liability {
+		return "El movimiento que consumió este ahorro ya no es el pago de una tarjeta.", nil
+	}
+	if -source.AmountMinor < spent {
+		return fmt.Sprintf("El pago es ahora de %s USD y consumió %s USD de ahorro.",
+			money.Format(-source.AmountMinor, 2), money.Format(spent, 2)), nil
 	}
 	return "", nil
 }
@@ -327,7 +363,7 @@ func linkedExpensesTx(ctx context.Context, exec database.DBTX, goalID int64) (_ 
 		if err != nil {
 			return nil, err
 		}
-		m, err := lrepo.GetMovementFor(ctx, s.tx)
+		m, err := outflowOf(ctx, lrepo, s.tx)
 		if err != nil {
 			return nil, err
 		}
@@ -338,6 +374,24 @@ func linkedExpensesTx(ctx context.Context, exec database.DBTX, goalID int64) (_ 
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Date.Before(out[j].Date) })
 	return out, nil
+}
+
+// outflowOf returns the movement money left by: an expense's only one, a card
+// payment's source (D-12).
+func outflowOf(ctx context.Context, lrepo *ledger.Repository, txID int64) (ledger.Movement, error) {
+	movements, err := lrepo.ListMovementsFor(ctx, txID)
+	if err != nil {
+		return ledger.Movement{}, err
+	}
+	for _, m := range movements {
+		if m.AmountMinor < 0 {
+			return m, nil
+		}
+	}
+	if len(movements) == 0 {
+		return ledger.Movement{}, fmt.Errorf("transaction %d has no movement: %w", txID, ledger.ErrNotFound)
+	}
+	return movements[0], nil
 }
 
 // goalMonthsTx folds a goal's entries into months, from its first to this one.

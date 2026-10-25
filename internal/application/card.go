@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,9 +10,10 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/creditcard"
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
+	"github.com/MegaByteLombardo/finance-tracker/internal/savings"
 )
 
-// M8.1: credit cards. Each workflow below writes to the ledger and to the card
+// M8.1 and M8.2: credit cards. Each workflow below writes to the ledger and to the card
 // domain -- or to the ledger and its request log -- and commits both or neither.
 //
 // Every one of them takes a request key the form rendered (TD-095). The first
@@ -255,4 +257,80 @@ func (s *Service) replay(ctx context.Context, exec database.DBTX, key string) (l
 		return ledger.Request{}, false, err
 	}
 	return ledger.ReplayedRequestTx(ctx, exec, key)
+}
+
+// RecordCardPaymentInput is the input to Service.RecordCardPayment.
+type RecordCardPaymentInput struct {
+	RequestKey string
+
+	CardAccountID   int64
+	SourceAccountID int64
+
+	// Amount is what the card receives, a positive decimal string in the
+	// card's currency.
+	Amount string
+	// SourceAmount is what left the source, in the source's currency. It is
+	// read only when the two currencies differ, and is then required: an
+	// exchange carries both amounts and derives its rate (TD-055).
+	SourceAmount string
+
+	Description   *string
+	EffectiveDate string
+
+	// Savings is what paying from a USD account does to the reservations on
+	// it (D-12). Empty means nothing; its request key is the payment's.
+	Savings savings.ExpensePlan
+}
+
+// RecordCardPayment records a payment of a card (TD-091): a TRANSFER from an
+// account in the card's currency, an FX_EXCHANGE from one in another currency,
+// with the card as the destination. In the same transaction it applies the
+// savings plan the user chose for a USD source (D-12), and records the request
+// key: a double submission returns the payment already recorded.
+//
+// The payment is never refused because of savings (TD-086). Without a plan it
+// records as any transfer or exchange does, and if it leaves a USD account
+// below what is reserved on it the fund reports it overallocated.
+func (s *Service) RecordCardPayment(ctx context.Context, in RecordCardPaymentInput) (ledger.TransactionView, error) {
+	return s.recordOnce(ctx, "recording a card payment", in.RequestKey, func(exec database.DBTX) (ledger.TransactionView, error) {
+		card, err := creditcard.RequireCardTx(ctx, exec, in.CardAccountID)
+		if err != nil {
+			return ledger.TransactionView{}, err
+		}
+		source, err := account.NewRepository(exec).Get(ctx, in.SourceAccountID)
+		switch {
+		case errors.Is(err, account.ErrNotFound):
+			return ledger.TransactionView{}, &ledger.AccountSideError{
+				Side: ledger.SourceSide, AccountID: in.SourceAccountID, Err: ledger.ErrAccountNotFound,
+			}
+		case err != nil:
+			return ledger.TransactionView{}, fmt.Errorf("looking up account %d: %w", in.SourceAccountID, err)
+		}
+		// A card is paid with money: from an asset. Paying one card from
+		// another is a cash advance and a payment, two operations.
+		if source.Type.Nature() != account.Asset {
+			return ledger.TransactionView{}, fmt.Errorf("%w: a card is paid from an asset account, and %q is a %s",
+				creditcard.ErrInvalidInput, source.Name, source.Type)
+		}
+
+		var view ledger.TransactionView
+		if source.CurrencyCode == card.CurrencyCode {
+			view, err = ledger.RecordTransferTx(ctx, exec, ledger.RecordTransferInput{
+				SourceAccountID: source.ID, DestinationAccountID: card.ID, Amount: in.Amount,
+				Description: in.Description, EffectiveDate: in.EffectiveDate,
+			})
+		} else {
+			view, err = ledger.RecordExchangeTx(ctx, exec, ledger.RecordExchangeInput{
+				SourceAccountID: source.ID, SourceAmount: in.SourceAmount,
+				DestinationAccountID: card.ID, DestinationAmount: in.Amount,
+				Description: in.Description, EffectiveDate: in.EffectiveDate,
+			})
+		}
+		if err != nil {
+			return ledger.TransactionView{}, err
+		}
+		plan := in.Savings
+		plan.RequestKey = in.RequestKey
+		return view, s.savings.ApplyCardPaymentPlanTx(ctx, exec, view.ID, plan)
+	})
 }

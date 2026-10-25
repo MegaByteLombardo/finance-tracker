@@ -9,9 +9,12 @@ import (
 
 // M7.4: the savings side of the movement forms, and reconciliation.
 
-// handleSavingsImpact serves GET /savings/impact, the partial the expense and
-// transfer forms load beside their amount, desktop and mobile. It reads the
-// form's own fields: an expense names account_id, a transfer source_account_id.
+// handleSavingsImpact serves GET /savings/impact, the partial the expense,
+// transfer and card payment forms load beside their amount, desktop and mobile.
+// It reads the form's own fields: an expense names account_id, a transfer
+// source_account_id, and a card payment (type=CARD_PAYMENT, D-12) its
+// source_account_id with the amount that left it -- source_amount when the
+// payment is an exchange.
 // Anything else -- an income, an exchange, an account outside the fund -- gets
 // an empty container: nothing is shown where nothing applies.
 func handleSavingsImpact(logger *slog.Logger, renderer *Renderer, svcs *Services) http.HandlerFunc {
@@ -19,14 +22,20 @@ func handleSavingsImpact(logger *slog.Logger, renderer *Renderer, svcs *Services
 		q := r.URL.Query()
 		view := SavingsImpactView{}
 		var accountID int64
+		amount := strings.TrimSpace(q.Get("amount"))
 		switch txType := strings.ToUpper(strings.TrimSpace(q.Get("type"))); {
 		case txType == string(TransactionTypeExpense):
 			view.Mode, accountID = "expense", parseQueryID(q.Get("account_id"))
+		case txType == "CARD_PAYMENT":
+			view.Mode, accountID = "payment", parseQueryID(q.Get("source_account_id"))
+			if sourceAmount := strings.TrimSpace(q.Get("source_amount")); sourceAmount != "" {
+				amount = sourceAmount
+			}
 		case (txType == "" || txType == string(TransactionTypeTransfer)) && q.Has("source_account_id") && !q.Has("source_amount"):
 			view.Mode, accountID = "transfer", parseQueryID(q.Get("source_account_id"))
 		}
 		if accountID > 0 {
-			impact, err := svcs.Savings.AccountImpact(r.Context(), accountID, strings.TrimSpace(q.Get("amount")))
+			impact, err := svcs.Savings.AccountImpact(r.Context(), accountID, amount)
 			if err != nil {
 				// The form must stay usable: the savings hint is a convenience.
 				logger.Warn("computing a savings impact", slog.Any("error", err))

@@ -51,6 +51,28 @@ var (
 	// an income, or move it to a bank account, and leave the row that says
 	// "the issuer charged this" pointing at something else.
 	ErrChargeEditedAsCharge = errors.New("this expense is a card charge and is corrected as one")
+
+	// M8.2: statements and the assertions that tie movements to them.
+
+	// ErrStatementNotFound means no statement of this card has that id.
+	ErrStatementNotFound = errors.New("statement not found")
+	// ErrInvalidStatement means a statement's figures or dates failed
+	// validation.
+	ErrInvalidStatement = errors.New("invalid statement")
+	// ErrStatementExists means the card already has a statement closing that
+	// day, with different figures. Submitting the same statement twice is not
+	// this error: it returns the one already recorded.
+	ErrStatementExists = errors.New("the card already has a statement closing that day")
+	// ErrStatementOverlap means a statement's period would overlap another's
+	// of the same card: one day is billed by one statement at most.
+	ErrStatementOverlap = errors.New("the statement's period overlaps another statement of the card")
+	// ErrAssertionAfterClosing means a movement would belong to a statement
+	// that closed before it happened -- asserted that way, or left that way by
+	// moving a statement's closing date. Nothing is billed before it happens.
+	ErrAssertionAfterClosing = errors.New("a movement cannot belong to a statement that closed before it happened")
+	// ErrNotACardMovement means an assertion named a transaction that does not
+	// move the statement's card.
+	ErrNotACardMovement = errors.New("the transaction does not move this card")
 )
 
 // Denomination is what the card's debt is a number of.
@@ -69,6 +91,27 @@ func Denominations() []Denomination { return []Denomination{Nominal, Indexed} }
 
 // Valid reports whether d is a known denomination.
 func (d Denomination) Valid() bool { return d == Nominal || d == Indexed }
+
+// RefundPolicy is what a refund dated after a closing does to what that
+// statement asks for (R2.5). A refund ALWAYS lowers the debt and the next
+// statement; the policy says whether the issuer also lowers the billed balance
+// of the statement already emitted. It never touches the minimum or anything
+// overdue: a refund is not a payment.
+type RefundPolicy string
+
+const (
+	// RefundNextStatement: the billed balance stands; the refund appears on
+	// the next statement. The default.
+	RefundNextStatement RefundPolicy = "NEXT_STATEMENT"
+	// RefundReducesBilled: the billed balance falls by the refund.
+	RefundReducesBilled RefundPolicy = "REDUCES_BILLED"
+)
+
+// RefundPolicies lists every policy, in the order a UI shows them.
+func RefundPolicies() []RefundPolicy { return []RefundPolicy{RefundNextStatement, RefundReducesBilled} }
+
+// Valid reports whether p is a known policy.
+func (p RefundPolicy) Valid() bool { return p == RefundNextStatement || p == RefundReducesBilled }
 
 // ChargeKind is what the issuer charged as.
 type ChargeKind string
@@ -128,6 +171,10 @@ type Card struct {
 	// DefaultPaymentMethodID is what a purchase form preselects.
 	DefaultPaymentMethodID *int64
 
+	// RefundPolicy is what a refund after a closing does to that statement's
+	// billed balance (M8.2).
+	RefundPolicy RefundPolicy
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -149,6 +196,9 @@ type TermsInput struct {
 	DenominationConfirmed bool
 
 	DefaultPaymentMethodID *int64
+
+	// RefundPolicy defaults to RefundNextStatement when empty.
+	RefundPolicy RefundPolicy
 }
 
 func (in *TermsInput) normalize() {
@@ -172,6 +222,10 @@ func (in *TermsInput) normalize() {
 	if in.Denomination == "" {
 		in.Denomination = Nominal
 	}
+	in.RefundPolicy = RefundPolicy(strings.ToUpper(strings.TrimSpace(string(in.RefundPolicy))))
+	if in.RefundPolicy == "" {
+		in.RefundPolicy = RefundNextStatement
+	}
 }
 
 // validate checks everything that does not need the database. The limit is read
@@ -191,6 +245,9 @@ func (in TermsInput) validate() error {
 	}
 	if !in.Denomination.Valid() {
 		return fmt.Errorf("%w: denomination %q must be one of %v", ErrInvalidInput, in.Denomination, Denominations())
+	}
+	if !in.RefundPolicy.Valid() {
+		return fmt.Errorf("%w: refund policy %q must be one of %v", ErrInvalidInput, in.RefundPolicy, RefundPolicies())
 	}
 	return nil
 }

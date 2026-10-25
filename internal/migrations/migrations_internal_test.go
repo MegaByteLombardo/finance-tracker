@@ -18,7 +18,7 @@ import (
 // latestSchemaVersion is the highest migration this build ships. The upgrade
 // tests of earlier milestones assert it so that adding a migration is a
 // deliberate, visible change to this one line rather than to four files.
-const latestSchemaVersion = 21
+const latestSchemaVersion = 22
 
 func newRawDB(t *testing.T) *sql.DB {
 	t.Helper()

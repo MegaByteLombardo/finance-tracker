@@ -28,6 +28,21 @@ type FakeCards struct {
 	Updated   []UpdateRefundInput
 	keys      map[string]int64
 	nextID    int64
+
+	// M8.2. Standings and Reconciliations are what the reads return, by card
+	// and by statement; StatementInputs are the recorded statements as their
+	// form holds them, by statement id.
+	Standings       map[int64]CardStandingView
+	Reconciliations map[int64]CardReconciliationView
+	StatementInputs map[int64]CardStatementInput
+	Payments        []RecordCardPaymentInput
+	Assertions      []FakeAssertion
+}
+
+// FakeAssertion is one AssertMembership call; a nil statement withdraws.
+type FakeAssertion struct {
+	CardID, TransactionID int64
+	StatementID           *int64
 }
 
 // NewFakeCards returns an empty stand-in.
@@ -36,6 +51,8 @@ func NewFakeCards() *FakeCards {
 		Cards: make(map[int64]CreditCardView), Activity: make(map[int64][]CardMovement),
 		ChargeKinds: make(map[int64]string), Terms: make(map[int64]CreditCardTermsInput),
 		keys: make(map[string]int64), nextID: 1000,
+		Standings: make(map[int64]CardStandingView), Reconciliations: make(map[int64]CardReconciliationView),
+		StatementInputs: make(map[int64]CardStatementInput),
 	}
 }
 

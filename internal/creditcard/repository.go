@@ -23,7 +23,7 @@ func NewRepository(db database.DBTX) *Repository {
 
 const columns = `account_id, product_name, credit_limit_minor, statement_day, due_days_after_statement,
                  payment_processing_days, denomination, denomination_confirmed, default_payment_method_id,
-                 created_at, updated_at`
+                 refund_policy, created_at, updated_at`
 
 // Get returns one card's terms, or ErrNotFound.
 func (r *Repository) Get(ctx context.Context, accountID int64) (Card, error) {
@@ -65,10 +65,10 @@ func (r *Repository) List(ctx context.Context) (_ []Card, err error) {
 // Insert stores a card's terms.
 func (r *Repository) Insert(ctx context.Context, c Card) error {
 	if _, err := r.db.ExecContext(ctx,
-		`INSERT INTO credit_cards (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO credit_cards (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.AccountID, c.ProductName, c.CreditLimitMinor, c.StatementDay, c.DueDaysAfterStatement,
 		c.PaymentProcessingDays, string(c.Denomination), c.DenominationConfirmed, c.DefaultPaymentMethodID,
-		database.FormatTime(c.CreatedAt), database.FormatTime(c.UpdatedAt)); err != nil {
+		string(c.RefundPolicy), database.FormatTime(c.CreatedAt), database.FormatTime(c.UpdatedAt)); err != nil {
 		return fmt.Errorf("inserting the terms of card %d: %w", c.AccountID, err)
 	}
 	return nil
@@ -80,11 +80,11 @@ func (r *Repository) Update(ctx context.Context, c Card) error {
 		UPDATE credit_cards
 		   SET product_name = ?, credit_limit_minor = ?, statement_day = ?, due_days_after_statement = ?,
 		       payment_processing_days = ?, denomination = ?, denomination_confirmed = ?,
-		       default_payment_method_id = ?, updated_at = ?
+		       default_payment_method_id = ?, refund_policy = ?, updated_at = ?
 		 WHERE account_id = ?`,
 		c.ProductName, c.CreditLimitMinor, c.StatementDay, c.DueDaysAfterStatement,
 		c.PaymentProcessingDays, string(c.Denomination), c.DenominationConfirmed, c.DefaultPaymentMethodID,
-		database.FormatTime(c.UpdatedAt), c.AccountID)
+		string(c.RefundPolicy), database.FormatTime(c.UpdatedAt), c.AccountID)
 	if err != nil {
 		return fmt.Errorf("updating the terms of card %d: %w", c.AccountID, err)
 	}
@@ -177,14 +177,16 @@ func scan(s scanner) (Card, error) {
 		dueDays              sql.NullInt64
 		method               sql.NullInt64
 		denomination         string
+		refundPolicy         string
 		createdAt, updatedAt string
 	)
 	if err := s.Scan(&c.AccountID, &product, &limit, &c.StatementDay, &dueDays,
 		&c.PaymentProcessingDays, &denomination, &c.DenominationConfirmed, &method,
-		&createdAt, &updatedAt); err != nil {
+		&refundPolicy, &createdAt, &updatedAt); err != nil {
 		return Card{}, err
 	}
 	c.Denomination = Denomination(denomination)
+	c.RefundPolicy = RefundPolicy(refundPolicy)
 	if product.Valid {
 		value := product.String
 		c.ProductName = &value

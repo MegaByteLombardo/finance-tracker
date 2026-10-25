@@ -51,6 +51,15 @@ func NewRenderer(templateFS fs.FS) *Renderer {
 			return t == AccountTypeBank
 		},
 		"chargeKindLabel": ChargeKindLabel,
+		// M8.2: a refund policy's name, and an optional date (a due date that
+		// may be unknown) once a template has checked it is there.
+		"refundPolicyLabel": RefundPolicyLabel,
+		"derefTime": func(t *time.Time) time.Time {
+			if t == nil {
+				return time.Time{}
+			}
+			return *t
+		},
 		"derefInt": func(p *int) int {
 			if p == nil {
 				return 0
@@ -233,6 +242,7 @@ func (rn *Renderer) RenderPage(w http.ResponseWriter, r *http.Request, status in
 		"components/net_worth_chart.html",
 		"components/help.html",
 		"components/card_terms_fields.html",
+		"components/card_obligations.html",
 		"components/ticker_bay.html",
 		cleanPage,
 	)

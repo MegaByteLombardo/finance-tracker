@@ -1212,7 +1212,7 @@ acknowledgement changes no balance.
 
 ---
 
-## Credit *(M8.1)*
+## Credit *(M8.1, M8.2)*
 
 Migration 00019 rebuilt `accounts` and `transactions` with SQLite's twelve-step
 procedure (TD-088) to widen two `CHECK` lists, and changed nothing else: same
@@ -1221,7 +1221,10 @@ columns, defaults, constraints and indexes. `accounts.account_type` admits
 `transactions.transaction_type` admits `REFUND`, which like `INCOME` and
 `EXPENSE` requires a category and a payment method (TD-090). 00020 and 00021 add
 four `STRICT` tables of terms, facts and assertions; none holds an amount that
-could be derived. See [m8-contract.md](m8-contract.md).
+could be derived. 00022 (M8.2) adds the statements the bank emitted, the
+assertions that tie a movement to one, and the card's refund policy; what is
+owed, overdue or settled by a payment is derived on every read (TD-092). See
+[m8-contract.md](m8-contract.md).
 
 ### `credit_cards` *(00020)*
 
@@ -1255,6 +1258,40 @@ linked to it never exceed it.
 `request_key` (PK, 16–64 `[0-9a-zA-Z_-]`), `transaction_id` and `account_id`
 (both nullable FKs, indexed, `CHECK` that at least one is set), `created_at`.
 The idempotency log of TD-095.
+
+### `credit_cards.refund_policy` *(00022)*
+
+`TEXT NOT NULL DEFAULT 'NEXT_STATEMENT'`, `CHECK IN ('NEXT_STATEMENT','REDUCES_BILLED')`:
+whether a refund after a closing also lowers that statement's billed balance. A
+refund always lowers the debt and is never a payment.
+
+### `credit_statements` *(00022)*
+
+| Column | Type | Null | Default | Constraints |
+| --- | --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | — | **PRIMARY KEY** |
+| `card_account_id` | `INTEGER` | NOT NULL | — | FK → `credit_cards(account_id)` RESTRICT |
+| `period_start` | `TEXT` | NOT NULL | — | calendar date; `<= closing_date` |
+| `closing_date` | `TEXT` | NOT NULL | — | calendar date; `UNIQUE (card_account_id, closing_date)`. Go: not after today. |
+| `due_date` | `TEXT` | NULL | — | calendar date `> closing_date`; NULL is "not printed" |
+| `closing_balance_minor` | `INTEGER` | NOT NULL | — | the bank's balance at the closing, **ledger sign** (negative = owed) |
+| `minimum_payment_minor` | `INTEGER` | NULL | — | `>= 0`; NULL is unknown |
+| `previous_balance_minor` | `INTEGER` | NULL | — | ledger sign; as the bank reported it |
+| `payments_minor`, `debits_minor`, `past_due_minor` | `INTEGER` | NULL | — | `>= 0`; as the bank reported them |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | now | the timestamp `GLOB` |
+
+Go refuses two statements of one card whose periods share a day, and moving a
+closing before a movement asserted into the statement. A statement is a fact:
+nothing derived from it is stored beside it.
+
+### `credit_statement_assignments` *(00022)*
+
+`transaction_id` (PK, FK → `transactions`), `statement_id` (FK →
+`credit_statements`, indexed), `created_at`. The user's assertion that the bank
+billed a movement in that statement (plan R7). Go checks the transaction moves
+the statement's card and that the statement closes on or after its
+`effective_date`. Withdrawing one deletes the row: it corrects an assertion and
+changes no amount, like unlinking a refund.
 
 ## The net worth is not in this document
 

@@ -131,6 +131,16 @@ func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
 	mux.HandleFunc("POST /cards/{id}/charges", handleRecordCardEntry(logger, renderer, svcs, "charge"))
 	mux.HandleFunc("GET /cards/{id}/charges/{tid}/edit", handleEditCardCharge(logger, renderer, svcs))
 	mux.HandleFunc("POST /cards/{id}/charges/{tid}", handleUpdateCardCharge(logger, renderer, svcs))
+	// M8.2: payments, statements and their reconciliation.
+	mux.HandleFunc("GET /cards/{id}/payments/new", handleNewCardPayment(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards/{id}/payments", handleRecordCardPayment(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}/statements", handleCardStatements(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}/statements/new", handleNewCardStatement(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards/{id}/statements", handleRecordCardStatement(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}/statements/{sid}/edit", handleEditCardStatement(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards/{id}/statements/{sid}", handleUpdateCardStatement(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}/statements/{sid}/reconcile", handleReconcileCardStatement(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards/{id}/statements/{sid}/assertions", handleAssertMembership(logger, svcs))
 
 	// Refunds (M8.1): money given back for an expense, on any account. Never
 	// income. Recorded and corrected only here.

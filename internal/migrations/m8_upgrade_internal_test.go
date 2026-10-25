@@ -346,7 +346,7 @@ func TestM8RebuildGuardFailureLeavesTheDatabaseIntact(t *testing.T) {
 	}
 }
 
-// 00019 is forward-only; 00020 and 00021 roll back cleanly.
+// 00019 is forward-only; 00020 to 00022 roll back cleanly.
 func TestM8MigrationsRollBack(t *testing.T) {
 	t.Parallel()
 
@@ -370,6 +370,7 @@ func TestM8MigrationsRollBack(t *testing.T) {
 		t.Fatalf("upgrading: %v", err)
 	}
 	for _, file := range []string{
+		"00022_create_credit_statements.sql",
 		"00021_create_credit_charges_refunds_requests.sql",
 		"00020_create_credit_cards.sql",
 	} {

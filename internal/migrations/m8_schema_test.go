@@ -126,3 +126,98 @@ func TestCreditChargeRefundAndRequestConstraints(t *testing.T) {
 		t.Error("a request key was recorded twice")
 	}
 }
+
+// The statements and assertions of 00022, and the card's refund policy.
+func TestCreditStatementConstraints(t *testing.T) {
+	t.Parallel()
+	db := dbtest.New(t)
+	ctx := t.Context()
+	result, err := db.ExecContext(ctx, insertAccount, "Plaza Black", "CREDIT_CARD", nil, "VES", "Banco Plaza", 1)
+	if err != nil {
+		t.Fatalf("seeding the card account: %v", err)
+	}
+	card, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("reading the account id: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, insertCreditCard, card, nil, nil, 25, nil, 0, "NOMINAL", 0, nil); err != nil {
+		t.Fatalf("seeding the card: %v", err)
+	}
+
+	const insertStatement = `
+		INSERT INTO credit_statements (card_account_id, period_start, closing_date, due_date,
+		                               closing_balance_minor, minimum_payment_minor, payments_minor, past_due_minor)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	for name, tc := range map[string]struct {
+		start, closing, due any
+		balance, minimum    any
+		payments, pastDue   any
+		accepted            bool
+	}{
+		"everything stated":       {"2026-09-26", "2026-10-25", "2026-11-14", -1850000, 250000, 1000, 70000, true},
+		"due date unknown":        {"2026-08-26", "2026-09-25", nil, -1000000, nil, nil, nil, true},
+		"credit balance":          {"2026-07-26", "2026-08-25", nil, 50000, 0, nil, nil, true},
+		"closing before start":    {"2026-12-26", "2026-12-25", nil, 0, nil, nil, nil, false},
+		"due on the closing day":  {"2026-11-26", "2026-12-25", "2026-12-25", 0, nil, nil, nil, false},
+		"negative minimum":        {"2026-11-26", "2026-12-25", nil, 0, -1, nil, nil, false},
+		"negative payments":       {"2026-11-26", "2026-12-25", nil, 0, nil, -1, nil, false},
+		"negative past due":       {"2026-11-26", "2026-12-25", nil, 0, nil, nil, -1, false},
+		"impossible date":         {"2026-02-01", "2026-02-31", nil, 0, nil, nil, nil, false},
+		"no balance":              {"2026-11-26", "2026-12-25", nil, nil, nil, nil, nil, false},
+		"real balance":            {"2026-11-26", "2026-12-25", nil, 10.5, nil, nil, nil, false},
+		"statement of a non-card": {"2026-11-26", "2026-12-25", nil, 0, nil, nil, nil, false},
+	} {
+		owner := card
+		if name == "statement of a non-card" {
+			owner = 9999
+		}
+		_, err := db.ExecContext(ctx, insertStatement, owner, tc.start, tc.closing, tc.due, tc.balance, tc.minimum, tc.payments, tc.pastDue)
+		if tc.accepted && err != nil {
+			t.Errorf("%s: refused: %v", name, err)
+		}
+		if !tc.accepted && err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if _, err := db.ExecContext(ctx, insertStatement, card, "2026-10-01", "2026-10-25", nil, 0, nil, nil, nil); err == nil {
+		t.Error("two statements of one card closed on the same day")
+	}
+
+	var statement int64
+	if err := db.QueryRowContext(ctx, `SELECT id FROM credit_statements WHERE closing_date = '2026-10-25'`).Scan(&statement); err != nil {
+		t.Fatalf("reading the statement: %v", err)
+	}
+	category := seedCategory(t, db, "Supermercado", "EXPENSE")
+	result, err = db.ExecContext(ctx, insertTransaction, "EXPENSE", category, methodPOS, nil, "2026-10-24")
+	if err != nil {
+		t.Fatalf("seeding a purchase: %v", err)
+	}
+	purchase, err := result.LastInsertId()
+	if err != nil {
+		t.Fatalf("reading the id: %v", err)
+	}
+	const assign = `INSERT INTO credit_statement_assignments (transaction_id, statement_id) VALUES (?, ?)`
+	if _, err := db.ExecContext(ctx, assign, purchase, 9999); err == nil {
+		t.Error("an assertion to no statement was accepted")
+	}
+	if _, err := db.ExecContext(ctx, assign, 9999, statement); err == nil {
+		t.Error("an assertion of no transaction was accepted")
+	}
+	if _, err := db.ExecContext(ctx, assign, purchase, statement); err != nil {
+		t.Fatalf("asserting a membership: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, assign, purchase, statement); err == nil {
+		t.Error("a transaction was asserted into two statements")
+	}
+
+	var policy string
+	if err := db.QueryRowContext(ctx, `SELECT refund_policy FROM credit_cards WHERE account_id = ?`, card).Scan(&policy); err != nil {
+		t.Fatalf("reading the refund policy: %v", err)
+	}
+	if policy != "NEXT_STATEMENT" {
+		t.Errorf("a card's refund policy defaults to %q, want NEXT_STATEMENT", policy)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE credit_cards SET refund_policy = 'SOMETIMES' WHERE account_id = ?`, card); err == nil {
+		t.Error("an unknown refund policy was accepted")
+	}
+}

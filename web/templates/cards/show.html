@@ -50,6 +50,8 @@
   </article>
 </section>
 
+{{ with .Standing }}{{ template "card_obligations" . }}{{ end }}
+
 {{ if $c.FutureMovementCount }}
 <p class="dash-note"><span class="badge badge-neutral">{{ $c.FutureMovementCount }} {{ if eq $c.FutureMovementCount 1 }}movimiento futuro{{ else }}movimientos futuros{{ end }}</span>
   Tienen fecha posterior a hoy: aún no forman parte de la deuda.</p>
@@ -60,8 +62,12 @@
   <a href="/cards/{{ $c.AccountID }}/purchases/new" class="btn btn-primary">+ Compra</a>
   <a href="/cards/{{ $c.AccountID }}/charges/new" class="btn btn-secondary">+ Cargo del banco</a>
   <a href="/refunds/new?account_id={{ $c.AccountID }}&amp;return_to=/cards/{{ $c.AccountID }}" class="btn btn-secondary">+ Devolución</a>
-  <a href="/transfers/new?to_account_id={{ $c.AccountID }}&amp;return_to=/cards/{{ $c.AccountID }}" class="btn btn-secondary" title="Un pago es una transferencia hacia la tarjeta, en su moneda.">Pagar ({{ $c.CurrencyCode }})</a>
-  <a href="/exchanges/new?to_account_id={{ $c.AccountID }}&amp;return_to=/cards/{{ $c.AccountID }}" class="btn btn-secondary" title="Un pago desde otra moneda es un cambio de divisas con la tarjeta como destino.">Pagar desde otra moneda</a>
+  <a href="/cards/{{ $c.AccountID }}/payments/new" class="btn btn-secondary" title="Desde una cuenta en {{ $c.CurrencyCode }} es una transferencia; desde otra moneda, un cambio de divisas.">Pagar</a>
+  <a href="/cards/{{ $c.AccountID }}/statements" class="btn btn-secondary">Estados de cuenta</a>
+</div>
+{{ else }}
+<div class="page-actions" style="margin: var(--space-4) 0;">
+  <a href="/cards/{{ $c.AccountID }}/statements" class="btn btn-secondary">Estados de cuenta</a>
 </div>
 {{ end }}
 

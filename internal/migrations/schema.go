@@ -45,6 +45,9 @@ var tableIntroducedAt = map[string]int64{
 	"credit_charges":      21,
 	"transaction_refunds": 21,
 	"operation_requests":  21,
+
+	"credit_statements":            22,
+	"credit_statement_assignments": 22,
 }
 
 // ExpectedTables returns the business tables a database at the given schema

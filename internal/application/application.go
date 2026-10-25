@@ -13,7 +13,8 @@
 //   - Opening a credit card, and recording what happens on one (account +
 //     creditcard + ledger, M8.1): the card's terms, its charges and the request
 //     key that makes a form submission idempotent commit with the ledger's
-//     rows. See card.go.
+//     rows. Paying one (M8.2) commits the transfer or exchange with the savings
+//     plan of a USD source (D-12). See card.go.
 //
 // This is not a general application layer and it is not a home for
 // pass-through wrappers. A service belongs here when, and only when, it

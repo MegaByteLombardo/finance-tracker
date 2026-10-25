@@ -41,8 +41,9 @@ HTTP  →  Application / Services  →  Repository  →  SQLite
   code.
 - `internal/application` is for **writes** spanning two domains atomically:
   opening an account with its balance, (M7) recording or correcting an income
-  together with its savings suggestion, and (M8.1) opening a credit card and
-  recording purchases, charges and refunds with their request key.
+  together with its savings suggestion, (M8.1) opening a credit card and
+  recording purchases, charges and refunds with their request key, and (M8.2)
+  paying a card with the savings plan of a USD source.
   `internal/valuation` is a cross-domain **read**, and is its own package for
   that reason (TD-052). `internal/analytics` (M6) is the dashboard's
   cross-domain read over a period, built on `valuation`.
@@ -351,7 +352,28 @@ the fund (M7.2), goals (M7.3), ledger integration and reconciliation (M7.4).
 - **Only assets save and back savings** (TD-094): an income on a liability is
   never eligible, overrides included; a liability never backs the fund.
 - **Every M8 form is idempotent** on a server-rendered request key
-  (`operation_requests`, TD-095).
+  (`operation_requests`, TD-095) — except a statement, whose closing day is its
+  key (TD-092).
+- **What a card owes is derived; only facts and assertions are stored**
+  (TD-092, M8.2). `credit_statements` is what the bank printed (balances in the
+  ledger's sign, unknown NULL); `credit_statement_assignments` is the user's
+  "the bank billed it there". `creditcard.Derive` is a pure function: cycles,
+  statuses, pending billed and minimum, overdue as the **maximum** unmet minimum
+  (never the sum), and each payment partitioned exactly (I5) over overdue /
+  minimum / billed / prepaid / credit. No allocation, status or pending figure
+  is stored.
+- **Membership**: the first cycle closing on or after the movement's date;
+  `min(day, last day of the month)`; a registered statement replaces the
+  nearest calendar closing; an assertion needs the statement to close on or
+  after the movement. `effective_date` is always the operation's date.
+- **A refund is never a payment**: never towards the minimum or the overdue.
+  Its effect on the billed balance is the card's `refund_policy`. **An unknown
+  due date never makes anything overdue**, and interest is never computed.
+- **Reconciliation informs and never corrects**: `Δ = B − L`, broken down by
+  the bank's figures, candidates within five days of the closing.
+- **Paying a card** is `application.RecordCardPayment`: a `TRANSFER` or an
+  `FX_EXCHANGE` (both amounts) into the card, from an asset, with the D-12
+  savings plan (`SPEND`/`RELEASE` linked to the payment) for a USD source.
 - **Rebuilding a parent with children** follows SQLite's twelve-step procedure
   with in-SQL guards, outside goose's transaction (TD-088); after a failed
   migration the `*sql.DB` is closed, and `migrations.Up` checks foreign keys are
@@ -403,8 +425,9 @@ the fund (M7.2), goals (M7.3), ledger integration and reconciliation (M7.4).
 - **No third-party rate mirror** (TD-054).
 - No loans or instalments (M9), calendar, recurring transactions, budgets,
   tags, hierarchical categories, authentication or public API. Credit cards
-  exist from M8.1 (TD-089); statements, payment allocation, FX analytics of a
-  debt and liquidity arrive with M8.2–M8.5, not before.
+  exist from M8.1 (TD-089) and statements and payment allocation from M8.2
+  (TD-092); FX analytics of a debt and liquidity arrive with M8.3–M8.5, not
+  before.
 
 Do not implement a future milestone's domain because it seems convenient.
 
