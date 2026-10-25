@@ -1,0 +1,116 @@
+{{ define "content" }}
+{{ $c := .Card }}
+{{ $s := .Standing }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Pagar {{ $c.Name }}</h1>
+    <p class="page-subtitle">
+      Un pago es una transferencia hacia la tarjeta desde una cuenta en {{ $c.CurrencyCode }}, o un cambio de divisas
+      desde una cuenta en otra moneda. No es un gasto: la deuda baja y tu patrimonio no cambia por pagar.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a href="/cards/{{ $c.AccountID }}" class="btn btn-secondary">&larr; Volver a la tarjeta</a>
+  </div>
+</div>
+
+<!-- What the bank asks for, derived on this request (TD-092). The amounts only
+     fill the field: nothing is submitted until you press "Registrar pago". -->
+<section class="card dash-section payment-due" aria-labelledby="payment-due-title">
+  <div class="card-header"><h2 id="payment-due-title" class="card-title">Lo que pide el banco</h2></div>
+  <div class="card-body">
+    {{ if $s.HasCurrent }}
+    <p class="text-muted">
+      Estado de cuenta vigente: corte del {{ formatDate $s.Current.ClosingDate }}{{ if not $s.Current.Registered }} (calculado: aún no lo registraste){{ end }}.
+      {{ if $s.Current.DueDate }}Vence el {{ formatDate (derefTime $s.Current.DueDate) }}{{ if $s.Current.DueEstimated }} (estimado por las condiciones){{ end }}.{{ else }}Vencimiento desconocido: nada se marca como vencido.{{ end }}
+    </p>
+    {{ else }}
+    <p class="text-muted">Todavía no ha cerrado ningún ciclo: todo pago se aplica como anticipado.</p>
+    {{ end }}
+    {{ if .Suggestions }}
+    <div class="payment-suggestions">
+      {{ range .Suggestions }}
+      <button type="button" class="btn btn-secondary payment-suggestion" data-fill-amount="{{ .Amount }}" title="{{ .Hint }}">
+        <span>{{ .Label }}</span>
+        <strong class="font-mono" data-fit>{{ formatAmount .Amount }} {{ $c.CurrencyCode }}</strong>
+      </button>
+      {{ end }}
+    </div>
+    <p class="form-help">Pulsar un monto solo lo copia al campo; puedes cambiarlo.</p>
+    {{ else }}
+    <p class="text-muted">No hay montos pendientes que sugerir.</p>
+    {{ end }}
+  </div>
+</section>
+
+<div class="form-card">
+  {{ if .HasError "general" }}
+  <div class="alert alert-danger" role="alert"><div>{{ .Error "general" }}</div></div>
+  {{ end }}
+  {{ if .HasError "savings" }}
+  <div class="alert alert-danger" role="alert"><div>{{ .Error "savings" }} El pago no se registró: corrige el uso del ahorro o déjalo vacío.</div></div>
+  {{ end }}
+
+  <form action="/cards/{{ $c.AccountID }}/payments" method="POST" id="card-payment-form" data-card-currency="{{ $c.CurrencyCode }}">
+    <input type="hidden" name="request_key" value="{{ .RequestKey }}">
+
+    <div class="form-group">
+      <label class="form-label" for="source_account_id">Pagar desde <span class="required-indicator">*</span></label>
+      <select class="form-control {{ if .HasError "source_account_id" }}is-invalid{{ end }}" id="source_account_id" name="source_account_id" required>
+        <option value="">Elige una cuenta...</option>
+        {{ range .Sources }}
+        <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}" data-minor-unit="{{ .MinorUnit }}" {{ if eq $.SourceAccountID .ID }}selected{{ end }}>
+          {{ .Name }} ({{ .CurrencyCode }}){{ if .Institution }} &middot; {{ derefString .Institution }}{{ end }}
+        </option>
+        {{ end }}
+      </select>
+      {{ if .HasError "source_account_id" }}<div class="form-error">{{ .Error "source_account_id" }}</div>{{ end }}
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="amount">Monto que recibe la tarjeta ({{ $c.CurrencyCode }}) <span class="required-indicator">*</span></label>
+        <input type="text" inputmode="decimal" class="form-control font-mono {{ if .HasError "amount" }}is-invalid{{ end }}"
+               id="amount" name="amount" value="{{ .Amount }}" placeholder="0.00" required
+               data-type="currency" data-minor-unit="{{ $c.MinorUnit }}" autocomplete="off">
+        {{ if .HasError "amount" }}<div class="form-error">{{ .Error "amount" }}</div>{{ end }}
+      </div>
+      <div class="form-group" id="source-amount-group" {{ if not .NeedsSourceAmount }}hidden{{ end }}>
+        <label class="form-label" for="source_amount">Monto debitado de la cuenta (<span id="source-currency-badge">{{ .SourceCurrency }}</span>) <span class="required-indicator">*</span></label>
+        <input type="text" inputmode="decimal" class="form-control font-mono {{ if .HasError "source_amount" }}is-invalid{{ end }}"
+               id="source_amount" name="source_amount" value="{{ .SourceAmount }}" placeholder="0.00"
+               data-type="currency" data-minor-unit-from="source_account_id" autocomplete="off">
+        {{ if .HasError "source_amount" }}<div class="form-error">{{ .Error "source_amount" }}</div>{{ end }}
+        <div class="form-help">Desde otra moneda el pago es un cambio de divisas: se registran los dos montos y la tasa se deduce de ellos.</div>
+      </div>
+    </div>
+
+    <!-- Savings (D-12): what this payment does to the reservations of a USD account. -->
+    <div id="savings-impact-container"
+         hx-get="/savings/impact?type=CARD_PAYMENT"
+         hx-trigger="load, change from:#source_account_id, keyup changed delay:500ms from:#amount, keyup changed delay:500ms from:#source_amount"
+         hx-include="closest form"
+         hx-swap="innerHTML"></div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="effective_date">Fecha del pago <span class="required-indicator">*</span></label>
+        <input type="date" class="form-control {{ if .HasError "effective_date" }}is-invalid{{ end }}"
+               id="effective_date" name="effective_date" value="{{ .EffectiveDate }}" required>
+        {{ if .HasError "effective_date" }}<div class="form-error">{{ .Error "effective_date" }}</div>{{ end }}
+        <div class="form-help">La fecha en que pagaste. Decide a qué estado de cuenta se aplica.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="description">Descripción</label>
+        <input type="text" class="form-control" id="description" name="description" value="{{ .Description }}" maxlength="255">
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <a href="/cards/{{ $c.AccountID }}" class="btn btn-secondary">Cancelar</a>
+      <button type="submit" class="btn btn-primary">Registrar pago</button>
+    </div>
+  </form>
+</div>
+<script src="/static/js/card_payment.js" defer></script>
+{{ end }}

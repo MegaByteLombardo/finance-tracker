@@ -416,6 +416,8 @@ func handleUpdateAccount(logger *slog.Logger, renderer *Renderer, svcs *Services
 			case errors.Is(err, ErrNotFound):
 				http.NotFound(w, r)
 				return
+			case errors.Is(err, ErrNatureChange):
+				form.Errors["type"] = "Una cuenta no puede pasar de activo a pasivo ni al revés: abre la otra y archiva esta."
 			case errors.Is(err, ErrInvalidInput):
 				form.Errors["general"] = "Validation failed: please verify all fields."
 			case errors.Is(err, ErrConflict):

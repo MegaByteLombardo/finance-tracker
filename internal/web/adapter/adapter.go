@@ -10,10 +10,12 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/application"
 	"github.com/MegaByteLombardo/finance-tracker/internal/backup"
 	"github.com/MegaByteLombardo/finance-tracker/internal/category"
+	"github.com/MegaByteLombardo/finance-tracker/internal/creditcard"
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/fx"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
 	"github.com/MegaByteLombardo/finance-tracker/internal/paymentmethod"
+	"github.com/MegaByteLombardo/finance-tracker/internal/savings"
 	"github.com/MegaByteLombardo/finance-tracker/internal/settings"
 	"github.com/MegaByteLombardo/finance-tracker/internal/valuation"
 	"github.com/MegaByteLombardo/finance-tracker/internal/web"
@@ -137,10 +139,17 @@ func (a *categoryAdapter) SetActive(ctx context.Context, id int64, isActive bool
 
 type ledgerAdapter struct {
 	svc *ledger.Service
+
+	// app records and corrects incomes, so that every income the web layer
+	// writes commits together with its savings suggestion (M7, TD-080). The
+	// adapter is the only production implementation of web.LedgerService, so
+	// routing here means no handler -- desktop or mobile -- can write an income
+	// that bypasses the suggestion.
+	app *application.Service
 }
 
 func (a *ledgerAdapter) RecordIncome(ctx context.Context, in web.RecordIncomeInput) (web.TransactionView, error) {
-	view, err := a.svc.RecordIncome(ctx, toDomainRecordIncomeInput(in))
+	view, err := a.app.RecordIncome(ctx, toDomainRecordIncomeInput(in))
 	if err != nil {
 		return web.TransactionView{}, TranslateLedgerError(err)
 	}
@@ -148,9 +157,12 @@ func (a *ledgerAdapter) RecordIncome(ctx context.Context, in web.RecordIncomeInp
 }
 
 func (a *ledgerAdapter) RecordExpense(ctx context.Context, in web.RecordExpenseInput) (web.TransactionView, error) {
-	view, err := a.svc.RecordExpense(ctx, toDomainRecordExpenseInput(in))
+	// Through the application workflow: an expense and what it does to
+	// savings commit together (M7.4). Without a plan it is the ledger's
+	// RecordExpense, unchanged.
+	view, err := a.app.RecordExpense(ctx, toDomainRecordExpenseInput(in), toDomainExpensePlan(in.Savings))
 	if err != nil {
-		return web.TransactionView{}, TranslateLedgerError(err)
+		return web.TransactionView{}, translateMovementError(err)
 	}
 	return *toWebTransactionView(&view), nil
 }
@@ -164,9 +176,9 @@ func (a *ledgerAdapter) RecordOpeningBalance(ctx context.Context, in web.RecordO
 }
 
 func (a *ledgerAdapter) RecordTransfer(ctx context.Context, in web.RecordTransferInput) (web.TransactionView, error) {
-	view, err := a.svc.RecordTransfer(ctx, toDomainRecordTransferInput(in))
+	view, err := a.app.RecordTransfer(ctx, toDomainRecordTransferInput(in), toDomainTransferPlan(in.Savings))
 	if err != nil {
-		return web.TransactionView{}, TranslateLedgerError(err)
+		return web.TransactionView{}, translateMovementError(err)
 	}
 	return *toWebTransactionView(&view), nil
 }
@@ -196,7 +208,7 @@ func (a *ledgerAdapter) UpdateExchange(ctx context.Context, id int64, in web.Upd
 }
 
 func (a *ledgerAdapter) UpdateTransaction(ctx context.Context, id int64, in web.UpdateTransactionInput) (web.TransactionView, error) {
-	view, err := a.svc.UpdateTransaction(ctx, id, toDomainUpdateTransactionInput(in))
+	view, err := a.app.UpdateTransaction(ctx, id, toDomainUpdateTransactionInput(in))
 	if err != nil {
 		return web.TransactionView{}, TranslateLedgerError(err)
 	}
@@ -357,15 +369,17 @@ func New(db *sql.DB, backups *backup.Service, rates *fx.Service) *web.Services {
 	settingsService := settings.NewService(db)
 	currencyService := currency.NewService(db)
 	valuationService := valuation.NewService(ledgerService, rates, settingsService, currencyService)
+	savingsService := savings.NewService(db)
+	applicationService := application.NewService(db, savingsService)
 
 	return &web.Services{
 		Currencies:  &currencyAdapter{svc: currencyService},
 		Accounts:    &accountAdapter{svc: account.NewService(db)},
 		Categories:  &categoryAdapter{svc: category.NewService(db)},
 		Methods:     &paymentMethodAdapter{svc: paymentmethod.NewService(db)},
-		Ledger:      &ledgerAdapter{svc: ledgerService},
+		Ledger:      &ledgerAdapter{svc: ledgerService, app: applicationService},
 		Backups:     &backupAdapter{svc: backups},
-		Application: &applicationAdapter{svc: application.NewService(db)},
+		Application: &applicationAdapter{svc: applicationService},
 
 		// M5. The rate service arrives from the composition root rather than
 		// being built here, because it holds the provider -- which is
@@ -381,5 +395,20 @@ func New(db *sql.DB, backups *backup.Service, rates *fx.Service) *web.Services {
 		Analytics: &analyticsAdapter{
 			svc: analytics.NewService(valuationService, ledgerService, time.Now),
 		},
+
+		// M7.1. The savings policy and the suggestion of each eligible income.
+		Savings: &savingsAdapter{svc: savingsService},
+
+		// M8.1. Credit cards: every write through the application workflows.
+		Cards: &cardAdapter{svc: creditcard.NewService(db), ledger: ledgerService, app: applicationService},
 	}
+}
+
+// translateMovementError translates what recording a movement with a savings
+// plan can fail with: the ledger's errors first, then the fund's.
+func translateMovementError(err error) error {
+	if translated := TranslateLedgerError(err); translated != err {
+		return translated
+	}
+	return TranslateSavingsError(err)
 }

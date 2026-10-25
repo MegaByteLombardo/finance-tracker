@@ -34,6 +34,7 @@ func TestDSNCarriesExactlyTheConnectionScopedPragmas(t *testing.T) {
 		"_busy_timeout": "5000",
 		"_foreign_keys": "1",
 		"_synchronous":  "FULL",
+		"_txlock":       "immediate",
 	}
 	query := u.Query()
 	if len(query) != len(want) {
@@ -49,10 +50,6 @@ func TestDSNCarriesExactlyTheConnectionScopedPragmas(t *testing.T) {
 	// Open, not per connection.
 	if query.Has("_journal_mode") || query.Has("_journal") {
 		t.Error("DSN sets journal_mode; it belongs in enableWAL, where the result is checked")
-	}
-	// DEFERRED is the right default until real write paths justify otherwise.
-	if query.Has("_txlock") {
-		t.Error("DSN sets _txlock; M0 keeps SQLite's default DEFERRED transaction behaviour")
 	}
 }
 

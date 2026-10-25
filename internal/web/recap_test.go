@@ -124,11 +124,11 @@ func TestTheRecapShowsWhatWasComputed(t *testing.T) {
 		}
 		for _, phrase := range []string{
 			"Septiembre 2026",
-			"3,200.00",          // closing net worth
-			"+900.00",           // its change, signed by the template
-			"+39.13%",           //
-			"1 de 4",            // the summary
-			"Mejoró", "Empeoró", // verdicts
+			"3,200.00",             // closing net worth
+			"+900.00",              // its change, signed by the template
+			"+39.13%",              //
+			"1 de 4",               // the summary
+			"Aumentó", "Disminuyó", // which way each indicator moved
 			"-10.00 pts",        // savings rate, in points
 			"36.67",             // daily average
 			"Comida", "+250.00", // a category that rose

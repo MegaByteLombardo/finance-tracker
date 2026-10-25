@@ -57,7 +57,8 @@ cross-domain workflows  (internal/application)
    ↓
 domain services         (internal/currency, internal/account,
                          internal/category, internal/paymentmethod,
-                         internal/ledger, internal/fx, internal/settings)
+                         internal/ledger, internal/fx, internal/settings,
+                         internal/savings)
    ↓
 repositories            (same packages)
    ↓
@@ -82,9 +83,11 @@ cycle.
 **`internal/application` exists because of that last constraint.** Opening an
 account and recording its opening balance is one user action spanning two
 domains, and it must be atomic. It cannot live in `account`, which would have to
-import `ledger`, nor in `ledger`, whose job is not creating accounts. It holds
-exactly one workflow and is not a general application layer; see
-[TD-030](technical-decisions.md).
+import `ledger`, nor in `ledger`, whose job is not creating accounts. Since M7.1
+it also records and corrects incomes together with their savings suggestion
+(`internal/savings` reads the ledger, so the ledger cannot call it). It is not a
+general application layer; see [TD-030](technical-decisions.md) and
+[TD-080](technical-decisions.md).
 
 **The presentation layer is built against a written contract, not against the
 packages directly.** M2 was delivered by two agents working in parallel, so the
@@ -424,10 +427,45 @@ every category, ranks the period's largest expenses from `ledger.ListExpenses`
 (TD-074) and reports four fixed-rule indicators (TD-073). Seven queries whatever
 the period: the snapshot's five, the flows, and the expenses.
 
+### `internal/savings` *(M7)*
+
+The savings policy and, in M7.1, the suggestion each eligible income produces
+([m7-contract.md](m7-contract.md)). A layer **over** the ledger, never a second
+one: it reads incomes (`ledger.Repository.GetIncome`, `ListIncomesSince`),
+categories and reference rates, writes only its own tables, moves no balance and
+takes no part in the net worth.
+
+Its writes that follow an income run inside the caller's transaction
+(`SyncIncomeTx`), and every read they make goes through that transaction's
+executor -- `ledger.NewRepository(exec)`, `fx.NewRepository(exec)` + `fx.NewBook`
+-- never through a service holding the pool, which has one connection. Its own
+writes open with `BEGIN IMMEDIATE` (TD-075). The rate of an income is resolved by
+`fx.Book` with M5's rules; the resulting USD figure and the observations used are
+then frozen in the suggestion (TD-078).
+
+### `internal/creditcard` *(M8.1)*
+
+What a credit card is beyond being an account: the issuer's terms
+(`credit_cards`), the position derived from the ledger and the terms on every
+read, and which expenses are financial charges (`credit_charges`). A card IS an
+account of type `CREDIT_CARD`, whose nature is LIABILITY (`account.Type.Nature`,
+TD-089). The package reads the account, the ledger and payment methods; it
+writes only its own two tables. Opening a card and recording on one go through
+`internal/application`, which commits the ledger's rows, the card's and the
+request key (TD-095) together.
+
 ### `internal/application`
 
-Cross-domain workflows, and nothing else. One today: `OpenAccount`, which creates
-an account and records its opening balance in a single `sql.Tx`.
+Cross-domain workflows, and nothing else. Two kinds today: `OpenAccount`, which
+creates an account and records its opening balance in a single `sql.Tx`; and
+`RecordIncome` / `UpdateTransaction`, which write an income through the ledger
+and bring its savings suggestion in line in the same transaction (TD-080); and
+`RecordExpense` / `RecordTransfer`, which record a movement and apply the user's
+savings plan with it (TD-086); and, from M8.1, `OpenCreditCard`,
+`RecordCardPurchase`, `RecordCardCharge` / `UpdateCardCharge` and `RecordRefund`
+/ `UpdateRefund`, which commit the ledger's rows with the card's and with the
+form's request key (TD-095). The web adapter routes every income, expense and
+transfer creation through them.
 
 A workflow earns a place here by coordinating two domains atomically. Pass-through
 wrappers do not belong in it, and neither does anything a single domain service
@@ -489,8 +527,11 @@ pass-through form, because the shorthand keys are all validated before any of
 them are applied: a malformed DSN fails cleanly instead of leaving a connection
 half-configured.
 
-`_txlock` is deliberately **not** set; SQLite's default `DEFERRED` transaction
-behaviour stands until real write paths exist to justify anything else.
+`_txlock=immediate` is set (TD-075, M7.1): every read-write transaction takes the
+write lock at `BEGIN`, so a transaction that reads, decides and writes cannot be
+overtaken by another process between its read and its write. A `ReadOnly`
+transaction keeps a plain `BEGIN`. It superseded TD-009 once M7 brought such a
+write path.
 
 ### Why `journal_mode` is handled separately
 
@@ -578,6 +619,14 @@ Grafito, all tokens in `web/static/css/app.css`; `mobile.css` aliases them
 `web/static/js/fit.js` shrinks a `data-fit` figure that would overflow its
 container and computes nothing. Fonts (Archivo, DM Mono) are embedded under
 `web/static/fonts`; no page requests anything from another host.
+
+An LED **ticker tape** sits inside the sticky header on every desktop page and
+on mobile Inicio (TD-096). htmx loads `GET /ticker` after the page renders. The
+handler composes the month in progress from `Analytics.Recap`, the savings fund
+and the latest transactions, computes nothing, and always answers 200. Which
+groups appear, their order, the LED colour, the speed and the motion are kept in
+the browser's `localStorage` and applied by `web/static/js/tape.js`;
+`/settings/ticker` edits them.
 
 ## Lifecycle
 

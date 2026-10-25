@@ -97,6 +97,9 @@ func (r *Repository) InsertMovement(ctx context.Context, m Movement) (Movement, 
 //
 // The movement count is computed only for the two-sided types: CASE does not
 // evaluate the branch it does not take, so an income costs nothing for it.
+//
+// The last column is the expense a REFUND names, if any (M8.1). The join is on
+// the primary key of transaction_refunds, so it yields at most one row.
 const viewQuery = `
 	SELECT t.id, t.transaction_type, t.effective_date, t.description,
 	       t.payment_method_id, pm.name,
@@ -108,7 +111,8 @@ const viewQuery = `
 	       ca.currency_code, ccur.symbol, ccur.minor_unit,
 	       CASE WHEN t.transaction_type IN ('TRANSFER', 'FX_EXCHANGE')
 	            THEN (SELECT count(*) FROM account_movements am WHERE am.transaction_id = t.id)
-	            ELSE 1 END
+	            ELSE 1 END,
+	       tr.original_transaction_id
 	  FROM account_movements m
 	  JOIN transactions t   ON t.id   = m.transaction_id
 	  JOIN accounts a       ON a.id   = m.account_id
@@ -121,6 +125,7 @@ const viewQuery = `
 	                      WHERE am.transaction_id = t.id AND am.id <> m.id)
 	  LEFT JOIN accounts ca   ON ca.id = cm.account_id
 	  LEFT JOIN currencies ccur ON ccur.code = ca.currency_code
+	  LEFT JOIN transaction_refunds tr ON tr.refund_transaction_id = t.id
 	 WHERE m.id = (SELECT min(am.id) FROM account_movements am
 	                WHERE am.transaction_id = t.id)`
 
@@ -152,6 +157,37 @@ func (r *Repository) ListViews(ctx context.Context, limit int) (_ []TransactionV
 		viewQuery+` ORDER BY t.effective_date DESC, t.id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("listing transactions: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("closing transaction rows: %w", cerr))
+		}
+	}()
+
+	views := make([]TransactionView, 0)
+	for rows.Next() {
+		v, err := scanView(rows)
+		if err != nil {
+			return nil, fmt.Errorf("reading transaction row: %w", err)
+		}
+		views = append(views, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating transactions: %w", err)
+	}
+	return views, nil
+}
+
+// ListViewsForAccount returns the most recent transactions that moved an
+// account, newest first: every type, both ends of a transfer or an exchange
+// included. It is still one row per transaction, anchored like ListViews; the
+// filter only decides which transactions are listed.
+func (r *Repository) ListViewsForAccount(ctx context.Context, accountID int64, limit int) (_ []TransactionView, err error) {
+	rows, err := r.db.QueryContext(ctx, viewQuery+`
+		   AND EXISTS (SELECT 1 FROM account_movements x WHERE x.transaction_id = t.id AND x.account_id = ?)
+		 ORDER BY t.effective_date DESC, t.id DESC LIMIT ?`, accountID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("listing the transactions of account %d: %w", accountID, err)
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
@@ -378,9 +414,17 @@ func (r *Repository) ListDailyAccountDeltas(ctx context.Context) (_ []DailyDelta
 //
 // Each row keeps its date because a flow is valued at the rate of its own day
 // (TD-068); summing across days here would lose that.
+//
+// A REFUND is accepted too, and reported as EXPENSE: money given back for
+// spending is negative spending in the same category on its own day (M8.1,
+// TD-090). Its positive movement is summed with that day's expenses in that
+// category, so a flow's AmountMinor is the NET spent -- and may be positive on
+// a day that refunded more than it spent. Count includes the refunds.
 func (r *Repository) ListFlows(ctx context.Context, from, to time.Time) (_ []Flow, err error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT t.effective_date, t.transaction_type, t.category_id, cat.name,
+		SELECT t.effective_date,
+		       CASE t.transaction_type WHEN 'REFUND' THEN 'EXPENSE' ELSE t.transaction_type END AS flow_type,
+		       t.category_id, cat.name,
 		       a.currency_code, cur.minor_unit,
 		       SUM(m.amount_minor), count(*)
 		  FROM transactions t
@@ -389,10 +433,10 @@ func (r *Repository) ListFlows(ctx context.Context, from, to time.Time) (_ []Flo
 		  JOIN currencies cur      ON cur.code = a.currency_code
 		  LEFT JOIN categories cat ON cat.id = t.category_id
 		 WHERE t.effective_date BETWEEN ? AND ?
-		   AND t.transaction_type IN ('INCOME', 'EXPENSE')
-		 GROUP BY t.effective_date, t.transaction_type, t.category_id, cat.name,
+		   AND t.transaction_type IN ('INCOME', 'EXPENSE', 'REFUND')
+		 GROUP BY t.effective_date, flow_type, t.category_id, cat.name,
 		          a.currency_code, cur.minor_unit
-		 ORDER BY t.effective_date, t.transaction_type, t.category_id, a.currency_code`,
+		 ORDER BY t.effective_date, flow_type, t.category_id, a.currency_code`,
 		database.FormatDate(from), database.FormatDate(to))
 	if err != nil {
 		return nil, fmt.Errorf("listing flows: %w", err)
@@ -506,6 +550,101 @@ func (r *Repository) ListExpenses(ctx context.Context, from, to time.Time) (_ []
 	return items, nil
 }
 
+// incomeQuery reads INCOME transactions with the one movement each has. The
+// WHERE clause names what it ACCEPTS (TD-045): only an income is an income, and
+// a type added later is not one by default.
+const incomeQuery = `
+	SELECT t.id, t.effective_date, t.description, t.category_id, cat.name,
+	       a.id, a.name, a.account_type, a.currency_code, cur.minor_unit,
+	       SUM(m.amount_minor)
+	  FROM transactions t
+	  JOIN account_movements m ON m.transaction_id = t.id
+	  JOIN accounts a          ON a.id = m.account_id
+	  JOIN currencies cur      ON cur.code = a.currency_code
+	  LEFT JOIN categories cat ON cat.id = t.category_id
+	 WHERE t.transaction_type IN ('INCOME')`
+
+const incomeGroupBy = `
+	 GROUP BY t.id, t.effective_date, t.description, t.category_id, cat.name,
+	          a.id, a.name, a.account_type, a.currency_code, cur.minor_unit`
+
+// ListIncomesSince returns every income dated on or after a day, oldest first --
+// future-dated ones included, because a savings suggestion is made when an
+// income is recorded, not when its date arrives.
+func (r *Repository) ListIncomesSince(ctx context.Context, from time.Time) (_ []IncomeItem, err error) {
+	rows, err := r.db.QueryContext(ctx,
+		incomeQuery+` AND t.effective_date >= ?`+incomeGroupBy+` ORDER BY t.effective_date, t.id`,
+		database.FormatDate(from))
+	if err != nil {
+		return nil, fmt.Errorf("listing incomes: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("closing income rows: %w", cerr))
+		}
+	}()
+
+	items := make([]IncomeItem, 0)
+	for rows.Next() {
+		item, err := scanIncome(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating incomes: %w", err)
+	}
+	return items, nil
+}
+
+// GetIncome returns one income, or ErrNotFound when the transaction does not
+// exist or is not an INCOME.
+func (r *Repository) GetIncome(ctx context.Context, id int64) (IncomeItem, error) {
+	item, err := scanIncome(r.db.QueryRowContext(ctx, incomeQuery+` AND t.id = ?`+incomeGroupBy, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return IncomeItem{}, fmt.Errorf("income %d: %w", id, ErrNotFound)
+	}
+	return item, err
+}
+
+func scanIncome(s scanner) (IncomeItem, error) {
+	var (
+		item         IncomeItem
+		date         string
+		description  sql.NullString
+		categoryID   sql.NullInt64
+		categoryName sql.NullString
+		accountType  string
+	)
+	if err := s.Scan(&item.TransactionID, &date, &description, &categoryID, &categoryName,
+		&item.AccountID, &item.AccountName, &accountType, &item.CurrencyCode, &item.MinorUnit,
+		&item.AmountMinor); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return IncomeItem{}, err
+		}
+		return IncomeItem{}, fmt.Errorf("reading income row: %w", err)
+	}
+	item.AccountType = account.Type(accountType)
+	var err error
+	if item.Date, err = database.ParseDate(date); err != nil {
+		return IncomeItem{}, fmt.Errorf("reading the date of income %d: %w", item.TransactionID, err)
+	}
+	if description.Valid {
+		text := description.String
+		item.Description = &text
+	}
+	// As in ListFlows: the CHECK guarantees a category, and the NULL branch is
+	// read rather than assumed.
+	if categoryID.Valid {
+		item.CategoryID = categoryID.Int64
+	}
+	if categoryName.Valid {
+		item.CategoryName = categoryName.String
+	}
+	return item, nil
+}
+
 // scanner is satisfied by both *sql.Row and *sql.Rows.
 type scanner interface {
 	Scan(dest ...any) error
@@ -538,6 +677,7 @@ func scanView(s scanner) (TransactionView, error) {
 		otherCurrencySymbol sql.NullString
 		otherCurrencyMinor  sql.NullInt64
 		movementCount       int
+		refundOf            sql.NullInt64
 	)
 
 	if err := s.Scan(&v.ID, &transactionType, &effectiveDate, &description,
@@ -548,8 +688,12 @@ func scanView(s scanner) (TransactionView, error) {
 		&v.AmountMinor, &createdAt,
 		&otherMovementID, &otherAccountID, &otherAccountName, &otherAmountMinor,
 		&otherCurrencyCode, &otherCurrencySymbol, &otherCurrencyMinor,
-		&movementCount); err != nil {
+		&movementCount, &refundOf); err != nil {
 		return TransactionView{}, err
+	}
+	if refundOf.Valid {
+		value := refundOf.Int64
+		v.RefundOf = &value
 	}
 
 	v.Type = TransactionType(transactionType)

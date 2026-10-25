@@ -29,6 +29,25 @@ var tableIntroducedAt = map[string]int64{
 	"payment_methods":   8,
 	"exchange_rates":    11,
 	"app_settings":      12,
+
+	"savings_policy_versions":        14,
+	"savings_category_rules":         14,
+	"savings_income_overrides":       14,
+	"savings_suggestions":            15,
+	"savings_suggestion_rate_legs":   15,
+	"savings_operations":             16,
+	"savings_entries":                16,
+	"savings_goals":                  17,
+	"savings_goal_target_revisions":  17,
+	"savings_issue_acknowledgements": 18,
+
+	"credit_cards":        20,
+	"credit_charges":      21,
+	"transaction_refunds": 21,
+	"operation_requests":  21,
+
+	"credit_statements":            22,
+	"credit_statement_assignments": 22,
 }
 
 // ExpectedTables returns the business tables a database at the given schema

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/MegaByteLombardo/finance-tracker/internal/account"
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/fx"
@@ -242,6 +243,7 @@ func (s *Snapshot) NetWorthAt(on time.Time) (NetWorth, error) {
 				AccountID:        acct.AccountID,
 				AccountName:      acct.AccountName,
 				AccountType:      string(acct.AccountType),
+				Nature:           acct.AccountType.Nature(),
 				Institution:      acct.Institution,
 				IsActive:         acct.IsActive,
 				CurrencyCode:     cur.Code,
@@ -298,6 +300,26 @@ func (s *Snapshot) NetWorthAt(on time.Time) (NetWorth, error) {
 
 	result.TotalFormatted = money.Format(result.TotalMinor, s.base.MinorUnit)
 
+	// The split by nature names both natures it sums (TD-045): an account whose
+	// type has neither would be in the total and in neither line, and that is
+	// refused rather than hidden.
+	for _, line := range result.Accounts {
+		if !line.Valued {
+			continue
+		}
+		switch line.Nature {
+		case account.Asset:
+			result.AssetsMinor += line.ConvertedMinor
+		case account.Liability:
+			result.LiabilitiesMinor -= line.ConvertedMinor
+		default:
+			return NetWorth{}, fmt.Errorf("account %d is of type %s, which is neither an asset nor a liability",
+				line.AccountID, line.AccountType)
+		}
+	}
+	result.AssetsFormatted = money.Format(result.AssetsMinor, s.base.MinorUnit)
+	result.LiabilitiesFormatted = money.Format(result.LiabilitiesMinor, s.base.MinorUnit)
+
 	if err := assignShares(&result); err != nil {
 		return NetWorth{}, err
 	}
@@ -344,45 +366,58 @@ func (s *Snapshot) allocate(component *Component, lines []AccountComponent, reso
 	return converted, nil
 }
 
-// assignShares fills in each component's and each account's part of the total,
-// in basis points, when the total is complete and positive (see Share).
+// assignShares fills in each component's part of the total and each asset
+// account's part of the assets, in basis points, when the total is complete
+// and each whole is positive (see Share).
 func assignShares(worth *NetWorth) error {
-	if !worth.Complete || worth.TotalMinor <= 0 {
+	if !worth.Complete {
 		return nil
 	}
 
-	shares := func(values []int64) ([]int64, error) {
+	shares := func(values []int64, whole int64) ([]int64, error) {
 		parts := make([]*big.Rat, len(values))
 		for i, v := range values {
 			parts[i] = new(big.Rat).SetFrac(
 				new(big.Int).Mul(big.NewInt(v), big.NewInt(money.BasisPointsPerUnit)),
-				big.NewInt(worth.TotalMinor))
+				big.NewInt(whole))
 		}
 		return money.Allocate(money.BasisPointsPerUnit, parts)
 	}
 
-	values := make([]int64, len(worth.Components))
-	for i, component := range worth.Components {
-		values[i] = component.ConvertedMinor
-	}
-	componentShares, err := shares(values)
-	if err != nil {
-		return fmt.Errorf("computing currency shares: %w", err)
-	}
-	for i := range worth.Components {
-		worth.Components[i].Share = Share{BasisPoints: componentShares[i], Defined: true}
+	if worth.TotalMinor > 0 {
+		values := make([]int64, len(worth.Components))
+		for i, component := range worth.Components {
+			values[i] = component.ConvertedMinor
+		}
+		componentShares, err := shares(values, worth.TotalMinor)
+		if err != nil {
+			return fmt.Errorf("computing currency shares: %w", err)
+		}
+		for i := range worth.Components {
+			worth.Components[i].Share = Share{BasisPoints: componentShares[i], Defined: true}
+		}
 	}
 
-	values = make([]int64, len(worth.Accounts))
-	for i, line := range worth.Accounts {
-		values[i] = line.ConvertedMinor
-	}
-	accountShares, err := shares(values)
-	if err != nil {
-		return fmt.Errorf("computing account shares: %w", err)
-	}
-	for i := range worth.Accounts {
-		worth.Accounts[i].Share = Share{BasisPoints: accountShares[i], Defined: true}
+	// An account's share is of what is HELD. A debt is not a part of it: with a
+	// card in the denominator, a bank account could hold 130% of a net worth.
+	if worth.AssetsMinor > 0 {
+		var (
+			values  []int64
+			indexes []int
+		)
+		for i, line := range worth.Accounts {
+			if line.Nature == account.Asset {
+				values = append(values, line.ConvertedMinor)
+				indexes = append(indexes, i)
+			}
+		}
+		accountShares, err := shares(values, worth.AssetsMinor)
+		if err != nil {
+			return fmt.Errorf("computing account shares: %w", err)
+		}
+		for k, i := range indexes {
+			worth.Accounts[i].Share = Share{BasisPoints: accountShares[k], Defined: true}
+		}
 	}
 	return nil
 }

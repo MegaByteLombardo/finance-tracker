@@ -200,9 +200,12 @@ type RateLegView struct {
 	QuoteCurrencyCode string
 	Pair              string
 	Rate              string
-	EffectiveDate     time.Time
-	Source            RateSource
-	SourceLabel       string
+	// RateShort is Rate at two decimals, half to even, for a readout with no
+	// room for the full precision. Display only.
+	RateShort     string
+	EffectiveDate time.Time
+	Source        RateSource
+	SourceLabel   string
 
 	// Inverted is true when the observation was read backwards, because the
 	// application stores what a source published and never its mirror.
@@ -297,6 +300,14 @@ type NetWorth struct {
 	TotalMinor     int64
 	TotalFormatted string
 
+	// AssetsFormatted and LiabilitiesFormatted split the total by the nature
+	// of the accounts (M8.1): what is held, and what is owed as a positive
+	// figure. Assets minus liabilities is the total, computed by the backend.
+	AssetsMinor          int64
+	AssetsFormatted      string
+	LiabilitiesMinor     int64
+	LiabilitiesFormatted string
+
 	// Complete is false when at least one currency could not be valued.
 	//
 	// When it is false the total is PARTIAL, and a screen must say so. It must
@@ -324,6 +335,30 @@ type NetWorth struct {
 	// FutureMovementCount is how many movements are dated after ValuationDate
 	// and are therefore not in the figure yet (TD-063).
 	FutureMovementCount int
+}
+
+// AssetAccounts and LiabilityAccounts split Accounts by nature, in the order
+// the backend listed them, so a template renders two groups without
+// comparing anything.
+func (n NetWorth) AssetAccounts() []NetWorthAccount {
+	var out []NetWorthAccount
+	for _, a := range n.Accounts {
+		if !a.IsLiability() {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// LiabilityAccounts: see AssetAccounts.
+func (n NetWorth) LiabilityAccounts() []NetWorthAccount {
+	var out []NetWorthAccount
+	for _, a := range n.Accounts {
+		if a.IsLiability() {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // Errors M5 adds. The M2, M3 and M4 sentinels remain in force.

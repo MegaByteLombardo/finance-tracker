@@ -63,6 +63,25 @@ func (s *Service) RecordIncome(ctx context.Context, in RecordIncomeInput) (Trans
 	return *view, nil
 }
 
+// RecordIncomeTx is RecordIncome without the transaction, so that recording an
+// income and generating its savings suggestion commit together or not at all
+// (M7, internal/application). It writes exactly what RecordIncome writes.
+func RecordIncomeTx(ctx context.Context, exec database.DBTX, in RecordIncomeInput) (TransactionView, error) {
+	view, err := recordTx(ctx, exec, recordRequest{
+		txType:          Income,
+		accountID:       in.AccountID,
+		amount:          in.Amount,
+		categoryID:      &in.CategoryID,
+		paymentMethodID: &in.PaymentMethodID,
+		description:     in.Description,
+		effectiveDate:   in.EffectiveDate,
+	})
+	if err != nil {
+		return TransactionView{}, err
+	}
+	return *view, nil
+}
+
 // RecordExpense records money leaving an account.
 //
 // The amount is positive here too: "25.99", never "-25.99". The sign belongs to
@@ -70,6 +89,25 @@ func (s *Service) RecordIncome(ctx context.Context, in RecordIncomeInput) (Trans
 // increases a balance cannot be expressed.
 func (s *Service) RecordExpense(ctx context.Context, in RecordExpenseInput) (TransactionView, error) {
 	view, err := s.record(ctx, recordRequest{
+		txType:          Expense,
+		accountID:       in.AccountID,
+		amount:          in.Amount,
+		categoryID:      &in.CategoryID,
+		paymentMethodID: &in.PaymentMethodID,
+		description:     in.Description,
+		effectiveDate:   in.EffectiveDate,
+	})
+	if err != nil {
+		return TransactionView{}, err
+	}
+	return *view, nil
+}
+
+// RecordExpenseTx is RecordExpense without the transaction, so that an expense
+// and the savings it consumes or releases commit together (M7.4,
+// internal/application). It writes exactly what RecordExpense writes.
+func RecordExpenseTx(ctx context.Context, exec database.DBTX, in RecordExpenseInput) (TransactionView, error) {
+	view, err := recordTx(ctx, exec, recordRequest{
 		txType:          Expense,
 		accountID:       in.AccountID,
 		amount:          in.Amount,
@@ -132,6 +170,12 @@ func (s *Service) GetTransaction(ctx context.Context, id int64) (TransactionView
 // ListTransactions returns recent activity, newest first by effective date.
 func (s *Service) ListTransactions(ctx context.Context, in ListTransactionsInput) ([]TransactionView, error) {
 	return s.repo.ListViews(ctx, in.limit())
+}
+
+// ListAccountTransactions returns the recent activity of one account, newest
+// first: every transaction that moved it, both ends of a transfer included.
+func (s *Service) ListAccountTransactions(ctx context.Context, accountID int64, in ListTransactionsInput) ([]TransactionView, error) {
+	return s.repo.ListViewsForAccount(ctx, accountID, in.limit())
 }
 
 // today is the as-of date of every CURRENT balance: today on the Venezuelan
@@ -414,6 +458,13 @@ func amountFor(txType TransactionType, amount string, minorUnit int) (int64, err
 		// that starts overdrawn.
 		return minor, nil
 
+	case Refund:
+		if minor <= 0 {
+			return 0, fmt.Errorf("%w: a refund amount must be greater than zero; it is stored as a positive movement",
+				ErrInvalidAmount)
+		}
+		return minor, nil
+
 	case Transfer:
 		// Unreachable: a transfer has two accounts and two signed amounts, so it
 		// never travels through the single-account request this function serves.
@@ -497,7 +548,8 @@ func categoryTypeFor(txType TransactionType) (category.Type, error) {
 	switch txType {
 	case Income:
 		return category.Income, nil
-	case Expense:
+	case Expense, Refund:
+		// A refund gives spending back, so it is filed where the spending was.
 		return category.Expense, nil
 	default:
 		return "", fmt.Errorf("%w: a %s transaction has no category", ErrInvalidInput, txType)
@@ -531,7 +583,30 @@ func unwrapAmountMessage(err error) string {
 // M3 does not keep the previous version of an edited record. That is a scope
 // decision, documented in docs/m3-contract.md; the way back is a backup.
 func (s *Service) UpdateTransaction(ctx context.Context, id int64, in UpdateTransactionInput) (TransactionView, error) {
-	view, err := s.update(ctx, id, func(ctx context.Context, exec database.DBTX, current Transaction) (recordRequest, error) {
+	view, err := s.update(ctx, id, incomeOrExpenseEdit(id, in), in.AllowCurrencyChange)
+	if err != nil {
+		return TransactionView{}, err
+	}
+	return *view, nil
+}
+
+// UpdateTransactionTx is UpdateTransaction without the transaction, so that
+// correcting an income and following it with its savings suggestion commit
+// together (M7, internal/application). The rules are UpdateTransaction's,
+// applied by the same code.
+func UpdateTransactionTx(
+	ctx context.Context, exec database.DBTX, id int64, in UpdateTransactionInput,
+) (TransactionView, error) {
+	view, err := updateTx(ctx, exec, id, incomeOrExpenseEdit(id, in), in.AllowCurrencyChange)
+	if err != nil {
+		return TransactionView{}, err
+	}
+	return *view, nil
+}
+
+// incomeOrExpenseEdit is the buildRequest behind both UpdateTransaction forms.
+func incomeOrExpenseEdit(id int64, in UpdateTransactionInput) buildRequest {
+	return func(ctx context.Context, exec database.DBTX, current Transaction) (recordRequest, error) {
 		// Income and expenses convert freely into each other. Nothing else
 		// converts at all.
 		//
@@ -561,11 +636,7 @@ func (s *Service) UpdateTransaction(ctx context.Context, id int64, in UpdateTran
 			description:     in.Description,
 			effectiveDate:   in.EffectiveDate,
 		}, nil
-	}, in.AllowCurrencyChange)
-	if err != nil {
-		return TransactionView{}, err
 	}
-	return *view, nil
 }
 
 // UpdateOpeningBalance corrects where an account started.
@@ -622,7 +693,22 @@ func (s *Service) update(
 		}
 	}()
 
-	repo := NewRepository(tx)
+	view, err := updateTx(ctx, tx, id, build, allowCurrencyChange)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("committing the edit of transaction %d: %w", id, err)
+	}
+	return view, nil
+}
+
+// updateTx applies an edit through exec, which must be an open transaction.
+func updateTx(
+	ctx context.Context, exec database.DBTX, id int64, build buildRequest, allowCurrencyChange bool,
+) (*TransactionView, error) {
+	repo := NewRepository(exec)
 
 	current, err := repo.GetTransaction(ctx, id)
 	if err != nil {
@@ -633,12 +719,12 @@ func (s *Service) update(
 		return nil, err
 	}
 
-	request, err := build(ctx, tx, current)
+	request, err := build(ctx, exec, current)
 	if err != nil {
 		return nil, err
 	}
 
-	resolved, err := resolveRequest(ctx, tx, &request)
+	resolved, err := resolveRequest(ctx, exec, &request)
 	if err != nil {
 		return nil, err
 	}
@@ -646,7 +732,7 @@ func (s *Service) update(
 	// Moving a transaction between currencies reinterprets its amount rather
 	// than converting it, so it has to be asked for.
 	if !allowCurrencyChange && resolved.account.ID != movement.AccountID {
-		previous, err := account.NewRepository(tx).Get(ctx, movement.AccountID)
+		previous, err := account.NewRepository(exec).Get(ctx, movement.AccountID)
 		if err != nil {
 			return nil, fmt.Errorf("looking up the current account of transaction %d: %w", id, err)
 		}
@@ -682,13 +768,17 @@ func (s *Service) update(
 		return nil, err
 	}
 
-	view, err := repo.GetView(ctx, id)
-	if err != nil {
+	// An expense that refunds name must still be what they were linked to: an
+	// expense, in their account, at least as large as they add up to. Checked
+	// after the write, in the same transaction, so the rule is applied to what
+	// is about to be committed.
+	if err := checkRefundsOf(ctx, exec, id); err != nil {
 		return nil, err
 	}
 
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("committing the edit of transaction %d: %w", id, err)
+	view, err := repo.GetView(ctx, id)
+	if err != nil {
+		return nil, err
 	}
 	return &view, nil
 }

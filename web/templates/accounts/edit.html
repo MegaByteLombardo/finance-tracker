@@ -39,6 +39,13 @@
         <label class="form-label" for="type">
           Account Type <span class="required-indicator">*</span>
         </label>
+        {{ if .Type.IsLiability }}
+        <!-- A liability stays one (TD-089): the type is fixed, and the card's
+             terms are edited on its own page. -->
+        <input type="hidden" name="type" value="{{ .Type }}">
+        <input type="text" class="form-control" value="{{ accountTypeLabel .Type }}" readonly>
+        <div class="form-help">Una cuenta no pasa de pasivo a activo. <a href="/cards/{{ .ID }}/edit">Condiciones de la tarjeta &rarr;</a></div>
+        {{ else }}
         <select class="form-control {{ if .HasError "type" }}is-invalid{{ end }}"
                 id="type"
                 name="type"
@@ -51,6 +58,7 @@
           <option value="WALLET" {{ if eq .Type "WALLET" }}selected{{ end }}>WALLET (Digital)</option>
           <option value="OTHER" {{ if eq .Type "OTHER" }}selected{{ end }}>OTHER</option>
         </select>
+        {{ end }}
         {{ if .HasError "type" }}
         <div class="form-error">{{ .Error "type" }}</div>
         {{ end }}

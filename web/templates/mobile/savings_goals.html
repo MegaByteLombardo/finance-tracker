@@ -1,0 +1,83 @@
+{{ define "content" }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+
+    <main class="mobile-scrollable-content" id="main-mobile-content">
+      <div style="margin-bottom: 4px;">
+        <a href="/mobile/ahorro" class="section-link" aria-label="Volver a Ahorro">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          <span>Ahorro</span>
+        </a>
+      </div>
+
+      {{ with .Alert }}<p class="net-worth-incomplete" role="status">{{ .Message }}</p>{{ end }}
+
+      <header class="mobile-section">
+        <span class="section-eyebrow">Metas</span>
+        <h1 class="section-title">Para qué es lo reservado</h1>
+      </header>
+
+      {{ if not .Available }}
+      <p class="net-worth-incomplete" role="status">{{ .Error }}</p>
+      {{ else }}
+      <section class="mobile-section">
+        {{ if not .Goals }}<p class="section-note">Todavía no hay metas.</p>{{ else }}
+        <ul class="mobile-list">
+          {{ range .Goals }}
+          <li class="mobile-list-item savings-mobile-item">
+            <a class="mobile-list-main" href="/mobile/ahorro/metas/{{ .ID }}">
+              <span class="mobile-list-title">{{ .Name }}</span>
+              <span class="mobile-list-subtitle">{{ .TypeLabel }} · {{ .FundingLabel }}{{ if not .AcceptsMoney }} · {{ .StatusLabel }}{{ end }} · {{ .ProgressFormatted }}%{{ if .SuggestedContributionFormatted }}<br>Sugerido {{ formatAmount .SuggestedContributionFormatted }} USD/mes{{ end }}</span>
+            </a>
+            <span class="mobile-list-amount">{{ formatAmount .ReservedFormatted }} / {{ formatAmount .TargetFormatted }}</span>
+            <span class="savings-bar" style="width: 100%"><span class="savings-bar-fill" style="width: {{ .ProgressWidth }}%"></span></span>
+          </li>
+          {{ end }}
+        </ul>
+        {{ end }}
+      </section>
+
+      <section class="mobile-section">
+        <h2 class="section-title">Nueva meta</h2>
+        {{ if .FormErrors.general }}<p class="net-worth-incomplete" role="alert">{{ .FormErrors.general }}</p>{{ end }}
+        <form action="/savings/goals" method="POST" class="op-fields-container">
+          <input type="hidden" name="return" value="{{ .Return }}">
+          <div class="op-field-group">
+            <label for="mg_name" class="op-field-label">Nombre</label>
+            <input type="text" id="mg_name" name="name" class="op-native-input" maxlength="80" value="{{ .Form.Name }}" required>
+          </div>
+          <div class="op-field-group">
+            <label for="mg_type" class="op-field-label">Tipo</label>
+            <div class="op-select-wrap">
+              <select id="mg_type" name="type" class="op-native-select">
+                <option value="PERMANENT" {{ if eq .Form.Type "PERMANENT" }}selected{{ end }}>Permanente</option>
+                <option value="ONE_TIME" {{ if eq .Form.Type "ONE_TIME" }}selected{{ end }}>Puntual</option>
+              </select>
+            </div>
+          </div>
+          <div class="op-field-group">
+            <label for="mg_target" class="op-field-label">Objetivo (USD)</label>
+            <input type="text" id="mg_target" name="target" class="op-native-input" inputmode="decimal" value="{{ .Form.Target }}" required>
+          </div>
+          <div class="op-field-group">
+            <label for="mg_date" class="op-field-label">Fecha límite (solo puntual)</label>
+            <input type="date" id="mg_date" name="target_date" class="op-native-input" value="{{ .Form.TargetDate }}">
+          </div>
+          <div class="op-field-group">
+            <label for="mg_share" class="op-field-label">% de cada ahorro confirmado</label>
+            <input type="text" id="mg_share" name="distribution" class="op-native-input" inputmode="decimal" value="{{ .Form.Distribution }}">
+          </div>
+          <button type="submit" class="mobile-btn mobile-btn-primary">Crear meta</button>
+        </form>
+      </section>
+      {{ end }}
+    </main>
+
+    {{ template "bottom_navigation" .Navigation }}
+  </div>
+</div>
+{{ end }}

@@ -1,0 +1,133 @@
+{{ define "content" }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+
+    <main class="mobile-scrollable-content" id="main-mobile-content">
+      <div style="margin-bottom: 4px;">
+        <a href="/mobile" class="section-link" aria-label="Volver a Inicio">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          <span>Inicio</span>
+        </a>
+      </div>
+
+      {{ $view := . }}
+      {{ with .Alert }}<p class="net-worth-incomplete" role="status">{{ .Message }}</p>{{ end }}
+
+      <header class="mobile-section">
+        <span class="section-eyebrow">Ahorro</span>
+        <h1 class="section-title">Lo que tu política propone apartar</h1>
+        <p class="section-note">Un objetivo, no dinero reservado: no mueve saldos ni cambia tu patrimonio.</p>
+      </header>
+
+      {{ if not .Available }}
+      <p class="net-worth-incomplete" role="status">{{ .Error }}</p>
+      {{ else }}
+      {{ $o := .Overview }}
+
+      {{ if not $o.Policy.IsSet }}
+      <section class="mobile-section">
+        <p class="section-note">Todavía no hay una política de ahorro. Define el porcentaje y desde cuándo.</p>
+        <a href="/mobile/ahorro/politica" class="mobile-btn mobile-btn-primary">Definir la política</a>
+      </section>
+      {{ else }}
+      <section class="mobile-section" aria-labelledby="savings-month-heading">
+        <div class="section-top-bar">
+          <h2 id="savings-month-heading" class="section-title">Este mes</h2>
+          <span class="cashflow-period">{{ spanishDate $o.PeriodFrom }} → {{ spanishDate $o.PeriodTo }}</span>
+        </div>
+        <div class="cashflow-grid">
+          <div class="cashflow-cell lcd">
+            <span class="cashflow-label">Tasa objetivo{{ template "help" ($view.Help "policy-rate") }}</span>
+            <span class="cashflow-value" data-fit>{{ if $o.Policy.Current }}{{ $o.Policy.Current.RateFormatted }}%{{ else }}—{{ end }}</span>
+          </div>
+          <div class="cashflow-cell lcd">
+            <span class="cashflow-label">Ingresos elegibles{{ template "help" ($view.Help "eligible-income") }}</span>
+            <span class="cashflow-value" data-fit>{{ formatAmount $o.EligibleIncomeFormatted }} USD</span>
+          </div>
+          <div class="cashflow-cell lcd">
+            <span class="cashflow-label">Sugerido{{ template "help" ($view.Help "suggested") }}</span>
+            <span class="cashflow-value" data-fit>{{ formatAmount $o.SuggestedFormatted }} USD</span>
+          </div>
+          <div class="cashflow-cell lcd">
+            <span class="cashflow-label">Confirmado{{ template "help" ($view.Help "confirmed") }}</span>
+            <span class="cashflow-value" data-fit>{{ formatAmount $o.ConfirmedFormatted }} USD</span>
+          </div>
+          <div class="cashflow-cell lcd">
+            <span class="cashflow-label">Por confirmar{{ template "help" ($view.Help "open") }}</span>
+            <span class="cashflow-value" data-fit>{{ formatAmount $o.OpenFormatted }} USD</span>
+          </div>
+          <div class="cashflow-cell lcd">
+            <span class="cashflow-label">Fondo reservado{{ template "help" ($view.Help "fund") }}</span>
+            <span class="cashflow-value" data-fit>{{ formatAmount $o.Fund.ReservedFormatted }} USD</span>
+          </div>
+          <div class="cashflow-cell lcd">
+            <span class="cashflow-label">USD libres{{ template "help" ($view.Help "free") }}</span>
+            <span class="cashflow-value" data-fit>{{ formatAmount $o.Fund.FreeFormatted }} USD</span>
+          </div>
+        </div>
+        <p class="section-note">Movimiento del mes: aportes {{ formatAmount $o.GrossContributionsFormatted }} · retiros {{ formatAmount $o.WithdrawalsFormatted }} · neto {{ formatAmount $o.NetChangeFormatted }} USD</p>
+        {{ if $o.Fund.Overallocated }}<p class="net-worth-incomplete" role="status">Sobreasignado: {{ formatAmount $o.Fund.OverallocatedFormatted }} USD reservados sin saldo que los respalde.</p>{{ end }}
+        {{ if $o.PendingValuationCount }}
+        <p class="net-worth-incomplete" role="status">
+          {{ $o.PendingValuationCount }} sin valorar:
+          {{ range $i, $p := $o.PendingByCurrency }}{{ if $i }}, {{ end }}{{ formatAmount $p.AmountFormatted }} {{ $p.CurrencyCode }}{{ end }}.
+          Se valoran cuando exista la tasa de su fecha.
+        </p>
+        <form action="/savings/value-pending" method="POST">
+          <input type="hidden" name="return" value="{{ $view.Return }}">
+          <button type="submit" class="mobile-btn mobile-btn-secondary">Valorar las que ya tienen tasa</button>
+        </form>
+        {{ end }}
+        {{ if $o.UnsyncedCount }}
+        <a href="/mobile/ahorro/sincronizar" class="section-link"><span>{{ $o.UnsyncedCount }} por sincronizar · revisar</span></a>
+        {{ end }}
+      </section>
+
+      <section class="mobile-section" aria-labelledby="suggestions-heading">
+        <h2 id="suggestions-heading" class="section-title">Sugerencias vigentes</h2>
+        {{ if not .Suggestions }}
+        <p class="section-note">Aparecen al registrar un ingreso elegible.</p>
+        {{ else }}
+        <ul class="mobile-list">
+          {{ range .Suggestions }}
+          <li class="mobile-list-item savings-mobile-item">
+            <a class="mobile-list-main" href="/mobile/ahorro/ingresos/{{ .IncomeTransactionID }}">
+              <span class="mobile-list-title">{{ if .IncomeDescription }}{{ derefString .IncomeDescription }}{{ else }}{{ .IncomeCategoryName }}{{ end }}</span>
+              <span class="mobile-list-subtitle">
+                {{ formatDate .IncomeEffectiveDate }} · {{ formatAmount .IncomeAmountFormatted }} {{ .IncomeCurrencyCode }} · {{ .RateFormatted }}%
+                <br>{{ .StatusLabel }}{{ if .RateChanged }} · tasa corregida{{ end }}{{ if .PendingLabel }} · {{ .PendingLabel }}{{ end }}
+              </span>
+            </a>
+            <span class="mobile-list-amount">{{ if .Valued }}{{ formatAmount .SuggestedUSDFormatted }} USD{{ else }}—{{ end }}</span>
+            {{ if or .CanConfirm .CanValue .CanRevalue .CanDismiss }}
+            <div class="savings-mobile-actions">
+              {{ if .CanConfirm }}<a href="/mobile/ahorro/ingresos/{{ .IncomeTransactionID }}#confirm" class="mobile-btn mobile-btn-primary">Confirmar</a>{{ end }}
+              {{ if .CanValue }}<form action="/savings/incomes/{{ .IncomeTransactionID }}/value" method="POST"><input type="hidden" name="return" value="{{ $view.Return }}"><button type="submit" class="mobile-btn mobile-btn-secondary">Valorar</button></form>{{ end }}
+              {{ if .CanRevalue }}<form action="/savings/incomes/{{ .IncomeTransactionID }}/revalue" method="POST"><input type="hidden" name="return" value="{{ $view.Return }}"><button type="submit" class="mobile-btn mobile-btn-secondary">Revalorar</button></form>{{ end }}
+              {{ if .CanDismiss }}<form action="/savings/incomes/{{ .IncomeTransactionID }}/dismiss" method="POST"><input type="hidden" name="return" value="{{ $view.Return }}"><button type="submit" class="mobile-btn mobile-btn-secondary">Descartar</button></form>{{ end }}
+            </div>
+            {{ end }}
+          </li>
+          {{ end }}
+        </ul>
+        {{ end }}
+      </section>
+      {{ end }}
+
+      <section class="mobile-section">
+        <a href="/mobile/ahorro/fondo" class="section-link"><span>Fondo de ahorro</span></a>
+        <a href="/mobile/ahorro/metas" class="section-link"><span>Metas{{ with .Goals }} ({{ len . }}){{ end }}</span></a>
+        <a href="/mobile/ahorro/incidencias" class="section-link"><span>Reconciliación{{ if and .Available .Overview.IssueCount }} ({{ .Overview.IssueCount }}){{ end }}</span></a>
+        <a href="/mobile/ahorro/politica" class="section-link"><span>Política y elegibilidad</span></a>
+      </section>
+      {{ end }}
+    </main>
+
+    {{ template "bottom_navigation" .Navigation }}
+  </div>
+</div>
+{{ end }}

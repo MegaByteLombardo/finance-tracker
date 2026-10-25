@@ -218,3 +218,22 @@ func TestOpenRejectsUnusablePath(t *testing.T) {
 		t.Error("Open returned both a database handle and an error")
 	}
 }
+
+// CheckForeignKeys is the post-condition migrations.Up asserts after 00019,
+// which switches enforcement off on the one pooled connection (TD-088).
+func TestCheckForeignKeys(t *testing.T) {
+	t.Parallel()
+
+	db, _ := openTemp(t, "finance.db")
+	ctx := t.Context()
+
+	if err := database.CheckForeignKeys(ctx, db); err != nil {
+		t.Fatalf("on a fresh connection: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		t.Fatalf("switching foreign keys off: %v", err)
+	}
+	if err := database.CheckForeignKeys(ctx, db); err == nil {
+		t.Error("CheckForeignKeys passed with foreign keys off")
+	}
+}

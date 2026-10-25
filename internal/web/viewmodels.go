@@ -13,7 +13,9 @@ type NavItem string
 const (
 	NavDashboard      NavItem = "dashboard"
 	NavRecap          NavItem = "recap"
+	NavSavings        NavItem = "savings"
 	NavAccounts       NavItem = "accounts"
+	NavCards          NavItem = "cards"
 	NavTransactions   NavItem = "transactions"
 	NavCategories     NavItem = "categories"
 	NavPaymentMethods NavItem = "payment-methods"
@@ -40,6 +42,11 @@ type PageData struct {
 // and internal/valuation computed and formatted. The handler adds nothing up and
 // the template formats nothing that is not already a string (docs/m6-contract.md).
 type DashboardView struct {
+	// Savings is the M7 block: the fund and the month's suggested and
+	// confirmed savings. Nil when no policy, goal or reservation exists, or
+	// when it could not be read -- the dashboard never fails because of it.
+	Savings *SavingsOverview
+
 	// Analytics is the M6 dashboard: today's net worth and its breakdown, its
 	// history over the period, the change, the cash flow and the spending.
 	Analytics DashboardAnalytics
@@ -398,6 +405,10 @@ func (f PaymentMethodForm) Error(field string) string {
 
 // EditTransactionForm holds state and validation for editing a regular transaction
 type EditTransactionForm struct {
+	// ReturnTo is the page the form came from: Cancel goes back there, and so
+	// does a successful save. Always a local path (see returnTo).
+	ReturnTo string
+
 	ID                  int64
 	AccountID           int64
 	Type                TransactionType // INCOME or EXPENSE
@@ -440,6 +451,10 @@ func (f EditTransactionForm) Error(field string) string {
 
 // EditOpeningBalanceForm holds state and validation for editing an opening balance transaction
 type EditOpeningBalanceForm struct {
+	// ReturnTo is the page the form came from: Cancel goes back there, and so
+	// does a successful save. Always a local path (see returnTo).
+	ReturnTo string
+
 	ID                int64
 	AccountID         int64
 	AccountName       string
@@ -473,6 +488,14 @@ type BackupsView struct {
 
 // TransferForm holds state and validation for the new internal transfer form
 type TransferForm struct {
+	// ReturnTo is the page the form came from: Cancel goes back there, and so
+	// does a successful save. Always a local path (see returnTo).
+	ReturnTo string
+
+	// MinorUnits is every currency's decimals, so each account option can
+	// tell an amount field the scale it is typed at. nil when unavailable.
+	MinorUnits map[string]int
+
 	SourceAccountID      int64
 	DestinationAccountID int64
 	Amount               string
@@ -504,6 +527,14 @@ func (f TransferForm) Error(field string) string {
 
 // EditTransferForm holds state and validation for editing an internal transfer
 type EditTransferForm struct {
+	// ReturnTo is the page the form came from: Cancel goes back there, and so
+	// does a successful save. Always a local path (see returnTo).
+	ReturnTo string
+
+	// MinorUnits is every currency's decimals, so each account option can
+	// tell an amount field the scale it is typed at. nil when unavailable.
+	MinorUnits map[string]int
+
 	ID                   int64
 	SourceAccountID      int64
 	DestinationAccountID int64
@@ -547,6 +578,14 @@ func (f EditTransferForm) Error(field string) string {
 // derived by the backend from the two amounts, and the form only ever previews
 // it.
 type ExchangeForm struct {
+	// ReturnTo is the page the form came from: Cancel goes back there, and so
+	// does a successful save. Always a local path (see returnTo).
+	ReturnTo string
+
+	// MinorUnits is every currency's decimals, so each account option can
+	// tell an amount field the scale it is typed at. nil when unavailable.
+	MinorUnits map[string]int
+
 	SourceAccountID      int64
 	SourceAmount         string
 	DestinationAccountID int64
@@ -592,6 +631,14 @@ func (f ExchangeForm) Error(field string) string {
 // changing an account reinterprets nothing — it corrects which currency that
 // side was in, and the amount beside it says how much.
 type EditExchangeForm struct {
+	// ReturnTo is the page the form came from: Cancel goes back there, and so
+	// does a successful save. Always a local path (see returnTo).
+	ReturnTo string
+
+	// MinorUnits is every currency's decimals, so each account option can
+	// tell an amount field the scale it is typed at. nil when unavailable.
+	MinorUnits map[string]int
+
 	ID                   int64
 	SourceAccountID      int64
 	SourceAmount         string

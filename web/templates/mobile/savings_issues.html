@@ -1,0 +1,56 @@
+{{ define "content" }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+
+    <main class="mobile-scrollable-content" id="main-mobile-content">
+      <div style="margin-bottom: 4px;">
+        <a href="/mobile/ahorro" class="section-link" aria-label="Volver a Ahorro">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          <span>Ahorro</span>
+        </a>
+      </div>
+
+      {{ $view := . }}
+      {{ with .Alert }}<p class="net-worth-incomplete" role="status">{{ .Message }}</p>{{ end }}
+
+      <header class="mobile-section">
+        <span class="section-eyebrow">Reconciliación</span>
+        <h1 class="section-title">Donde el fondo y el ledger no cuadran</h1>
+        <p class="section-note">Nada se corrige solo. Reconocer una incidencia no cambia ningún saldo.</p>
+      </header>
+
+      {{ if not .Available }}
+      <p class="net-worth-incomplete" role="status">{{ .Error }}</p>
+      {{ else if not .Issues }}
+      <p class="section-note">Todo cuadra.</p>
+      {{ else }}
+      <ul class="mobile-list">
+        {{ range .Issues }}
+        <li class="mobile-list-item savings-mobile-item">
+          <div class="mobile-list-main">
+            <span class="mobile-list-title">{{ .KindLabel }}{{ if .Acknowledged }} · reconocida{{ end }}</span>
+            <span class="mobile-list-subtitle">{{ .Detail }}{{ if .Acknowledged }}<br>«{{ .AckNote }}»{{ end }}</span>
+          </div>
+          <span class="mobile-list-amount">{{ formatAmount .AmountFormatted }}</span>
+          {{ if not .Acknowledged }}
+          <form action="/savings/issues/acknowledge" method="POST" class="savings-mobile-actions">
+            <input type="hidden" name="key" value="{{ .Key }}">
+            <input type="hidden" name="return" value="{{ $view.Return }}">
+            <input type="text" name="note" class="op-native-input" maxlength="255" required placeholder="Nota" aria-label="Nota">
+            <button type="submit" class="mobile-btn mobile-btn-secondary">Reconocer</button>
+          </form>
+          {{ end }}
+        </li>
+        {{ end }}
+      </ul>
+      {{ end }}
+    </main>
+
+    {{ template "bottom_navigation" .Navigation }}
+  </div>
+</div>
+{{ end }}

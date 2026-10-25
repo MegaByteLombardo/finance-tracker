@@ -5,7 +5,7 @@
     <p class="page-subtitle">Correct transfer details between your accounts</p>
   </div>
   <div class="page-actions">
-    <a href="/transactions" class="btn btn-secondary">&larr; Back to Transactions</a>
+    <a href="{{ .ReturnTo }}" class="btn btn-secondary">&larr; Back</a>
   </div>
 </div>
 
@@ -29,6 +29,7 @@
   {{ end }}
 
   <form action="/transfers/{{ .ID }}" method="POST">
+    <input type="hidden" name="return_to" value="{{ .ReturnTo }}">
     {{ if .NeedsCurrencyConfirmation }}
     <input type="hidden" name="allow_currency_change" value="true">
     {{ else }}
@@ -46,7 +47,7 @@
               required>
         <option value="">Select source account...</option>
         {{ range .Accounts }}
-        <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}" {{ if eq $.SourceAccountID .ID }}selected{{ end }}>
+        <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}"{{ if $.MinorUnits }} data-minor-unit="{{ index $.MinorUnits .CurrencyCode }}"{{ end }} {{ if eq $.SourceAccountID .ID }}selected{{ end }}>
           {{ .Name }} ({{ .CurrencyCode }}){{ if not .IsActive }} [Archived]{{ end }}{{ if .Institution }} &middot; {{ derefString .Institution }}{{ end }}
         </option>
         {{ end }}
@@ -67,7 +68,7 @@
               required>
         <option value="">Select destination account...</option>
         {{ range .Accounts }}
-        <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}" {{ if eq $.DestinationAccountID .ID }}selected{{ end }}>
+        <option value="{{ .ID }}" data-currency="{{ .CurrencyCode }}"{{ if $.MinorUnits }} data-minor-unit="{{ index $.MinorUnits .CurrencyCode }}"{{ end }} {{ if eq $.DestinationAccountID .ID }}selected{{ end }}>
           {{ .Name }} ({{ .CurrencyCode }}){{ if not .IsActive }} [Archived]{{ end }}{{ if .Institution }} &middot; {{ derefString .Institution }}{{ end }}
         </option>
         {{ end }}
@@ -100,6 +101,9 @@
              value="{{ .Amount }}"
              placeholder="0.00"
              inputmode="decimal"
+             data-type="currency"
+             data-minor-unit-from="source_account_id"
+             autocomplete="off"
              required>
       {{ if .HasError "amount" }}
       <div class="form-error">{{ .Error "amount" }}</div>
@@ -146,7 +150,7 @@
       {{ else }}
       <button type="submit" class="btn btn-primary">Save Changes</button>
       {{ end }}
-      <a href="/transactions" class="btn btn-secondary">Cancel</a>
+      <a href="{{ .ReturnTo }}" class="btn btn-secondary">Cancel</a>
     </div>
   </form>
 </div>

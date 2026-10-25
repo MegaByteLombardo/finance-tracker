@@ -310,6 +310,55 @@
 }
 
 /* ==========================================================================
+   Ticker tape display (TD-096)
+   An emissive display behind black glass, so its glass is the same in both
+   finishes; only the bay it sits in follows the chassis. The LED colour is the
+   viewer's choice, set by tape.js on the root element.
+   ========================================================================== */
+:root {
+  --tape-amber: #ffb02e;
+  --tape-green: #6dff86;
+  --tape-cyan: #4fe9f2;
+  --tape-red: #ff4b38;
+  --tape-white: #e6eeff;
+
+  --tape-glass-top: #070807;
+  --tape-glass-bottom: #141513;
+  --tape-glass-edge: rgba(0, 0, 0, 0.9);
+  --tape-sheen: rgba(255, 255, 255, 0.07);
+  --tape-dot: rgba(0, 0, 0, 0.42);
+
+  --tape-fg: var(--tape-amber);
+  --tape-dim: rgba(255, 176, 46, 0.55);
+  --tape-glow: 0 0 6px rgba(255, 160, 40, 0.55);
+
+  --tape-good: #63ff7e;
+  --tape-good-glow: 0 0 6px rgba(99, 255, 126, 0.5);
+  --tape-bad: #ff5544;
+  --tape-bad-glow: 0 0 6px rgba(255, 85, 68, 0.55);
+}
+:root[data-tape-color="green"] {
+  --tape-fg: var(--tape-green);
+  --tape-dim: rgba(109, 255, 134, 0.5);
+  --tape-glow: 0 0 6px rgba(109, 255, 134, 0.5);
+}
+:root[data-tape-color="cyan"] {
+  --tape-fg: var(--tape-cyan);
+  --tape-dim: rgba(79, 233, 242, 0.5);
+  --tape-glow: 0 0 7px rgba(79, 233, 242, 0.55);
+}
+:root[data-tape-color="red"] {
+  --tape-fg: var(--tape-red);
+  --tape-dim: rgba(255, 75, 56, 0.55);
+  --tape-glow: 0 0 6px rgba(255, 75, 56, 0.6);
+}
+:root[data-tape-color="white"] {
+  --tape-fg: var(--tape-white);
+  --tape-dim: rgba(230, 238, 255, 0.5);
+  --tape-glow: 0 0 6px rgba(200, 220, 255, 0.45);
+}
+
+/* ==========================================================================
    Base
    ========================================================================== */
 *, *::before, *::after {
@@ -423,6 +472,11 @@ a:hover { color: var(--accent-hover); }
   transition: color 0.15s ease, background-color 0.15s ease;
 }
 .nav-link:hover { color: var(--text-main); background: var(--panel-bevel-lo); }
+/* Nine sections since M7.1: below the container's full width the keys tighten
+   rather than push the theme key onto a second row. */
+@media (max-width: 1360px) {
+  .nav-link { padding: 0.45rem 0.55rem; }
+}
 
 /* The current section is a slot pressed into the panel, with its pilot lit. */
 .nav-link.active {
@@ -452,6 +506,7 @@ a:hover { color: var(--accent-hover); }
 .nav-mobile-btn,
 .dash-period,
 .segment-btn,
+.tape-speed,
 .dp-nav-btn {
   background: linear-gradient(180deg, var(--key-top), var(--key-bottom));
   color: var(--key-text);
@@ -466,6 +521,7 @@ a:hover { color: var(--accent-hover); }
 .nav-mobile-btn:hover,
 .dash-period:hover,
 .segment-btn:hover,
+.tape-speed:hover,
 .dp-nav-btn:hover {
   filter: brightness(1.04);
   color: var(--key-text);
@@ -475,6 +531,7 @@ a:hover { color: var(--accent-hover); }
 .nav-mobile-btn:active,
 .dash-period:active,
 .segment-btn:active,
+.tape-speed:active,
 .dp-nav-btn:active {
   transform: translateY(2px);
   box-shadow: inset 0 1px 0 var(--key-hi), 0 0 0 var(--key-base), 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -841,6 +898,19 @@ a:hover { color: var(--accent-hover); }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tbody tr:hover td { background-color: var(--paper-hover); }
 
+/* A row that opens its record. The row's one real link is stretched over the
+   whole row, so a click anywhere follows it, the keyboard still reaches a
+   single link and a middle click opens a tab. Other controls in the row sit
+   above it. */
+.data-table tr.row-link { position: relative; cursor: pointer; }
+.data-table tr.row-link .row-link-target::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.data-table tr.row-link .btn { position: relative; z-index: 1; }
+.data-table tbody tr.row-link:focus-within td { background-color: var(--paper-hover); }
+
 /* Figures in a column never wrap and always line up. */
 .cell-mono,
 .numeric,
@@ -933,6 +1003,12 @@ input[data-type="currency"] {
   padding: var(--space-8);
 }
 
+/* A panel that introduces a form takes the form's column, so the two read as one. */
+.payment-due {
+  max-width: 680px;
+  margin: 0 auto var(--space-5);
+}
+
 .form-group { margin-bottom: var(--space-5); }
 
 .form-label {
@@ -1016,6 +1092,61 @@ input[data-type="currency"] {
 @media (max-width: 600px) {
   .form-row { grid-template-columns: 1fr; }
 }
+
+/* A row whose columns line up track by track: label, control, error, help.
+   A label that wraps to two lines no longer pushes its control below its
+   neighbour's, and an absent error or help leaves an empty track. */
+.form-row-aligned { row-gap: 0; }
+.form-row-aligned > .form-group {
+  display: grid;
+  grid-row: span 4;
+  grid-template-rows: subgrid;
+  row-gap: 0;
+}
+.form-row-aligned > .form-group > .form-label { grid-row: 1; align-self: end; }
+.form-row-aligned > .form-group > .form-error { grid-row: 3; }
+.form-row-aligned > .form-group > .form-help { grid-row: 4; }
+
+/* A short form on one line: a few narrow fields and the action beside them,
+   with the help as notes underneath. Wraps on a narrow screen. */
+.form-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.form-inline > .form-group { margin-bottom: 0; flex: 0 1 auto; }
+.form-inline > .form-inline-short { width: 13rem; }
+.form-inline > .form-inline-date { width: 13rem; }
+
+.form-section-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  font-stretch: 85%;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-main);
+  text-shadow: var(--engrave);
+  margin: var(--space-6) 0 var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.form-section-title:first-child { margin-top: 0; }
+
+/* A checkbox sitting in a control track: same height as a text field, so the
+   row stays level. */
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.6rem 0;
+  border: 1px solid transparent;
+  font-size: 0.95rem;
+  color: var(--text-main);
+  cursor: pointer;
+}
+.form-check input { margin: 0; }
 
 .form-actions {
   display: flex;
@@ -1163,62 +1294,169 @@ input[data-type="currency"] {
    Transaction filters
    ========================================================================== */
 .tx-filter-card {
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-2) var(--space-3);
   margin-bottom: var(--space-5);
 }
 
-.tx-filter-header {
+/* One row of controls; it wraps only when the window is too narrow for it. */
+.tx-filter-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-4);
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid var(--panel-bevel-lo);
-  box-shadow: 0 1px 0 var(--panel-bevel-hi);
   flex-wrap: wrap;
-  gap: var(--space-3);
+  gap: var(--space-2);
 }
 
-.tx-filter-header-title {
+.tx-filter-title {
+  display: flex;
+  align-items: center;
+  color: var(--primary);
+  padding: 0 var(--space-1);
+  flex-shrink: 0;
+}
+
+.tx-filter-bar .form-control-sm,
+.tx-filter-bar .ft-datepicker-sm .ft-datepicker-trigger,
+.tx-ms-trigger {
+  height: 34px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8125rem;
+}
+
+.tx-filter-dates { display: flex; align-items: center; gap: var(--space-1); flex-shrink: 0; }
+.tx-filter-dates .ft-datepicker-wrapper { width: 128px; }
+.tx-filter-dash { color: var(--text-muted); }
+
+.tx-filter-search {
+  position: relative;
+  flex: 1 1 150px;
+  min-width: 130px;
+  display: flex;
+  align-items: center;
+}
+.tx-filter-search svg {
+  position: absolute;
+  left: 0.6rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.tx-filter-search .form-control-sm { width: 100%; padding-left: 1.85rem; }
+
+.tx-filter-status { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; flex-shrink: 0; }
+.tx-filter-count { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; white-space: nowrap; }
+.tx-filter-status .btn-sm { height: 34px; }
+
+/* Multi-select: a key that opens a panel of checkboxes. */
+.tx-ms { position: relative; flex-shrink: 0; }
+
+.tx-ms-trigger {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  max-width: 180px;
+  font-family: inherit;
+  color: var(--text-main);
+  background-color: var(--well-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--well-shadow), 0 1px 0 var(--panel-bevel-hi);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.tx-ms-trigger:focus-visible,
+.tx-ms.is-open .tx-ms-trigger {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: var(--well-shadow), 0 0 0 3px var(--focus-ring);
+}
+.tx-ms-trigger:disabled { opacity: 0.5; cursor: not-allowed; }
+.tx-ms.is-active .tx-ms-trigger { border-color: var(--primary-border); font-weight: 700; }
+
+.tx-ms-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.tx-ms-badge {
+  flex-shrink: 0;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--primary);
+  color: var(--bg-surface);
+  font-size: 0.6875rem;
   font-weight: 750;
-  font-size: 0.78rem;
-  font-stretch: 85%;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-  text-shadow: var(--engrave);
+  line-height: 18px;
+  text-align: center;
 }
-.tx-filter-header-title svg { color: var(--primary); }
+.tx-ms-badge[hidden] { display: none; }
 
-.tx-filter-counter-wrap { display: flex; align-items: center; gap: var(--space-3); }
-.tx-filter-count { font-size: 0.8125rem; color: var(--text-muted); font-weight: 600; }
+.tx-ms-arrow { flex-shrink: 0; color: var(--text-muted); transition: transform 0.2s ease; }
+.tx-ms.is-open .tx-ms-arrow { transform: rotate(180deg); color: var(--primary); }
 
-.tx-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: var(--space-3) var(--space-4);
-  align-items: flex-end;
+.tx-ms-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 120;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 4px;
+  background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 1px 0 var(--panel-bevel-hi), var(--shadow-lg);
+  animation: ftDropdownFade 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
+.tx-ms-panel[hidden] { display: none; }
 
-.tx-filter-field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
-
-.tx-filter-label {
-  font-size: 0.7rem;
-  font-weight: 750;
-  font-stretch: 85%;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+.tx-ms-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 4px 6px 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--panel-bevel-lo);
+  box-shadow: 0 1px 0 var(--panel-bevel-hi);
 }
+.tx-ms-action {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.tx-ms-action:hover { color: var(--accent-hover); background: var(--accent-subtle); }
 
-.tx-filter-grid .form-control-sm {
-  width: 100%;
-  height: 38px;
-  padding: 0.4rem 0.65rem;
-  font-size: 0.875rem;
+.tx-ms-options { max-height: 260px; overflow-y: auto; }
+
+.tx-ms-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8125rem;
+  color: var(--text-body);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  user-select: none;
+}
+.tx-ms-option:hover { background-color: var(--bg-surface-hover); color: var(--text-main); }
+.tx-ms-option input { accent-color: var(--primary); margin: 0; flex-shrink: 0; }
+.tx-ms-option span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tx-ms-option.is-empty span { font-style: italic; color: var(--text-muted); }
+
+/* The last keys open their panel leftwards so it stays on screen. */
+#filter-category .tx-ms-panel,
+#filter-payment-method .tx-ms-panel { left: auto; right: 0; }
+
+@media (max-width: 600px) {
+  .tx-filter-dates { flex: 1 1 100%; }
+  .tx-filter-dates .ft-datepicker-wrapper { flex: 1; width: auto; }
+  .tx-ms { flex: 1 1 calc(50% - var(--space-2)); }
+  .tx-ms-trigger { width: 100%; max-width: none; }
+  .tx-ms-arrow { margin-left: auto; }
+  #tx-filter-card .tx-ms .tx-ms-panel { left: 0; right: auto; }
 }
 
 .tx-filter-empty-cell { text-align: center; padding: var(--space-8) var(--space-4) !important; color: var(--text-muted); }
@@ -1854,20 +2092,46 @@ input[data-type="currency"] {
 .help-plate-title { display: block; margin-bottom: 4px; color: var(--plate-accent); font-weight: 700; }
 .help-plate::backdrop { background: rgba(0, 0, 0, 0.18); }
 
+/* Savings (M7.1). Panels, keys and readouts from the same tokens as the
+   dashboard; nothing here introduces a colour of its own. */
+.savings-dash { margin-bottom: var(--space-6); }
+.savings-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-6) var(--space-4);
+}
+/* Two KPI rows in a row (a card's position, then its obligations) keep the
+   same distance as the rows inside one grid. */
+.savings-kpis + .savings-kpis { margin-top: var(--space-6); }
+.savings-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+.savings-sub { font-size: 0.75rem; margin-top: 2px; }
+.savings-figure { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.data-table .text-right { text-align: right; }
+.savings-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+.savings-actions form { margin: 0; }
+
 @media (max-width: 1200px) {
   .dash-top { grid-template-columns: minmax(0, 1fr); }
   .dash-mid { grid-template-columns: minmax(0, 1fr); }
   .recap-split { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .savings-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 840px) {
   .dash-detail { grid-template-columns: minmax(0, 1fr); }
   .dash-flow { grid-template-columns: minmax(0, 1fr); }
   .recap-split { grid-template-columns: minmax(0, 1fr); }
+  .savings-split { grid-template-columns: minmax(0, 1fr); }
   .header-container { padding: var(--space-2) var(--space-4); }
   .main-content { padding: var(--space-5) var(--space-4) var(--space-8); }
 }
 @media (max-width: 600px) {
   .dash-figures { grid-template-columns: minmax(0, 1fr); }
+  .savings-kpis { grid-template-columns: minmax(0, 1fr); }
   .nw-chart { column-gap: var(--space-2); }
   .nw-chart-svg { height: 170px; }
   .card-body { padding: var(--space-4); }
@@ -1879,4 +2143,252 @@ input[data-type="currency"] {
     transition: none !important;
     animation: none !important;
   }
+  /* The ticker's one exception (TD-096): tape.js stills it here unless the
+     viewer explicitly chose "Siempre", and then it runs. */
+  :root[data-tape-motion="run"] .tape-track.is-running {
+    animation: tape-scroll var(--tape-duration, 60s) linear infinite !important;
+  }
+  /* That shorthand also forces animation-play-state to running, so the pause
+     on hover and on focus must be restated here, just as important and more
+     specific, or the tape would never stop. */
+  :root[data-tape-motion="run"] .tape-window:hover .tape-track.is-running,
+  :root[data-tape-motion="run"] .tape-window:focus-within .tape-track.is-running {
+    animation-play-state: paused !important;
+  }
 }
+
+/* Savings fund (M7.2): the exception toggle under a confirmation. */
+.savings-exception { margin: 0 0 var(--space-4); font-size: 0.875rem; color: var(--text-body); }
+.savings-exception summary { cursor: pointer; font-weight: 650; margin-bottom: var(--space-2); }
+.savings-exception .form-control { margin-top: var(--space-2); }
+#confirm .ledger { margin-bottom: var(--space-4); }
+
+/* Savings goals (M7.3): a progress gauge on the panel, integer width from the
+   backend. */
+.savings-goals {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+.savings-goal-card .dash-kpi-label a { color: inherit; text-decoration: none; }
+.savings-bar {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--panel-bevel-lo);
+  overflow: hidden;
+}
+.savings-bar-fill { display: block; height: 100%; background: var(--accent); }
+.savings-actions-block { display: grid; gap: var(--space-3); }
+.savings-actions-block form { margin: 0; }
+.savings-close-form { display: grid; gap: var(--space-2); }
+.savings-lines { display: grid; gap: var(--space-2); margin-bottom: var(--space-4); }
+.savings-line { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: var(--space-3); align-items: center; }
+
+/* Savings impact beside a movement's amount (M7.4). */
+.savings-impact { margin: 0 0 var(--space-5); padding: var(--space-3) var(--space-4); border: 1px solid var(--panel-bevel-lo); border-radius: var(--radius-md); }
+.savings-impact-head { margin: 0 0 var(--space-3); font-size: 0.875rem; color: var(--text-body); }
+.savings-impact .alert { margin-bottom: var(--space-3); }
+.savings-impact-plan summary { cursor: pointer; font-weight: 650; margin-bottom: var(--space-3); }
+.savings-impact-purpose { display: grid; gap: var(--space-2); margin-bottom: var(--space-3); font-size: 0.875rem; }
+.dash-savings .savings-kpis { margin-top: 0; }
+.dash-savings { display: grid; gap: var(--space-3); }
+.dash-savings .dash-section-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--space-2); }
+.dash-savings .card-title { margin: 0; }
+.savings-ack-form { display: grid; gap: var(--space-2); margin-top: var(--space-2); }
+
+/* ==========================================================================
+   Ticker tape (TD-096): a recessed LED window in the header's chassis
+   ========================================================================== */
+.tape-bay {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 var(--space-6) var(--space-2);
+}
+
+.tape-window {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, var(--tape-glass-top), var(--tape-glass-bottom));
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.85), inset 0 0 0 1px var(--tape-glass-edge), 0 1px 0 var(--panel-bevel-hi);
+  color: var(--tape-fg);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 30px;
+}
+/* The LED matrix -- a grid of dark gaps over the lit segments -- and the glass. */
+.tape-window::before,
+.tape-window::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.tape-window::before {
+  background: radial-gradient(circle at center, transparent 0 0.55px, var(--tape-dot) 0.95px) 0 0 / 2px 2px;
+}
+.tape-window::after {
+  border-radius: inherit;
+  background: linear-gradient(180deg, var(--tape-sheen), transparent 48%);
+}
+
+.tape-track {
+  display: flex;
+  width: max-content;
+  height: 100%;
+}
+.tape-track.is-running { animation: tape-scroll var(--tape-duration, 60s) linear infinite; }
+.tape-window:hover .tape-track,
+.tape-window:focus-within .tape-track { animation-play-state: paused; }
+
+@keyframes tape-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.tape-run {
+  display: flex;
+  flex: none;
+  align-items: center;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  white-space: nowrap;
+}
+.tape-item { display: flex; align-items: center; }
+.tape-item[hidden] { display: none; }
+.tape-item::after {
+  content: "\25C6";
+  margin: 0 1.1em;
+  font-size: 0.55em;
+  color: var(--tape-dim);
+}
+
+.tape-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45em;
+  color: inherit;
+  text-decoration: none;
+  text-shadow: var(--tape-glow);
+}
+.tape-link:hover { color: inherit; }
+.tape-link:hover .tape-value { text-decoration: underline; text-underline-offset: 3px; }
+.tape-link:focus-visible { outline: 1px solid var(--tape-fg); outline-offset: -3px; }
+
+.tape-unit,
+.tape-note { color: var(--tape-dim); }
+.tape-item[data-tone="good"] .tape-arrow,
+.tape-item[data-tone="good"] .tape-delta { color: var(--tape-good); text-shadow: var(--tape-good-glow); }
+.tape-item[data-tone="bad"] .tape-arrow,
+.tape-item[data-tone="bad"] .tape-delta { color: var(--tape-bad); text-shadow: var(--tape-bad-glow); }
+.tape-value[data-tone="good"] { color: var(--tape-good); text-shadow: var(--tape-good-glow); }
+.tape-value[data-tone="bad"] { color: var(--tape-bad); text-shadow: var(--tape-bad-glow); }
+.tape-arrow { font-size: 0.8em; }
+
+.tape-idle {
+  margin: 0;
+  padding: 0 var(--space-4);
+  color: var(--tape-dim);
+  text-shadow: var(--tape-glow);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tape-bay-mobile .tape-bay { padding: 0 var(--space-3) var(--space-3); }
+
+@media (max-width: 840px) {
+  .tape-bay { padding: 0 var(--space-4) var(--space-2); }
+}
+
+/* A still tape -- reduced motion, or the viewer's choice -- scrolls by hand.
+   tape.js decides, from the system setting and the stored preference. */
+:root[data-tape-motion="still"] .tape-window { overflow-x: auto; scrollbar-width: none; }
+:root[data-tape-motion="still"] .tape-track.is-running { animation: none; }
+
+/* The ticker's settings screen */
+.tape-settings { display: grid; gap: var(--space-6); }
+.tape-settings-fieldset { border: 0; margin: 0 0 var(--space-4); padding: 0; }
+.tape-settings-fieldset:last-child { margin-bottom: 0; }
+.tape-settings-note { margin: 0 0 var(--space-4); color: var(--text-muted); font-size: 0.875rem; line-height: 1.5; }
+
+.tape-swatches,
+.tape-speeds { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.tape-swatch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--well-bg);
+  box-shadow: var(--well-shadow);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.tape-swatch:has(input:checked) { border-color: var(--border-focus); box-shadow: var(--well-shadow), 0 0 0 2px var(--focus-ring); }
+.tape-swatch input,
+.tape-speed input { position: absolute; opacity: 0; pointer-events: none; }
+.tape-swatch:has(input:focus-visible),
+.tape-speed:has(input:focus-visible) { outline: 2px solid var(--border-focus); outline-offset: 2px; }
+.tape-swatch-led { width: 12px; height: 12px; border-radius: 50%; }
+.tape-swatch-led[data-swatch="amber"] { background: var(--tape-amber); box-shadow: 0 0 6px var(--tape-amber); }
+.tape-swatch-led[data-swatch="green"] { background: var(--tape-green); box-shadow: 0 0 6px var(--tape-green); }
+.tape-swatch-led[data-swatch="cyan"] { background: var(--tape-cyan); box-shadow: 0 0 6px var(--tape-cyan); }
+.tape-swatch-led[data-swatch="red"] { background: var(--tape-red); box-shadow: 0 0 6px var(--tape-red); }
+.tape-swatch-led[data-swatch="white"] { background: var(--tape-white); box-shadow: 0 0 6px var(--tape-white); }
+
+.tape-speed {
+  position: relative;
+  padding: 0.4rem 0.9rem;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+.tape-speed:has(input:checked) {
+  transform: translateY(2px);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 0 var(--key-base);
+}
+
+.tape-settings-list { list-style: none; margin: 0 0 var(--space-4); padding: 0; display: grid; gap: var(--space-2); }
+.tape-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+.tape-settings-toggle { display: flex; align-items: center; gap: var(--space-3); min-width: 0; cursor: pointer; }
+.tape-settings-code {
+  flex: none;
+  min-width: 4.5rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, var(--tape-glass-top), var(--tape-glass-bottom));
+  color: var(--tape-fg);
+  text-shadow: var(--tape-glow);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+.tape-settings-row:has([data-tape-toggle]:not(:checked)) .tape-settings-code { opacity: 0.4; text-shadow: none; }
+.tape-settings-text { display: flex; flex-direction: column; min-width: 0; font-size: 0.875rem; }
+.tape-settings-text small { color: var(--text-muted); font-size: 0.8125rem; }
+.tape-settings-move { display: inline-flex; gap: var(--space-1); flex: none; }

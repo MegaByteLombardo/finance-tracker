@@ -200,7 +200,15 @@
     </div>
 
     <!-- Botón de Confirmación -->
-    <div class="op-submit-container">
+    <!-- Savings (M7.4): what an expense or a transfer does to the reservations
+           of its USD account. The partial is empty for any other operation. -->
+      <div id="op-savings-impact-container"
+           hx-get="/savings/impact"
+           hx-trigger="load, change from:#op-account-select, keyup changed delay:500ms from:#op-amount-input, click delay:80ms from:.op-type-tab"
+           hx-include="closest form"
+           hx-swap="innerHTML"></div>
+
+      <div class="op-submit-container">
       <button type="submit" id="op-submit-button" class="op-submit-btn {{ .Shape.SubmitClass }}">
         {{ .Shape.SubmitLabel }}
       </button>

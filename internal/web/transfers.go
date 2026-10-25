@@ -20,9 +20,14 @@ func handleNewTransferForm(logger *slog.Logger, renderer *Renderer, svcs *Servic
 			return
 		}
 
-		var fromID int64
+		var fromID, toID int64
 		if rawFrom := r.URL.Query().Get("from_account_id"); rawFrom != "" {
 			fromID, _ = strconv.ParseInt(rawFrom, 10, 64)
+		}
+		// A card's "pay" button preselects the card as the destination: a card
+		// payment is a transfer into it (M8.1, TD-091).
+		if rawTo := r.URL.Query().Get("to_account_id"); rawTo != "" {
+			toID, _ = strconv.ParseInt(rawTo, 10, 64)
 		}
 
 		var selectedCurrency string
@@ -42,7 +47,10 @@ func handleNewTransferForm(logger *slog.Logger, renderer *Renderer, svcs *Servic
 		}
 
 		form := TransferForm{
+			ReturnTo:                  returnTo(r, "/transactions"),
+			MinorUnits:                currencyMinorUnits(r, logger, svcs),
 			SourceAccountID:           fromID,
+			DestinationAccountID:      toID,
 			EffectiveDate:             TodayDate(),
 			SelectedCurrencyCode:      selectedCurrency,
 			SelectedCurrencySymbol:    selectedSymbol,
@@ -104,6 +112,8 @@ func handleCreateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 		}
 
 		form := TransferForm{
+			ReturnTo:                  returnTo(r, "/transactions"),
+			MinorUnits:                currencyMinorUnits(r, logger, svcs),
 			SourceAccountID:           sourceID,
 			DestinationAccountID:      destID,
 			Amount:                    amount,
@@ -159,6 +169,8 @@ func handleCreateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 			Amount:               amount,
 			Description:          descPtr,
 			EffectiveDate:        effectiveDate,
+			// Reserved money whose backing moves with the transfer (M7.4).
+			Savings: transferPlanFromForm(r),
 		})
 
 		if txErr != nil {
@@ -177,6 +189,8 @@ func handleCreateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 				} else {
 					form.Errors[field] = "Selected account does not exist."
 				}
+			case savingsMovementError(txErr) != "":
+				form.Errors["general"] = savingsMovementError(txErr)
 			case errors.Is(txErr, ErrSameAccount):
 				form.Errors["destination_account_id"] = "Source and destination accounts must be different."
 			case errors.Is(txErr, ErrCurrencyMismatch):
@@ -203,16 +217,7 @@ func handleCreateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 			return
 		}
 
-		redirectURL := "/transactions"
-		if ret := r.FormValue("return_to"); ret != "" && strings.HasPrefix(ret, "/") {
-			redirectURL = ret
-		}
-		if IsHXRequest(r) {
-			w.Header().Set("HX-Redirect", redirectURL)
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+		redirectTo(w, r, form.ReturnTo)
 	}
 }
 
@@ -257,6 +262,8 @@ func handleEditTransferForm(logger *slog.Logger, renderer *Renderer, svcs *Servi
 		}
 
 		form := EditTransferForm{
+			ReturnTo:                  returnTo(r, "/transactions"),
+			MinorUnits:                currencyMinorUnits(r, logger, svcs),
 			ID:                        tx.ID,
 			SourceAccountID:           tx.Transfer.SourceAccountID,
 			DestinationAccountID:      tx.Transfer.DestinationAccountID,
@@ -343,6 +350,8 @@ func handleUpdateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 		}
 
 		form := EditTransferForm{
+			ReturnTo:                  returnTo(r, "/transactions"),
+			MinorUnits:                currencyMinorUnits(r, logger, svcs),
 			ID:                        id,
 			SourceAccountID:           sourceID,
 			DestinationAccountID:      destID,
@@ -454,11 +463,6 @@ func handleUpdateTransfer(logger *slog.Logger, renderer *Renderer, svcs *Service
 			return
 		}
 
-		if IsHXRequest(r) {
-			w.Header().Set("HX-Redirect", "/transactions")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		http.Redirect(w, r, "/transactions", http.StatusSeeOther)
+		redirectTo(w, r, form.ReturnTo)
 	}
 }

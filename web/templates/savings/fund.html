@@ -1,0 +1,176 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Fondo de ahorro</h1>
+    <p class="page-subtitle">Dólares marcados como ahorro dentro de tus cuentas en USD. El dinero no se mueve y tu patrimonio no cambia.</p>
+  </div>
+  <div class="page-actions">
+    <a href="/savings" class="btn btn-secondary">Volver a Ahorro</a>
+  </div>
+</div>
+
+{{ if not .Available }}
+<div class="alert alert-warning" role="alert">{{ .Error }}</div>
+{{ else }}
+{{ $view := . }}
+{{ $f := .Fund }}
+
+<section class="dash savings-dash" aria-label="Fondo hoy">
+  <div class="savings-kpis">
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Reservado{{ template "help" ($view.Help "fund") }}</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $f.ReservedFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">Sin asignar a metas: <strong>{{ formatAmount $f.UnallocatedFormatted }} USD</strong></p>
+    </article>
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">USD libres{{ template "help" ($view.Help "free") }}</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $f.FreeFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">De un saldo en USD de <strong>{{ formatAmount $f.BalanceFormatted }} USD</strong></p>
+    </article>
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Sobreasignado{{ template "help" ($view.Help "overallocated") }}</h3>
+      <div class="lcd"><span class="lcd-value{{ if $f.Overallocated }} is-down{{ end }}" data-fit>{{ formatAmount $f.OverallocatedFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">{{ if $f.Overallocated }}Reservado sin saldo que lo respalde{{ else }}Todo lo reservado está respaldado{{ end }}</p>
+    </article>
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Asignado a metas</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $f.AllocatedFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta"><a href="/savings/goals">Ver metas &rarr;</a></p>
+    </article>
+  </div>
+  {{ if $f.Overallocated }}
+  <div class="alert alert-warning" role="alert">
+    <div><strong>Hay {{ formatAmount $f.OverallocatedFormatted }} USD reservados que el saldo ya no respalda.</strong> Un gasto o una transferencia posterior redujo la cuenta. Nada se ajusta solo: libera o mueve reservas cuando lo decidas. <a href="/savings/issues">Ver reconciliación &rarr;</a></div>
+  </div>
+  {{ end }}
+</section>
+
+<article class="card" aria-labelledby="accounts-title" style="margin-bottom: var(--space-6);">
+  <div class="card-header">
+    <h2 id="accounts-title" class="card-title">Por cuenta</h2>
+    <span class="dash-section-meta">saldo de hoy</span>
+  </div>
+  {{ if not $f.Accounts }}
+  <div class="card-body"><p class="text-muted">No tienes cuentas en USD. El ahorro solo se respalda con dólares.</p></div>
+  {{ else }}
+  <table class="data-table">
+    <thead><tr><th>Cuenta</th><th class="text-right">Saldo</th><th class="text-right">Reservado</th><th class="text-right">Libre</th><th class="text-right">Sobreasignado</th></tr></thead>
+    <tbody>
+      {{ range $f.Accounts }}
+      <tr>
+        <td>{{ .AccountName }}{{ if not .IsActive }} <span class="badge badge-inactive">archivada</span>{{ end }}</td>
+        <td class="text-right savings-figure">{{ formatAmount .BalanceFormatted }}</td>
+        <td class="text-right savings-figure">{{ formatAmount .ReservedFormatted }}</td>
+        <td class="text-right savings-figure">{{ formatAmount .FreeFormatted }}</td>
+        <td class="text-right savings-figure">{{ if .Overallocated }}<span class="amount-expense">{{ formatAmount .OverallocatedFormatted }}</span>{{ else }}—{{ end }}</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  {{ end }}
+</article>
+
+<div class="savings-split" style="margin-bottom: var(--space-6);">
+  <article class="card">
+    <div class="card-header"><h2 class="card-title">Reservar sin sugerencia</h2></div>
+    <div class="card-body">
+      {{ if $f.CanReserve }}
+      <p class="text-muted">Para ahorro que ya tenías o un aporte extra. Para confirmar una sugerencia, hazlo desde su ingreso.</p>
+      <form action="/savings/reserve" method="POST">
+        <input type="hidden" name="request_key" value="{{ $view.ReserveKey }}">
+        <input type="hidden" name="return" value="{{ $view.Return }}">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="reserve_account" class="form-label">Cuenta</label>
+            <select id="reserve_account" name="account_id" class="form-control">
+              {{ range $f.Accounts }}{{ if .HasFree }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .FreeFormatted }} libres</option>{{ end }}{{ end }}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="reserve_goal" class="form-label">Para</label>
+            <select id="reserve_goal" name="goal_id" class="form-control">
+              <option value="">Sin asignar</option>
+              {{ range $view.Goals }}{{ if .AcceptsMoney }}<option value="{{ .ID }}">{{ .Name }}</option>{{ end }}{{ end }}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="reserve_amount" class="form-label">Importe (USD)</label>
+            <input type="text" id="reserve_amount" name="amount" class="form-control" inputmode="decimal" required placeholder="500.00">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Reservar</button>
+      </form>
+      {{ else }}
+      <p class="text-muted">No hay USD libres en ninguna cuenta activa.</p>
+      {{ end }}
+    </div>
+  </article>
+
+  <article class="card">
+    <div class="card-header"><h2 class="card-title">Liberar una reserva</h2></div>
+    <div class="card-body">
+      {{ if $f.CanRelease }}
+      <form action="/savings/release" method="POST">
+        <input type="hidden" name="request_key" value="{{ $view.ReleaseKey }}">
+        <input type="hidden" name="return" value="{{ $view.Return }}">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="release_account" class="form-label">Cuenta</label>
+            <select id="release_account" name="account_id" class="form-control">
+              {{ range $f.Accounts }}{{ if .HasReservation }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .ReservedFormatted }} reservados</option>{{ end }}{{ end }}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="release_goal" class="form-label">De</label>
+            <select id="release_goal" name="goal_id" class="form-control">
+              <option value="">Sin asignar</option>
+              {{ range $view.Goals }}{{ if .HasMoney }}<option value="{{ .ID }}">{{ .Name }}</option>{{ end }}{{ end }}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="release_amount" class="form-label">Importe (USD)</label>
+            <input type="text" id="release_amount" name="amount" class="form-control" inputmode="decimal" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="release_reason" class="form-label">Motivo</label>
+          <input type="text" id="release_reason" name="reason" class="form-control" maxlength="255" required placeholder="Reparación imprevista">
+        </div>
+        <button type="submit" class="btn btn-secondary">Liberar</button>
+      </form>
+      {{ else }}
+      <p class="text-muted">Todavía no hay nada reservado.</p>
+      {{ end }}
+    </div>
+  </article>
+</div>
+
+<article class="card" aria-labelledby="history-title">
+  <div class="card-header">
+    <h2 id="history-title" class="card-title">Historial</h2>
+    <span class="dash-section-meta">por fecha de cada operación</span>
+  </div>
+  {{ if not .Operations }}
+  <div class="card-body"><p class="text-muted">Aún no hay operaciones.</p></div>
+  {{ else }}
+  <table class="data-table">
+    <thead><tr><th>Fecha</th><th>Operación</th><th>Detalle</th><th class="text-right">Importe</th></tr></thead>
+    <tbody>
+      {{ range .Operations }}
+      <tr>
+        <td class="savings-figure">{{ formatDate .EffectiveDate }}</td>
+        <td>{{ .KindLabel }}{{ if .IsException }} <span class="badge badge-warning">excepción</span>{{ end }}</td>
+        <td>
+          {{ range $i, $e := .Entries }}{{ if $i }}, {{ end }}{{ $e.AccountName }}{{ if $e.GoalName }} → {{ $e.GoalName }}{{ end }}{{ end }}
+          {{ with .IncomeTransactionID }}· <a href="/savings/incomes/{{ . }}">ingreso</a>{{ end }}
+          {{ if .Reason }}<div class="text-muted savings-sub">{{ derefString .Reason }}</div>{{ end }}
+        </td>
+        <td class="text-right savings-figure {{ if .IsOutflow }}amount-expense{{ else }}amount-income{{ end }}">{{ formatAmount .TotalFormatted }} USD</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  {{ end }}
+</article>
+{{ end }}
+{{ end }}

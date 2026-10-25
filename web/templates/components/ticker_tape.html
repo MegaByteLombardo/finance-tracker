@@ -1,0 +1,22 @@
+{{ define "ticker_tape" }}
+{{ if .Empty }}
+<p class="tape-idle">— SIN DATOS —</p>
+{{ else }}
+<div class="tape-track" data-tape-track>
+  <ul class="tape-run" data-tape-run>
+    {{ range .Groups }}{{ $key := .Key }}{{ range .Items }}
+    <li class="tape-item" data-tape-group="{{ $key }}" data-tone="{{ .Tone }}">
+      <a class="tape-link" href="{{ .Href }}">
+        <span class="tape-code">{{ .Code }}</span>
+        <span class="tape-value" data-tone="{{ .ValueTone }}">{{ .Value }}</span>
+        {{- if .Unit }} <span class="tape-unit">{{ .Unit }}</span>{{ end }}
+        {{- if eq .Arrow "up" }} <span class="tape-arrow" aria-label="sube">▲</span>{{ else if eq .Arrow "down" }} <span class="tape-arrow" aria-label="baja">▼</span>{{ end }}
+        {{- if .Delta }} <span class="tape-delta">{{ .Delta }}</span>{{ end }}
+        {{- if .Note }} <span class="tape-note">[{{ .Note }}]</span>{{ end }}
+      </a>
+    </li>
+    {{ end }}{{ end }}
+  </ul>
+</div>
+{{ end }}
+{{ end }}

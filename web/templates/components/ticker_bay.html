@@ -1,0 +1,11 @@
+{{ define "ticker_bay" }}
+{{/* The ticker tape (TD-096). Its content is loaded after the page renders, so
+     the page never waits for it and never fails because of it. What it shows is
+     the viewer's choice, applied by tape.js from localStorage and edited under
+     Configuración. It pauses while the pointer is over it. */}}
+<div class="tape-bay" data-tape-bay role="region" aria-label="Ticker de indicadores">
+  <div class="tape-window" data-tape-window hx-get="/ticker" hx-trigger="load" hx-swap="innerHTML">
+    <p class="tape-idle">CARGANDO…</p>
+  </div>
+</div>
+{{ end }}

@@ -300,6 +300,8 @@ func handleCreateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 				PaymentMethodID: paymentMethodID,
 				Description:     descPtr,
 				EffectiveDate:   effectiveDate,
+				// What the expense does to savings, if the user said (M7.4).
+				Savings: expensePlanFromForm(r),
 			})
 		}
 
@@ -307,6 +309,8 @@ func handleCreateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 			logger.Warn("recording transaction failed", slog.Any("error", txErr))
 			status := http.StatusUnprocessableEntity
 			switch {
+			case savingsMovementError(txErr) != "":
+				form.Errors["general"] = savingsMovementError(txErr)
 			case errors.Is(txErr, ErrInvalidAmount):
 				form.Errors["amount"] = "Invalid amount format. Enter a positive number with valid decimals."
 			case errors.Is(txErr, ErrCategoryTypeMismatch):
@@ -340,16 +344,7 @@ func handleCreateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 		}
 
 		// Success: PRG redirect
-		redirectURL := "/transactions"
-		if ret := r.FormValue("return_to"); ret != "" && strings.HasPrefix(ret, "/") {
-			redirectURL = ret
-		}
-		if IsHXRequest(r) {
-			w.Header().Set("HX-Redirect", redirectURL)
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+		redirectTo(w, r, returnTo(r, "/transactions"))
 	}
 }
 
@@ -477,12 +472,31 @@ func handleEditTransactionForm(logger *slog.Logger, renderer *Renderer, svcs *Se
 		// the one the ledger's guard prevents on the write side.
 		switch tx.Type {
 		case TransactionTypeTransfer:
-			http.Redirect(w, r, "/transfers/"+idStr+"/edit", http.StatusSeeOther)
+			http.Redirect(w, r, keepQuery("/transfers/"+idStr+"/edit", r), http.StatusSeeOther)
 			return
 		case TransactionTypeFXExchange:
-			http.Redirect(w, r, "/exchanges/"+idStr+"/edit", http.StatusSeeOther)
+			http.Redirect(w, r, keepQuery("/exchanges/"+idStr+"/edit", r), http.StatusSeeOther)
 			return
-		case TransactionTypeIncome, TransactionTypeExpense, TransactionTypeOpeningBalance:
+		case TransactionTypeRefund:
+			http.Redirect(w, r, keepQuery("/refunds/"+idStr+"/edit", r), http.StatusSeeOther)
+			return
+		case TransactionTypeExpense:
+			// A card charge is an expense whose correction must keep its kind
+			// and its card in step: it has its own form (M8.1).
+			if svcs.Cards != nil {
+				_, isCharge, err := svcs.Cards.ChargeKind(ctx, id)
+				if err != nil {
+					logger.Error("reading whether an expense is a card charge", slog.Any("error", err))
+					http.Error(w, "Failed to load transaction", http.StatusInternalServerError)
+					return
+				}
+				if isCharge {
+					http.Redirect(w, r, "/cards/"+strconv.FormatInt(tx.AccountID, 10)+"/charges/"+idStr+"/edit",
+						http.StatusSeeOther)
+					return
+				}
+			}
+		case TransactionTypeIncome, TransactionTypeOpeningBalance:
 			// Handled below.
 		default:
 			logger.Error("no edit screen for this transaction type",
@@ -494,6 +508,7 @@ func handleEditTransactionForm(logger *slog.Logger, renderer *Renderer, svcs *Se
 		if tx.Type == TransactionTypeOpeningBalance {
 			amountStr := tx.AmountFormatted
 			form := EditOpeningBalanceForm{
+				ReturnTo:          returnTo(r, "/transactions"),
 				ID:                tx.ID,
 				AccountID:         tx.AccountID,
 				AccountName:       tx.AccountName,
@@ -562,6 +577,7 @@ func handleEditTransactionForm(logger *slog.Logger, renderer *Renderer, svcs *Se
 		}
 
 		form := EditTransactionForm{
+			ReturnTo:                  returnTo(r, "/transactions"),
 			ID:                        tx.ID,
 			AccountID:                 tx.AccountID,
 			Type:                      tx.Type,
@@ -632,6 +648,10 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 			http.Error(w, "This form records income and expenses only. Use the exchange form to update a currency exchange.",
 				http.StatusBadRequest)
 			return
+		case TransactionTypeRefund:
+			http.Error(w, "This form records income and expenses only. Use the refund form to correct a refund.",
+				http.StatusBadRequest)
+			return
 		default:
 			logger.Error("no update path for this transaction type",
 				slog.String("type", string(existing.Type)), slog.Int64("id", id))
@@ -644,6 +664,7 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 			effectiveDate := strings.TrimSpace(r.FormValue("effective_date"))
 
 			form := EditOpeningBalanceForm{
+				ReturnTo:          returnTo(r, "/transactions"),
 				ID:                existing.ID,
 				AccountID:         existing.AccountID,
 				AccountName:       existing.AccountName,
@@ -701,12 +722,7 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 				return
 			}
 
-			if IsHXRequest(r) {
-				w.Header().Set("HX-Redirect", "/transactions")
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			http.Redirect(w, r, "/transactions", http.StatusSeeOther)
+			redirectTo(w, r, form.ReturnTo)
 			return
 		}
 
@@ -749,6 +765,7 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 		}
 
 		form := EditTransactionForm{
+			ReturnTo:                  returnTo(r, "/transactions"),
 			ID:                        id,
 			AccountID:                 accountID,
 			Type:                      txType,
@@ -830,6 +847,13 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 				form.TargetCurrencyCode = selectedCurrency
 			case errors.Is(err, ErrTypeChangeNotAllowed):
 				form.Errors["type"] = "Cannot change transaction to or from an opening balance."
+			case errors.Is(err, ErrChargeEditedAsCharge):
+				status = http.StatusConflict
+				form.Errors["general"] = "Este egreso es un cargo de una tarjeta: corrígelo desde la tarjeta."
+			case errors.Is(err, ErrRefundExceedsOriginal):
+				form.Errors["amount"] = "Este egreso tiene devoluciones que sumarían más que él."
+			case errors.Is(err, ErrRefundOriginal):
+				form.Errors["general"] = "Este egreso tiene devoluciones vinculadas: debe seguir siendo un egreso de la misma cuenta."
 			case errors.Is(err, ErrInvalidAmount):
 				form.Errors["amount"] = "Invalid amount format. Must be a positive number."
 			case errors.Is(err, ErrAccountNotFound):
@@ -862,12 +886,6 @@ func handleUpdateTransaction(logger *slog.Logger, renderer *Renderer, svcs *Serv
 			return
 		}
 
-		if IsHXRequest(r) {
-			w.Header().Set("HX-Redirect", "/transactions")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		http.Redirect(w, r, "/transactions", http.StatusSeeOther)
+		redirectTo(w, r, form.ReturnTo)
 	}
 }

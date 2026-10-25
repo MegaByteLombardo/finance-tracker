@@ -19,6 +19,8 @@ type MobileDashboardView struct {
 	Balances     CurrencyBalancesView
 	Transactions RecentTransactionsView
 	Navigation   MobileNavView
+	// Savings is the M7 summary on Inicio; nil when not in use.
+	Savings *SavingsOverview
 }
 
 // MobileCashFlowView is the period's cash flow and spending, as the backend
@@ -258,6 +260,7 @@ func handleMobileDashboard(logger *slog.Logger, renderer *Renderer, svcs *Servic
 			},
 		}
 
+		data.Savings = loadSavingsSummary(r, logger, svcs)
 		pageData := PageData{
 			Title: "Inicio",
 			Data:  data,

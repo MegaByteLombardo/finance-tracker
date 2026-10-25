@@ -1,0 +1,116 @@
+{{ define "content" }}
+{{ $view := . }}
+{{ $g := .Goal }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+
+    <main class="mobile-scrollable-content" id="main-mobile-content">
+      <div style="margin-bottom: 4px;">
+        <a href="/mobile/ahorro/metas" class="section-link" aria-label="Volver a Metas">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          <span>Metas</span>
+        </a>
+      </div>
+
+      {{ with .Alert }}<p class="net-worth-incomplete" role="status">{{ .Message }}</p>{{ end }}
+
+      <header class="mobile-section">
+        <span class="section-eyebrow">{{ $g.TypeLabel }} · {{ $g.StatusLabel }}</span>
+        <h1 class="section-title">{{ $g.Name }}</h1>
+        <p class="section-note">{{ $g.FundingLabel }}{{ with $g.TargetDate }} · para el {{ spanishDate . }}{{ end }}{{ if $g.TargetChanged }} · presupuesto original {{ formatAmount $g.OriginalTargetFormatted }} USD{{ end }}</p>
+      </header>
+
+      <section class="mobile-section">
+        <div class="cashflow-grid">
+          <div class="cashflow-cell lcd"><span class="cashflow-label">Reservado</span><span class="cashflow-value" data-fit>{{ formatAmount $g.ReservedFormatted }}</span></div>
+          <div class="cashflow-cell lcd"><span class="cashflow-label">Objetivo</span><span class="cashflow-value" data-fit>{{ formatAmount $g.TargetFormatted }}</span></div>
+          <div class="cashflow-cell lcd"><span class="cashflow-label">Falta</span><span class="cashflow-value" data-fit>{{ formatAmount $g.RemainingFormatted }}</span></div>
+          <div class="cashflow-cell lcd"><span class="cashflow-label">Progreso</span><span class="cashflow-value" data-fit>{{ $g.ProgressFormatted }}%</span></div>
+        </div>
+        <span class="savings-bar"><span class="savings-bar-fill" style="width: {{ $g.ProgressWidth }}%"></span></span>
+        {{ if $g.SuggestedContributionFormatted }}<p class="section-note">Aporte sugerido: {{ formatAmount $g.SuggestedContributionFormatted }} USD/mes</p>{{ end }}
+        {{ if $g.Closed }}<p class="section-note">{{ $g.StatusLabel }}{{ with $g.ClosingNote }}: «{{ . }}»{{ end }}. Su historial se conserva.</p>{{ end }}
+      </section>
+
+      {{ if and $g.AcceptsMoney $view.Fund.CanReserve }}
+      <section class="mobile-section">
+        <h2 class="section-title">Aportar</h2>
+        <form action="/savings/reserve" method="POST" class="op-fields-container">
+          <input type="hidden" name="request_key" value="{{ $view.ContributeKey }}">
+          <input type="hidden" name="goal_id" value="{{ $g.ID }}">
+          <input type="hidden" name="return" value="{{ $view.Return }}">
+          <div class="op-field-group">
+            <div class="op-select-wrap">
+              <select name="account_id" class="op-native-select" aria-label="Cuenta">
+                {{ range $view.Fund.Accounts }}{{ if .HasFree }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .FreeFormatted }} libres</option>{{ end }}{{ end }}
+              </select>
+            </div>
+          </div>
+          <div class="op-field-group">
+            <input type="text" name="amount" class="op-native-input" inputmode="decimal" required placeholder="Importe (USD)" aria-label="Importe">
+          </div>
+          <button type="submit" class="mobile-btn mobile-btn-primary">Aportar</button>
+        </form>
+      </section>
+      {{ end }}
+
+      {{ if and $g.HasMoney (not $g.Closed) }}
+      <section class="mobile-section">
+        <h2 class="section-title">Retirar</h2>
+        <form action="/savings/release" method="POST" class="op-fields-container">
+          <input type="hidden" name="request_key" value="{{ $view.WithdrawKey }}">
+          <input type="hidden" name="goal_id" value="{{ $g.ID }}">
+          <input type="hidden" name="return" value="{{ $view.Return }}">
+          <div class="op-field-group">
+            <div class="op-select-wrap">
+              <select name="account_id" class="op-native-select" aria-label="Cuenta">
+                {{ range $g.Accounts }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .ReservedFormatted }}</option>{{ end }}
+              </select>
+            </div>
+          </div>
+          <div class="op-field-group"><input type="text" name="amount" class="op-native-input" inputmode="decimal" required placeholder="Importe (USD)" aria-label="Importe"></div>
+          <div class="op-field-group"><input type="text" name="reason" class="op-native-input" maxlength="255" required placeholder="Motivo" aria-label="Motivo"></div>
+          <button type="submit" class="mobile-btn mobile-btn-secondary">Retirar</button>
+        </form>
+      </section>
+      {{ end }}
+
+      {{ if not $g.Closed }}
+      <section class="mobile-section">
+        <h2 class="section-title">Estado</h2>
+        {{ if $g.CanPause }}<form action="/savings/goals/{{ $g.ID }}/pause" method="POST"><input type="hidden" name="return" value="{{ $view.Return }}"><button type="submit" class="mobile-btn mobile-btn-secondary">Pausar</button></form>{{ end }}
+        {{ if $g.CanResume }}<form action="/savings/goals/{{ $g.ID }}/resume" method="POST"><input type="hidden" name="return" value="{{ $view.Return }}"><button type="submit" class="mobile-btn mobile-btn-secondary">Reactivar</button></form>{{ end }}
+        <form action="/savings/goals/{{ $g.ID }}/{{ if $g.CanComplete }}complete{{ else }}cancel{{ end }}" method="POST" class="op-fields-container">
+          <input type="hidden" name="request_key" value="{{ $view.CloseKey }}">
+          <input type="hidden" name="return" value="{{ $view.Return }}">
+          <div class="op-field-group"><input type="text" name="note" class="op-native-input" maxlength="255" required placeholder="{{ if $g.CanComplete }}Nota de cierre{{ else }}Motivo para cancelar{{ end }}" aria-label="Nota"></div>
+          <button type="submit" class="mobile-btn mobile-btn-primary">{{ if $g.CanComplete }}Completar{{ else }}Cancelar meta{{ end }}</button>
+        </form>
+      </section>
+      {{ end }}
+
+      <section class="mobile-section">
+        <h2 class="section-title">Historial</h2>
+        {{ if not $g.Operations }}<p class="section-note">Aún no hay movimientos.</p>{{ else }}
+        <ul class="mobile-list">
+          {{ range $g.Operations }}
+          <li class="mobile-list-item">
+            <div class="mobile-list-main">
+              <span class="mobile-list-title">{{ .KindLabel }}</span>
+              <span class="mobile-list-subtitle">{{ formatDate .EffectiveDate }}{{ if .Reason }} · {{ derefString .Reason }}{{ end }}</span>
+            </div>
+          </li>
+          {{ end }}
+        </ul>
+        {{ end }}
+      </section>
+    </main>
+
+    {{ template "bottom_navigation" .Navigation }}
+  </div>
+</div>
+{{ end }}

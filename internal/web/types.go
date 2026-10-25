@@ -17,6 +17,9 @@ const (
 	AccountTypeOther  AccountType = "OTHER"
 )
 
+// AccountTypes lists what the generic account form offers: the ASSET types.
+// A credit card is a type too (AccountTypeCreditCard), opened through its own
+// form with its terms.
 func AccountTypes() []AccountType {
 	return []AccountType{AccountTypeBank, AccountTypeCash, AccountTypeWallet, AccountTypeOther}
 }
@@ -97,6 +100,7 @@ func TransactionTypes() []TransactionType {
 		TransactionTypeOpeningBalance,
 		TransactionTypeTransfer,
 		TransactionTypeFXExchange,
+		TransactionTypeRefund,
 	}
 }
 
@@ -282,6 +286,9 @@ type TransactionView struct {
 	// the type is FX_EXCHANGE.
 	Exchange *ExchangeDetail
 
+	// RefundOf is the expense a REFUND gives money back for, when linked.
+	RefundOf *int64
+
 	MovementID     int64
 	AccountID      int64
 	AccountName    string
@@ -379,6 +386,11 @@ type RecordExpenseInput struct {
 	PaymentMethodID int64
 	Description     *string
 	EffectiveDate   string
+
+	// Savings, when set, is what the expense does to savings, committed in
+	// the same transaction (M7.4). The expense is never refused because of
+	// savings; without a plan, an uncovered expense is reported as an issue.
+	Savings *SavingsExpensePlan
 }
 
 type CreatePaymentMethodInput struct {
@@ -429,6 +441,10 @@ type RecordTransferInput struct {
 	Amount               string
 	Description          *string
 	EffectiveDate        string
+
+	// Savings, when set, moves the backing of reserved money to the
+	// destination in the same transaction (M7.4).
+	Savings *SavingsTransferPlan
 }
 
 // UpdateTransferInput replaces every editable field of a transfer.

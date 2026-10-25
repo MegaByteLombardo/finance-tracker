@@ -1034,6 +1034,265 @@ exists.
 
 ---
 
+## The savings tables *(M7.1)*
+
+Five tables, all `STRICT`, all additive (migrations 00014 and 00015). None of
+them is read by `internal/valuation`, none holds a balance, and nothing in them
+moves money: a suggestion is a **target**, not a reservation. The ledger tables
+are referenced with `RESTRICT` and never altered. See
+[m7-contract.md](m7-contract.md).
+
+### `savings_policy_versions`
+
+| Column | Type | Null | Default | Constraints |
+| --- | --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | — | **PRIMARY KEY** |
+| `rate_bp` | `INTEGER` | NOT NULL | — | `BETWEEN 0 AND 10000` (basis points; 2000 = 20%) |
+| `effective_from` | `TEXT` | NOT NULL | — | date `GLOB` + `date(x) IS x`; **UNIQUE** |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | `strftime(…)` | timestamp `GLOB` |
+
+Append-only. The version applied to an income is the latest `effective_from` on
+or before the income's **effective date** (TD-077). A version referenced by a
+suggestion never changes its rate; only the first version may start in the past.
+
+### `savings_category_rules`
+
+| Column | Type | Null | Default | Constraints |
+| --- | --- | --- | --- | --- |
+| `category_id` | `INTEGER` | NOT NULL | — | **PRIMARY KEY**, **FK** → `categories(id)` `RESTRICT` |
+| `is_eligible` | `INTEGER` | NOT NULL | — | `IN (0, 1)` |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | `strftime(…)` | timestamp `GLOB` |
+
+A category with no row is **eligible** (TD-076). That the category is an
+`INCOME` one is checked in Go, in the same transaction — a `CHECK` cannot reach
+`categories`.
+
+### `savings_income_overrides`
+
+| Column | Type | Null | Default | Constraints |
+| --- | --- | --- | --- | --- |
+| `transaction_id` | `INTEGER` | NOT NULL | — | **PRIMARY KEY**, **FK** → `transactions(id)` `RESTRICT` |
+| `is_eligible` | `INTEGER` | NOT NULL | — | `IN (0, 1)` |
+| `reason` | `TEXT` | NOT NULL | — | 1–255 characters after trimming |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | `strftime(…)` | timestamp `GLOB` |
+
+An explicit exception for one income, in either direction; it wins over the
+category rule.
+
+### `savings_suggestions`
+
+| Column | Type | Null | Constraints |
+| --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | **PRIMARY KEY** |
+| `income_transaction_id` | `INTEGER` | NOT NULL | **FK** → `transactions(id)` `RESTRICT` |
+| `revision` | `INTEGER` | NOT NULL | `>= 1`; **UNIQUE** with `income_transaction_id` |
+| `policy_version_id` | `INTEGER` | NOT NULL | **FK** → `savings_policy_versions(id)` |
+| `income_account_id` | `INTEGER` | NOT NULL | **FK** → `accounts(id)` — snapshot |
+| `income_category_id` | `INTEGER` | NOT NULL | **FK** → `categories(id)` — snapshot |
+| `income_amount_minor` | `INTEGER` | NOT NULL | `> 0`, the income's own currency — snapshot |
+| `income_currency_code` | `TEXT` | NOT NULL | **FK** → `currencies(code)` — snapshot |
+| `income_effective_date` | `TEXT` | NOT NULL | date — snapshot |
+| `income_usd_minor` | `INTEGER` | NULL | `>= 0`, USD cents |
+| `suggested_usd_minor` | `INTEGER` | NULL | `>= 0`, USD cents |
+| `fx_method` | `TEXT` | NULL | `IDENTITY`, `DIRECT`, `INVERTED`, `CROSS` |
+| `valued_at` | `TEXT` | NULL | timestamp — an instant, not a financial date |
+| `status` | `TEXT` | NOT NULL | `PENDING_VALUATION`, `OPEN`, `DISMISSED`, `SUPERSEDED`, `INVALIDATED` |
+| `status_reason` | `TEXT` | NULL | 1–255; required for `DISMISSED`, `SUPERSEDED`, `INVALIDATED` |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | timestamp |
+
+Table `CHECK`s, written with `IS [NOT] NULL` only (TD-025): the four valuation
+columns are all set or all `NULL`; `PENDING_VALUATION` has no amount, `OPEN` and
+`DISMISSED` have one.
+
+**One live revision per income**, enforced by the partial unique index
+`idx_savings_suggestions_live ON (income_transaction_id) WHERE status IN
+('PENDING_VALUATION', 'OPEN', 'DISMISSED')`. A correction closes the live
+revision and opens the next; figures are never updated in place except when a
+pending revision receives its first valuation (TD-079). The confirmation states
+of the milestone brief are derived from reservations (M7.2) and never stored.
+
+**Three dates, three meanings.** `income_effective_date` is the financial date:
+it chooses the policy version and the rate, and it is the period a suggestion is
+counted in. `created_at` is when the revision was written; `valued_at` is when
+its rate was found. The date a reservation confirms a suggestion is M7.2's own
+column.
+
+The snapshot columns are deliberate copies: they are what the income **was**
+when the revision was made, which is how a later edit is detected and how a
+closed revision still explains itself.
+
+### `savings_suggestion_rate_legs`
+
+| Column | Type | Null | Constraints |
+| --- | --- | --- | --- |
+| `suggestion_id` | `INTEGER` | NOT NULL | **FK** → `savings_suggestions(id)`; **PK** with `leg` |
+| `leg` | `INTEGER` | NOT NULL | `IN (1, 2)` |
+| `exchange_rate_id` | `INTEGER` | NOT NULL | **FK** → `exchange_rates(id)` |
+| `base_currency_code`, `quote_currency_code` | `TEXT` | NOT NULL | **FK** → `currencies(code)`; different |
+| `rate` | `TEXT` | NOT NULL | same canonical-decimal `CHECK` as `exchange_rates.rate` |
+| `effective_date` | `TEXT` | NOT NULL | date |
+| `source` | `TEXT` | NOT NULL | `MANUAL`, `BCV_OFFICIAL` |
+| `inverted` | `INTEGER` | NOT NULL | `IN (0, 1)` |
+| `created_at` | `TEXT` | NOT NULL | timestamp |
+
+The observations a valuation used, **copied**, because `exchange_rates` rows are
+mutable by design (TD-078). None for a USD income, one for a direct or inverted
+rate, two for a cross rate. The combined factor is not stored.
+
+Every foreign-key child column is indexed, as everywhere else.
+
+### `savings_operations` *(M7.2)*
+
+| Column | Type | Null | Constraints |
+| --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | **PRIMARY KEY** |
+| `kind` | `TEXT` | NOT NULL | `RESERVE`, `RELEASE`, `REALLOCATE`, `REBACK`, `SPEND` |
+| `request_key` | `TEXT` | NOT NULL | 16–64 of `[0-9a-zA-Z_-]`; **UNIQUE** (idempotency) |
+| `suggestion_id` | `INTEGER` | NULL | **FK** → `savings_suggestions(id)`; only for `RESERVE` |
+| `transaction_id` | `INTEGER` | NULL | **FK** → `transactions(id)`; required for `SPEND` |
+| `reason` | `TEXT` | NULL | 1–255; required for `RELEASE` and for an exception |
+| `is_exception` | `INTEGER` | NOT NULL | `IN (0, 1)`; 1 requires a suggestion and a reason |
+| `effective_date` | `TEXT` | NOT NULL | date — the business day the operation happened (the confirmation date) |
+| `created_at` | `TEXT` | NOT NULL | timestamp; never updated |
+
+### `savings_entries` *(M7.2)*
+
+| Column | Type | Null | Constraints |
+| --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | **PRIMARY KEY** |
+| `operation_id` | `INTEGER` | NOT NULL | **FK** → `savings_operations(id)` |
+| `account_id` | `INTEGER` | NOT NULL | **FK** → `accounts(id)`; a USD account (checked in Go) |
+| `amount_minor` | `INTEGER` | NOT NULL | USD cents, signed, `<> 0` |
+| `created_at` | `TEXT` | NOT NULL | timestamp |
+
+The fund is these two tables and nothing else (TD-082): every reserved balance
+is a `SUM` of entries, there is no balance column, and an operation is never
+edited — a correction is another operation. Free balance and overallocation are
+computed against the ledger's balance today. Neither table is read by the
+valuation, so reserving cannot change the net worth.
+
+### `savings_goals` *(M7.3)*
+
+| Column | Type | Null | Constraints |
+| --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | **PRIMARY KEY** |
+| `name` | `TEXT` | NOT NULL | 1–80 |
+| `goal_type` | `TEXT` | NOT NULL | `PERMANENT`, `ONE_TIME`; immutable |
+| `target_usd_minor` | `INTEGER` | NOT NULL | `> 0`, the current target |
+| `target_date` | `TEXT` | NULL | date; only for `ONE_TIME` |
+| `distribution_bp` | `INTEGER` | NOT NULL | 0–10000; Σ over open goals ≤ 10000 (Go) |
+| `status` | `TEXT` | NOT NULL | `ACTIVE`, `PAUSED`, `COMPLETED` (only `ONE_TIME`), `CANCELLED` |
+| `closed_at`, `closing_note` | `TEXT` | NULL | both set exactly when closed |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | timestamp |
+
+There is no balance column: a goal's money is `SUM` of the entries that name it,
+and its funding is derived (TD-084).
+
+### `savings_goal_target_revisions` *(M7.3)*
+
+`(id, goal_id → savings_goals, target_usd_minor > 0, created_at)`. One row per
+target the goal has had; the first is the original budget.
+
+### `savings_entries.goal_id` *(M7.3)*
+
+Added by `ALTER TABLE ... ADD COLUMN goal_id INTEGER REFERENCES savings_goals(id)`
+with a NULL default, so every reservation made before goals existed stays
+unallocated. NULL is the fund's unallocated part. Indexed.
+
+### `savings_issue_acknowledgements` *(M7.4)*
+
+| Column | Type | Null | Constraints |
+| --- | --- | --- | --- |
+| `issue_key` | `TEXT` | NOT NULL | **PRIMARY KEY**, 1–120; names the issue and its amount |
+| `note` | `TEXT` | NOT NULL | 1–255 |
+| `created_at` | `TEXT` | NOT NULL | timestamp |
+
+The issues themselves are derived and stored nowhere (TD-087). An
+acknowledgement changes no balance.
+
+---
+
+## Credit *(M8.1, M8.2)*
+
+Migration 00019 rebuilt `accounts` and `transactions` with SQLite's twelve-step
+procedure (TD-088) to widen two `CHECK` lists, and changed nothing else: same
+columns, defaults, constraints and indexes. `accounts.account_type` admits
+`CREDIT_CARD`, whose nature is LIABILITY (derived in Go, TD-089);
+`transactions.transaction_type` admits `REFUND`, which like `INCOME` and
+`EXPENSE` requires a category and a payment method (TD-090). 00020 and 00021 add
+four `STRICT` tables of terms, facts and assertions; none holds an amount that
+could be derived. 00022 (M8.2) adds the statements the bank emitted, the
+assertions that tie a movement to one, and the card's refund policy; what is
+owed, overdue or settled by a payment is derived on every read (TD-092). See
+[m8-contract.md](m8-contract.md).
+
+### `credit_cards` *(00020)*
+
+| Column | Type | Null | Default | Constraints |
+| --- | --- | --- | --- | --- |
+| `account_id` | `INTEGER` | NOT NULL | — | **PRIMARY KEY**, FK → `accounts(id)` RESTRICT. Go checks the account is a `CREDIT_CARD`. |
+| `product_name` | `TEXT` | NULL | — | 1–120 trimmed characters |
+| `credit_limit_minor` | `INTEGER` | NULL | — | `> 0`; NULL is unknown |
+| `statement_day` | `INTEGER` | NOT NULL | — | `BETWEEN 1 AND 31` |
+| `due_days_after_statement` | `INTEGER` | NULL | — | `BETWEEN 1 AND 60`; NULL is unknown |
+| `payment_processing_days` | `INTEGER` | NOT NULL | `0` | `BETWEEN 0 AND 10` |
+| `denomination` | `TEXT` | NOT NULL | `'NOMINAL'` | `IN ('NOMINAL','INDEXED')` |
+| `denomination_confirmed` | `INTEGER` | NOT NULL | `0` | `IN (0,1)` |
+| `default_payment_method_id` | `INTEGER` | NULL | — | FK → `payment_methods(id)` RESTRICT, indexed |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | now | the timestamp `GLOB` |
+
+### `credit_charges` *(00021)*
+
+`transaction_id` (PK, FK → `transactions`), `kind IN ('INTEREST','FEE','PENALTY')`,
+`created_at`. Go checks the transaction is an `EXPENSE` on a liability.
+
+### `transaction_refunds` *(00021)*
+
+`refund_transaction_id` (PK, FK → `transactions`), `original_transaction_id`
+(FK → `transactions`, indexed), `created_at`, `CHECK (refund <> original)`. Go
+checks the original is an `EXPENSE` of the same account and that the refunds
+linked to it never exceed it.
+
+### `operation_requests` *(00021)*
+
+`request_key` (PK, 16–64 `[0-9a-zA-Z_-]`), `transaction_id` and `account_id`
+(both nullable FKs, indexed, `CHECK` that at least one is set), `created_at`.
+The idempotency log of TD-095.
+
+### `credit_cards.refund_policy` *(00022)*
+
+`TEXT NOT NULL DEFAULT 'NEXT_STATEMENT'`, `CHECK IN ('NEXT_STATEMENT','REDUCES_BILLED')`:
+whether a refund after a closing also lowers that statement's billed balance. A
+refund always lowers the debt and is never a payment.
+
+### `credit_statements` *(00022)*
+
+| Column | Type | Null | Default | Constraints |
+| --- | --- | --- | --- | --- |
+| `id` | `INTEGER` | NOT NULL | — | **PRIMARY KEY** |
+| `card_account_id` | `INTEGER` | NOT NULL | — | FK → `credit_cards(account_id)` RESTRICT |
+| `period_start` | `TEXT` | NOT NULL | — | calendar date; `<= closing_date` |
+| `closing_date` | `TEXT` | NOT NULL | — | calendar date; `UNIQUE (card_account_id, closing_date)`. Go: not after today. |
+| `due_date` | `TEXT` | NULL | — | calendar date `> closing_date`; NULL is "not printed" |
+| `closing_balance_minor` | `INTEGER` | NOT NULL | — | the bank's balance at the closing, **ledger sign** (negative = owed) |
+| `minimum_payment_minor` | `INTEGER` | NULL | — | `>= 0`; NULL is unknown |
+| `previous_balance_minor` | `INTEGER` | NULL | — | ledger sign; as the bank reported it |
+| `payments_minor`, `debits_minor`, `past_due_minor` | `INTEGER` | NULL | — | `>= 0`; as the bank reported them |
+| `created_at`, `updated_at` | `TEXT` | NOT NULL | now | the timestamp `GLOB` |
+
+Go refuses two statements of one card whose periods share a day, and moving a
+closing before a movement asserted into the statement. A statement is a fact:
+nothing derived from it is stored beside it.
+
+### `credit_statement_assignments` *(00022)*
+
+`transaction_id` (PK, FK → `transactions`), `statement_id` (FK →
+`credit_statements`, indexed), `created_at`. The user's assertion that the bank
+billed a movement in that statement (plan R7). Go checks the transaction moves
+the statement's card and that the statement closes on or after its
+`effective_date`. Withdrawing one deletes the row: it corrects an assertion and
+changes no amount, like unlinking a refund.
+
 ## The net worth is not in this document
 
 There is no `current_net_worth`, no `converted_balance` and no `cached_net_worth`

@@ -7,6 +7,9 @@
     <!-- Encabezado móvil -->
     {{ template "mobile_header" .Header }}
 
+    <!-- Ticker (TD-096): the same tape as the desktop header, on Inicio only. -->
+    <div class="tape-bay-mobile">{{ template "ticker_bay" . }}</div>
+
     <!-- Contenido desplazable verticalmente -->
     <main class="mobile-scrollable-content" id="main-mobile-content">
       <!-- 1-3. Patrimonio neto, evolución y flujo de caja: computed by the same
@@ -23,6 +26,24 @@
       <section class="mobile-section">
         <a href="/mobile/recap" class="section-link">
           <span>Ver recap semanal y mensual</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+            <polyline points="12 5 19 12 12 19"></polyline>
+          </svg>
+        </a>
+      </section>
+
+      <!-- Savings (M7): the fund and the month's savings. -->
+      <section class="mobile-section">
+        {{ with .Savings }}
+        <div class="cashflow-grid">
+          <div class="cashflow-cell lcd"><span class="cashflow-label">Fondo reservado</span><span class="cashflow-value" data-fit>{{ formatAmount .Fund.ReservedFormatted }} USD</span></div>
+          <div class="cashflow-cell lcd"><span class="cashflow-label">USD libres</span><span class="cashflow-value" data-fit>{{ formatAmount .Fund.FreeFormatted }} USD</span></div>
+        </div>
+        {{ if .Fund.Overallocated }}<p class="net-worth-incomplete" role="status">Sobreasignado: {{ formatAmount .Fund.OverallocatedFormatted }} USD</p>{{ end }}
+        {{ end }}
+        <a href="/mobile/ahorro" class="section-link">
+          <span>Ver ahorro</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="5" y1="12" x2="19" y2="12"></line>
             <polyline points="12 5 19 12 12 19"></polyline>

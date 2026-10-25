@@ -1,0 +1,95 @@
+{{ define "content" }}
+{{ $c := .Card }}
+{{ $f := .Fields }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>{{ if .StatementID }}Corregir estado de cuenta{{ else }}Registrar estado de cuenta{{ end }} · {{ $c.Name }}</h1>
+    <p class="page-subtitle">
+      Copia las cifras tal como las imprime el banco. Son hechos: no se recalculan nunca, y la diferencia con tus
+      movimientos se muestra en la conciliación.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a href="/cards/{{ $c.AccountID }}/statements" class="btn btn-secondary">&larr; Estados de cuenta</a>
+  </div>
+</div>
+
+<div class="form-card">
+  {{ if .HasError "general" }}
+  <div class="alert alert-danger" role="alert"><div>{{ .Error "general" }}</div></div>
+  {{ end }}
+
+  <form action="{{ .Action }}" method="POST">
+    <h2 class="form-section-title">Fechas</h2>
+    <div class="form-row form-row-aligned">
+      <div class="form-group">
+        <label class="form-label" for="period_start">Desde <span class="required-indicator">*</span></label>
+        <input type="date" class="form-control {{ if .HasError "period_start" }}is-invalid{{ end }}" id="period_start" name="period_start" value="{{ $f.PeriodStart }}" required>
+        {{ if .HasError "period_start" }}<div class="form-error">{{ .Error "period_start" }}</div>{{ end }}
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="closing_date">Fecha de corte <span class="required-indicator">*</span></label>
+        <input type="date" class="form-control {{ if .HasError "closing_date" }}is-invalid{{ end }}" id="closing_date" name="closing_date" value="{{ $f.ClosingDate }}" required>
+        {{ if .HasError "closing_date" }}<div class="form-error">{{ .Error "closing_date" }}</div>{{ end }}
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="due_date">Fecha límite de pago</label>
+        <input type="date" class="form-control {{ if .HasError "due_date" }}is-invalid{{ end }}" id="due_date" name="due_date" value="{{ $f.DueDate }}">
+        {{ if .HasError "due_date" }}<div class="form-error">{{ .Error "due_date" }}</div>{{ end }}
+        <div class="form-help">Vacía si el estado no la indica: entonces nada se marca como vencido.</div>
+      </div>
+    </div>
+
+    <h2 class="form-section-title">Lo que pide el banco</h2>
+    <div class="form-row form-row-aligned">
+      <div class="form-group">
+        <label class="form-label" for="closing_owed">Saldo al corte ({{ $c.CurrencyCode }}) <span class="required-indicator">*</span></label>
+        <input type="text" inputmode="decimal" class="form-control font-mono {{ if .HasError "closing_owed" }}is-invalid{{ end }}"
+               id="closing_owed" name="closing_owed" value="{{ $f.ClosingOwed }}" placeholder="0.00" required
+               data-type="currency" data-minor-unit="{{ .MinorUnit }}" autocomplete="off">
+        {{ if .HasError "closing_owed" }}<div class="form-error">{{ .Error "closing_owed" }}</div>{{ end }}
+        <div class="form-help">Lo que debías al corte, en positivo. Un saldo a favor se escribe en negativo (p. ej. -500.00).</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="minimum_payment">Pago mínimo ({{ $c.CurrencyCode }})</label>
+        <input type="text" inputmode="decimal" class="form-control font-mono {{ if .HasError "minimum_payment" }}is-invalid{{ end }}"
+               id="minimum_payment" name="minimum_payment" value="{{ $f.MinimumPayment }}" placeholder="Vacío si no lo indica"
+               data-type="currency" data-minor-unit="{{ .MinorUnit }}" autocomplete="off">
+      </div>
+    </div>
+
+    <h2 class="form-section-title">Detalle del banco (opcional)</h2>
+    <p class="form-help">Si el estado de cuenta las muestra, estas cifras permiten explicar en la conciliación de dónde sale cualquier diferencia.</p>
+    <div class="form-row form-row-aligned">
+      <div class="form-group">
+        <label class="form-label" for="previous_owed">Saldo anterior</label>
+        <input type="text" inputmode="decimal" class="form-control font-mono" id="previous_owed" name="previous_owed" value="{{ $f.PreviousOwed }}"
+               data-type="currency" data-minor-unit="{{ .MinorUnit }}" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="payments">Pagos y abonos</label>
+        <input type="text" inputmode="decimal" class="form-control font-mono" id="payments" name="payments" value="{{ $f.Payments }}"
+               data-type="currency" data-minor-unit="{{ .MinorUnit }}" autocomplete="off">
+      </div>
+    </div>
+    <div class="form-row form-row-aligned">
+      <div class="form-group">
+        <label class="form-label" for="debits">Consumos y cargos</label>
+        <input type="text" inputmode="decimal" class="form-control font-mono" id="debits" name="debits" value="{{ $f.Debits }}"
+               data-type="currency" data-minor-unit="{{ .MinorUnit }}" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="past_due">Monto vencido</label>
+        <input type="text" inputmode="decimal" class="form-control font-mono" id="past_due" name="past_due" value="{{ $f.PastDue }}"
+               data-type="currency" data-minor-unit="{{ .MinorUnit }}" autocomplete="off">
+        <div class="form-help">Si el banco reporta un vencido, se compara con el calculado: dirá si el mínimo incluye lo atrasado.</div>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <a href="/cards/{{ $c.AccountID }}/statements" class="btn btn-secondary">Cancelar</a>
+      <button type="submit" class="btn btn-primary">{{ if .StatementID }}Guardar corrección{{ else }}Registrar y conciliar{{ end }}</button>
+    </div>
+  </form>
+</div>
+{{ end }}

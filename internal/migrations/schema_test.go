@@ -52,6 +52,66 @@ func TestTablesHaveExactlyTheExpectedColumns(t *testing.T) {
 		"app_settings": {
 			"id", "base_currency_code", "created_at", "updated_at",
 		},
+		"savings_policy_versions": {
+			"id", "rate_bp", "effective_from", "created_at", "updated_at",
+		},
+		"savings_category_rules": {
+			"category_id", "is_eligible", "created_at", "updated_at",
+		},
+		"savings_income_overrides": {
+			"transaction_id", "is_eligible", "reason", "created_at", "updated_at",
+		},
+		"savings_suggestions": {
+			"id", "income_transaction_id", "revision", "policy_version_id",
+			"income_account_id", "income_category_id", "income_amount_minor",
+			"income_currency_code", "income_effective_date",
+			"income_usd_minor", "suggested_usd_minor", "fx_method", "valued_at",
+			"status", "status_reason", "created_at", "updated_at",
+		},
+		"savings_suggestion_rate_legs": {
+			"suggestion_id", "leg", "exchange_rate_id", "base_currency_code",
+			"quote_currency_code", "rate", "effective_date", "source", "inverted", "created_at",
+		},
+		"savings_operations": {
+			"id", "kind", "request_key", "suggestion_id", "transaction_id", "reason",
+			"is_exception", "effective_date", "created_at",
+		},
+		"savings_entries": {
+			"id", "operation_id", "account_id", "amount_minor", "created_at", "goal_id",
+		},
+		"savings_goals": {
+			"id", "name", "goal_type", "target_usd_minor", "target_date", "distribution_bp",
+			"status", "closed_at", "closing_note", "created_at", "updated_at",
+		},
+		"savings_goal_target_revisions": {
+			"id", "goal_id", "target_usd_minor", "created_at",
+		},
+		"savings_issue_acknowledgements": {
+			"issue_key", "note", "created_at",
+		},
+		"credit_cards": {
+			"account_id", "product_name", "credit_limit_minor", "statement_day",
+			"due_days_after_statement", "payment_processing_days", "denomination",
+			"denomination_confirmed", "default_payment_method_id", "created_at", "updated_at",
+			"refund_policy",
+		},
+		"credit_charges": {
+			"transaction_id", "kind", "created_at",
+		},
+		"transaction_refunds": {
+			"refund_transaction_id", "original_transaction_id", "created_at",
+		},
+		"operation_requests": {
+			"request_key", "transaction_id", "account_id", "created_at",
+		},
+		"credit_statements": {
+			"id", "card_account_id", "period_start", "closing_date", "due_date",
+			"closing_balance_minor", "minimum_payment_minor", "previous_balance_minor",
+			"payments_minor", "debits_minor", "past_due_minor", "created_at", "updated_at",
+		},
+		"credit_statement_assignments": {
+			"transaction_id", "statement_id", "created_at",
+		},
 	}
 
 	for table, want := range tests {
@@ -280,6 +340,7 @@ func TestAccountAcceptsEveryValidType(t *testing.T) {
 		{"CASH", nil},
 		{"WALLET", nil},
 		{"OTHER", nil},
+		{"CREDIT_CARD", nil},
 	}
 
 	for _, tc := range valid {
@@ -615,6 +676,13 @@ func TestTransactionShapePerType(t *testing.T) {
 		{"FX_EXCHANGE", true, nil, false},
 		{"FX_EXCHANGE", false, methodBankTransfer, false},
 		{"FX_EXCHANGE", true, methodBankTransfer, false},
+		// A refund is shaped like an expense: categorised -- under an EXPENSE
+		// category, which Go checks -- and with a channel. Only its sign differs,
+		// and the sign lives on the movement.
+		{"REFUND", true, methodPOS, true},
+		{"REFUND", false, methodPOS, false},
+		{"REFUND", true, nil, false},
+		{"REFUND", false, nil, false},
 		// The column is a foreign key now, so an id nobody defined is refused.
 		{"INCOME", true, 9999, false},
 	}
@@ -628,7 +696,7 @@ func TestTransactionShapePerType(t *testing.T) {
 			var categoryID any
 			if tc.hasCategory {
 				categoryType := "INCOME"
-				if tc.txType == "EXPENSE" {
+				if tc.txType == "EXPENSE" || tc.txType == "REFUND" {
 					categoryType = "EXPENSE"
 				}
 				categoryID = seedCategory(t, db, "Test", categoryType)
@@ -913,6 +981,10 @@ func TestNoStoredBalanceAnywhere(t *testing.T) {
 var businessTables = []string{
 	"currencies", "accounts", "categories", "payment_methods", "transactions", "account_movements",
 	"exchange_rates", "app_settings",
+	"savings_policy_versions", "savings_category_rules", "savings_income_overrides",
+	"savings_suggestions", "savings_suggestion_rate_legs",
+	"savings_operations", "savings_entries",
+	"savings_goals", "savings_goal_target_revisions", "savings_issue_acknowledgements",
 }
 
 func TestExpectedIndexesExist(t *testing.T) {
@@ -934,6 +1006,24 @@ func TestExpectedIndexesExist(t *testing.T) {
 		"idx_exchange_rates_observation",
 		"idx_exchange_rates_lookup",
 		"idx_exchange_rates_quote_currency_code",
+		"idx_savings_policy_versions_effective_from",
+		"idx_savings_suggestions_revision",
+		"idx_savings_suggestions_live",
+		"idx_savings_suggestions_policy_version_id",
+		"idx_savings_suggestions_income_account_id",
+		"idx_savings_suggestions_income_category_id",
+		"idx_savings_suggestions_income_currency_code",
+		"idx_savings_suggestion_rate_legs_exchange_rate_id",
+		"idx_savings_suggestion_rate_legs_base_currency_code",
+		"idx_savings_suggestion_rate_legs_quote_currency_code",
+		"idx_savings_operations_request_key",
+		"idx_savings_operations_suggestion_id",
+		"idx_savings_operations_transaction_id",
+		"idx_savings_operations_effective_date",
+		"idx_savings_entries_operation_id",
+		"idx_savings_entries_account_id",
+		"idx_savings_goal_target_revisions_goal_id",
+		"idx_savings_entries_goal_id",
 	}
 
 	for _, index := range want {

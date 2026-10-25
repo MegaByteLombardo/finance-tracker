@@ -34,6 +34,7 @@ your net worth and how each week or month went.
 | Exchange rates | Fetched daily from the Banco Central de Venezuela (BCV), or typed in by hand. |
 | Dashboard | Net worth today, its history chart, cash flow and spending by category over 7, 30, 90 or 365 days. |
 | Recap | A weekly or monthly summary against the previous period: what went up, what went down, and whether things improved. |
+| Savings | Set what share of each income you want to save; every eligible income suggests an amount in USD, at the exchange rate of its own date. |
 | Mobile | A phone-sized version of the app at `/mobile`. |
 | Backups | Automatic snapshots of the database, plus a one-command restore. |
 
@@ -169,11 +170,60 @@ It opens on the last finished period. Use the arrows to see earlier ones or the
 period in progress. A period in progress is compared with the same days of the
 previous one. Each card has a **?** that explains what it shows.
 
+### Savings
+
+Under **Ahorro**, set a savings rate — for example 20% — and the date it starts
+from. From then on, every income you record suggests how much of it to save, in
+USD:
+
+- an income in bolívares is converted at the exchange rate of **its own date**;
+  if there is no rate for that day yet, the suggestion waits and is never shown
+  as zero;
+- transfers, currency purchases and opening balances are never income, so they
+  never suggest anything;
+- every income category counts unless you exclude it, and a single income can be
+  included or excluded with a reason;
+- changing the rate never changes the suggestions of incomes dated before the
+  change, and editing an income keeps the previous suggestion in its history.
+
+A suggestion is only a target: it moves no money and does not change your net
+worth. If you start the policy on a past date, the app shows the incomes it
+would reach and suggests from them only when you confirm.
+
+To **confirm** a suggestion, open its income and reserve all or part of it on a
+USD account. The dollars stay in that account; they are only marked as savings,
+so the account shows how much of it is free. You cannot reserve more than an
+account has free, nor more than the suggestion unless you mark it as an
+exception with a reason. **Fondo** shows what is reserved in each account, lets
+you reserve savings you already had, and release a reservation with a reason.
+Clicking twice never reserves twice.
+
+**Metas** turns reserved money into goals. A **permanent** goal, like an
+emergency fund, is never finished: it is funded, you can draw on it, and it asks
+to be refilled. A **one-time** goal, like a trip, can have a date and is
+completed when you say so; reaching its target only makes it *funded*. Give
+goals a share — say 50% and 30% — and confirming a suggestion proposes the split
+for you (the rest stays unassigned, and a goal that is already funded gets
+nothing). You can contribute, withdraw with a reason, move money between goals,
+pause, complete or cancel; whatever a closed goal still holds stays reserved,
+unassigned. Changing a target keeps the original in its history.
+
+When you record an **expense** from a USD account, the form shows how much of
+that account is free. If the expense is what a goal was for, say so and its
+money pays for it — the expense is recorded once, and the goal keeps its
+original budget so you can see what it really cost. If an expense exceeds the
+free money, you can cover the difference with reserves (with a reason) or record
+it anyway; it is never blocked. A **transfer** can take the backing of reserved
+money with it. **Reconciliación** lists what no longer adds up — reserved money
+an account no longer holds, more confirmed than suggested, a linked expense you
+edited — and lets you note that you have seen it, which changes nothing until
+you resolve it. The dashboard shows the fund once you use it.
+
 ### Mobile
 
 Open <http://localhost:8080/mobile> on your phone, on the same network. It has
-the dashboard, movements, accounts, the recap and a button to record a new
-operation.
+the dashboard, movements, accounts, the recap, savings and a button to record a
+new operation.
 
 ## How the numbers work
 
@@ -279,6 +329,7 @@ internal/fx/             exchange rates and the BCV fetcher
 internal/settings/       app settings, such as the base currency
 internal/valuation/      net worth, current and historical
 internal/analytics/      dashboard figures and the recap
+internal/savings/        savings policy and suggestions
 internal/httpserver/     the HTTP server
 internal/web/            pages, handlers and view models
 web/                     templates, CSS, fonts and scripts
@@ -295,7 +346,7 @@ These are left out on purpose:
 - **No deleting.** Records are archived or corrected; a backup is the undo.
 - **No edit history** of changed records.
 - **No budgets, alerts, forecasts or recommendations.** The app reports; it does
-  not judge.
+  not judge. A savings suggestion applies the rate you chose; it is not advice.
 - **No transfers between different currencies.** That is a currency exchange.
 - **No FX gains or losses** and no cost basis.
 - **No recurring transactions,** credit cards, loans, tags or subcategories.

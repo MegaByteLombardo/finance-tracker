@@ -43,6 +43,10 @@ const (
 	// per-connection setting, so it is applied once in Open instead of via the
 	// DSN. See enableWAL.
 	JournalMode = "wal"
+
+	// TxLock is the BEGIN mode of every read-write transaction. IMMEDIATE takes
+	// the write lock when the transaction opens; see dsn and TD-075.
+	TxLock = "immediate"
 )
 
 // Open creates the database file (and its parent directory) if needed, opens it
@@ -97,8 +101,16 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 // them before applying any, so a malformed DSN fails cleanly instead of leaving
 // a connection half-configured.
 //
-// There is deliberately no _txlock: the default DEFERRED behaviour is right
-// until real write paths exist to justify anything else.
+// _txlock=immediate makes every read-write BeginTx issue BEGIN IMMEDIATE, so a
+// transaction takes the write lock when it opens rather than at its first
+// write (TD-075). M7 is the first write path that reads, decides and then
+// writes on the strength of what it read -- an availability or a pending amount
+// -- and under DEFERRED a second process writing between the read and the write
+// would make the upgrade fail with SQLITE_BUSY after the decision was taken.
+// Taking the lock up front moves the only wait to BEGIN, where busy_timeout
+// governs it. Within this process the single connection already serialises
+// everything, so nothing changes there. A ReadOnly transaction is unaffected:
+// the driver issues a plain BEGIN for it.
 func dsn(abs string) string {
 	// file:///abs/path on Unix, file:///C:/abs/path on Windows -- the URI form
 	// SQLite documents for both platforms. Going through url.URL also
@@ -115,6 +127,7 @@ func dsn(abs string) string {
 			"_busy_timeout": {strconv.Itoa(BusyTimeoutMS)},
 			"_foreign_keys": {"1"},
 			"_synchronous":  {Synchronous},
+			"_txlock":       {TxLock},
 		}.Encode(),
 	}
 	return u.String()
@@ -225,4 +238,24 @@ func (p Pragmas) LogValue() slog.Value {
 		slog.Int("busy_timeout_ms", p.BusyTimeoutMS),
 		slog.String("synchronous", p.SynchronousName()),
 	)
+}
+
+// CheckForeignKeys confirms that foreign key enforcement is ON for the
+// connection q reaches.
+//
+// It exists because one migration (00019, TD-088) has to switch enforcement
+// OFF to rebuild a parent table, and a connection left with it OFF would
+// accept orphans silently for the rest of the process. The DSN turns it on for
+// every new connection; this is what proves the one connection the pool keeps
+// came back from that migration the way it went in. It lives here because this
+// package owns every PRAGMA.
+func CheckForeignKeys(ctx context.Context, q Querier) error {
+	var enabled bool
+	if err := q.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&enabled); err != nil {
+		return fmt.Errorf("reading foreign_keys: %w", err)
+	}
+	if !enabled {
+		return errors.New("foreign_keys is OFF on the database connection; foreign keys would not be enforced")
+	}
+	return nil
 }

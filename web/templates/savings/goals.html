@@ -1,0 +1,86 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Metas de ahorro</h1>
+    <p class="page-subtitle">Para qué es el dinero reservado. El saldo de cada meta sale de sus movimientos, nunca de su estado.</p>
+  </div>
+  <div class="page-actions">
+    <a href="/savings" class="btn btn-secondary">Volver a Ahorro</a>
+    {{ if .ShowClosed }}<a href="/savings/goals" class="btn btn-secondary">Ocultar cerradas</a>{{ else }}<a href="/savings/goals?closed=1" class="btn btn-secondary">Ver cerradas</a>{{ end }}
+  </div>
+</div>
+
+{{ if not .Available }}
+<div class="alert alert-warning" role="alert">{{ .Error }}</div>
+{{ else }}
+{{ $view := . }}
+
+{{ if not .Goals }}
+<div class="empty-state">
+  <div class="empty-state-icon">🎯</div>
+  <h3 class="empty-state-title">Todavía no hay metas</h3>
+  <p class="empty-state-text">Crea un fondo de emergencia (permanente) o una meta puntual, como un viaje.</p>
+</div>
+{{ else }}
+<div class="savings-goals">
+  {{ range .Goals }}
+  <article class="card dash-kpi savings-goal-card">
+    <h3 class="dash-kpi-label">
+      <a href="/savings/goals/{{ .ID }}">{{ .Name }}</a>
+      <span class="badge badge-neutral">{{ .TypeLabel }}</span>
+      <span class="badge {{ .FundingBadge }}">{{ .FundingLabel }}</span>
+      {{ if not .AcceptsMoney }}<span class="badge badge-inactive">{{ .StatusLabel }}</span>{{ end }}
+    </h3>
+    <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount .ReservedFormatted }}<span class="lcd-unit">/ {{ formatAmount .TargetFormatted }} USD</span></span></div>
+    <div class="savings-bar" role="img" aria-label="Progreso {{ .ProgressFormatted }}%"><span class="savings-bar-fill" style="width: {{ .ProgressWidth }}%"></span></div>
+    <p class="dash-kpi-meta">
+      {{ .ProgressFormatted }}% · faltan <strong>{{ formatAmount .RemainingFormatted }} USD</strong>
+      {{ with .TargetDate }}· para el {{ spanishDate . }}{{ end }}
+      {{ if .SuggestedContributionFormatted }}<br>Aporte sugerido: <strong>{{ formatAmount .SuggestedContributionFormatted }} USD/mes</strong>{{ end }}
+      {{ if .HasShare }}<br>Recibe el {{ .DistributionFormatted }}% de cada ahorro confirmado{{ end }}
+    </p>
+  </article>
+  {{ end }}
+</div>
+{{ end }}
+
+<article class="card" style="margin-top: var(--space-6);">
+  <div class="card-header"><h2 class="card-title">Nueva meta</h2></div>
+  <div class="card-body">
+    {{ if .FormErrors.general }}<div class="alert alert-danger" role="alert">{{ .FormErrors.general }}</div>{{ end }}
+    <form action="/savings/goals" method="POST">
+      <input type="hidden" name="return" value="{{ .Return }}">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="goal_name" class="form-label">Nombre</label>
+          <input type="text" id="goal_name" name="name" class="form-control" maxlength="80" value="{{ .Form.Name }}" required placeholder="Fondo de emergencia">
+        </div>
+        <div class="form-group">
+          <label for="goal_type" class="form-label">Tipo</label>
+          <select id="goal_type" name="type" class="form-control">
+            <option value="PERMANENT" {{ if eq .Form.Type "PERMANENT" }}selected{{ end }}>Permanente: se financia, se usa y se repone</option>
+            <option value="ONE_TIME" {{ if eq .Form.Type "ONE_TIME" }}selected{{ end }}>Puntual: se completa cuando se cumple</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="goal_target" class="form-label">Objetivo (USD)</label>
+          <input type="text" id="goal_target" name="target" class="form-control" inputmode="decimal" value="{{ .Form.Target }}" required placeholder="1000.00">
+        </div>
+        <div class="form-group">
+          <label for="goal_date" class="form-label">Fecha límite (opcional, solo puntual)</label>
+          <input type="date" id="goal_date" name="target_date" class="form-control" value="{{ .Form.TargetDate }}">
+        </div>
+        <div class="form-group">
+          <label for="goal_share" class="form-label">% de cada ahorro confirmado</label>
+          <input type="text" id="goal_share" name="distribution" class="form-control" inputmode="decimal" value="{{ .Form.Distribution }}" placeholder="50">
+          <p class="form-help">Entre todas las metas, como mucho 100%. Lo que sobra queda sin asignar.</p>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Crear meta</button>
+    </form>
+  </div>
+</article>
+{{ end }}
+{{ end }}

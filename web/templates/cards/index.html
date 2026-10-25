@@ -1,0 +1,58 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Tarjetas de crédito</h1>
+    <p class="page-subtitle">Lo que debes en cada tarjeta, derivado de sus movimientos. Una tarjeta es un pasivo: su saldo es deuda.</p>
+  </div>
+  <div class="page-actions">
+    <a href="/cards/new" class="btn btn-primary">+ Nueva tarjeta</a>
+  </div>
+</div>
+
+{{ if not .Cards }}
+<div class="empty-state">
+  <div class="empty-state-icon">💳</div>
+  <h3 class="empty-state-title">Sin tarjetas todavía</h3>
+  <p class="empty-state-text">Registra una tarjeta con su día de corte. Si ya debías algo, indícalo como deuda previa.</p>
+  <a href="/cards/new" class="btn btn-primary">Registrar tarjeta</a>
+</div>
+{{ else }}
+<div class="table-container">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Tarjeta</th>
+        <th>Corte</th>
+        <th class="cell-right">Deuda</th>
+        <th class="cell-right">Disponible</th>
+        <th>Estado</th>
+        <th class="cell-right">Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .Cards }}
+      <tr class="row-link">
+        <td>
+          <a href="/cards/{{ .AccountID }}" class="row-link-target" style="font-weight: 600;">{{ .Name }}</a>
+          <div class="text-muted" style="font-size: 0.8rem;">{{ if .ProductName }}{{ derefString .ProductName }} · {{ end }}{{ if .Institution }}{{ derefString .Institution }} · {{ end }}{{ .CurrencyCode }}</div>
+        </td>
+        <td>Día {{ .StatementDay }}</td>
+        <td class="cell-right cell-mono" style="white-space: nowrap;">
+          {{ if .CreditBalanceMinor }}<span class="amount-income" title="La tarjeta te debe este monto.">Saldo a favor {{ formatAmount .CreditBalanceFormatted }}</span>
+          {{ else }}<span class="{{ if .DebtMinor }}amount-expense{{ end }}">{{ formatAmount .DebtFormatted }}</span>{{ end }} {{ .CurrencyCode }}
+        </td>
+        <td class="cell-right cell-mono" style="white-space: nowrap;">
+          {{ if .HasLimit }}<span class="{{ if .OverLimit }}amount-expense{{ end }}">{{ formatAmount .AvailableFormatted }} {{ .CurrencyCode }}</span>
+          {{ else }}<span class="text-muted" title="El límite no se conoce.">&mdash;</span>{{ end }}
+        </td>
+        <td>{{ if .IsActive }}<span class="badge badge-active">Activa</span>{{ else }}<span class="badge badge-inactive">Archivada</span>{{ end }}</td>
+        <td class="cell-right">
+          <a href="/cards/{{ .AccountID }}" class="btn btn-sm btn-secondary">Ver</a>
+        </td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{ end }}
+{{ end }}

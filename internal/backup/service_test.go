@@ -13,6 +13,7 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/backup"
 	"github.com/MegaByteLombardo/finance-tracker/internal/database"
 	"github.com/MegaByteLombardo/finance-tracker/internal/dbtest"
+	"github.com/MegaByteLombardo/finance-tracker/internal/migrations"
 )
 
 func discard() *slog.Logger { return slog.New(slog.DiscardHandler) }
@@ -517,5 +518,38 @@ func TestPruningDoesNotFreeNamesForReuse(t *testing.T) {
 	}
 	if got[0].Name != previous.Name {
 		t.Errorf("the survivor is %q, want the most recent %q", got[0].Name, previous.Name)
+	}
+}
+
+// integrity_check does not see foreign keys, so a snapshot holding an orphan
+// would pass it. Validate refuses one (M8.1, TD-088).
+func TestValidateRejectsAnOrphan(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "orphan.db")
+	db, err := database.Open(ctx, path)
+	if err != nil {
+		t.Fatalf("opening: %v", err)
+	}
+	if err := migrations.Up(ctx, db, discard()); err != nil {
+		t.Fatalf("migrating: %v", err)
+	}
+	// The pool holds one connection, so the PRAGMA reaches the insert.
+	for _, statement := range []string{
+		"PRAGMA foreign_keys = OFF",
+		"INSERT INTO account_movements (transaction_id, account_id, amount_minor) VALUES (999, 999, 100)",
+	} {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("closing: %v", err)
+	}
+
+	err = backup.Validate(ctx, path)
+	if !errors.Is(err, backup.ErrInvalidBackup) || !strings.Contains(err.Error(), "reference a row") {
+		t.Errorf("Validate on a database with an orphan = %v, want ErrInvalidBackup naming the orphan", err)
 	}
 }

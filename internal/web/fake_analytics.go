@@ -95,6 +95,7 @@ func (f *FakeAnalytics) Dashboard(ctx context.Context, preset DashboardPreset) (
 				AccountID:        b.AccountID,
 				AccountName:      b.AccountName,
 				AccountType:      string(b.AccountType),
+				Nature:           fakeNature(b.AccountType),
 				Institution:      b.Institution,
 				IsActive:         b.IsActive,
 				CurrencyCode:     b.CurrencyCode,
@@ -212,3 +213,11 @@ func (f *FakeAnalytics) Recap(_ context.Context, req RecapRequest) (Recap, error
 }
 
 var _ AnalyticsService = (*FakeAnalytics)(nil)
+
+// fakeNature mirrors account.Type.Nature for the fake dashboard.
+func fakeNature(t AccountType) string {
+	if t.IsLiability() {
+		return "LIABILITY"
+	}
+	return "ASSET"
+}

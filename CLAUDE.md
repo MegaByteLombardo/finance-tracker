@@ -34,10 +34,16 @@ HTTP  →  Application / Services  →  Repository  →  SQLite
 - `internal/migrations` owns the schema. It is the **only** package that imports
   goose.
 - `internal/httpserver` owns HTTP. It never builds SQL.
-- Domain packages (`internal/currency`, `internal/account`, `internal/fx`, …)
-  hold their own model, repository and service — organised by feature, not by
-  layer. Do not create a package before it has code.
-- `internal/application` is for **writes** spanning two domains atomically.
+- Domain packages (`internal/currency`, `internal/account`, `internal/fx`,
+  `internal/savings`, `internal/creditcard`, …) hold their own model,
+  repository and service —
+  organised by feature, not by layer. Do not create a package before it has
+  code.
+- `internal/application` is for **writes** spanning two domains atomically:
+  opening an account with its balance, (M7) recording or correcting an income
+  together with its savings suggestion, (M8.1) opening a credit card and
+  recording purchases, charges and refunds with their request key, and (M8.2)
+  paying a card with the savings plan of a USD source.
   `internal/valuation` is a cross-domain **read**, and is its own package for
   that reason (TD-052). `internal/analytics` (M6) is the dashboard's
   cross-domain read over a period, built on `valuation`.
@@ -81,7 +87,10 @@ amount never travels without its currency anyway.
 ## SQLite
 
 - WAL journal mode, `foreign_keys = ON`, `busy_timeout = 5000`,
-  `synchronous = FULL`. Durability beats write throughput for financial records.
+  `synchronous = FULL`, `_txlock = immediate`. Durability beats write throughput
+  for financial records. Every read-write transaction takes the write lock at
+  `BEGIN` (TD-075): a transaction that reads, decides and writes cannot be
+  overtaken by another process in between.
 - **Connection-scoped PRAGMAs go in the DSN, never in a one-off `db.Exec` after
   `sql.Open`.** `database/sql` is a pool: a single `Exec` configures one
   arbitrary connection and silently leaves the rest at SQLite's defaults.
@@ -89,7 +98,10 @@ amount never travels without its currency anyway.
   `database.Open` and its returned value is *checked* — the PRAGMA reports the
   resulting mode instead of failing.
 - The pool is pinned to a single connection. That is deliberate; read the
-  comments in `internal/database/sqlite.go` before changing it.
+  comments in `internal/database/sqlite.go` before changing it. Its corollary:
+  **inside an open transaction, never call a service that uses the `*sql.DB`** —
+  it waits for the connection the transaction holds, forever. Read through
+  `Repository(exec)` (and `fx.NewRepository(exec)` + `fx.NewBook`) instead.
 - **Every business table is `CREATE TABLE ... STRICT;`** unless there is a
   written reason not to.
 - **Timestamps are `TEXT`**, RFC 3339 UTC with exactly three fractional digits.
@@ -275,6 +287,100 @@ and payment methods; internal same-currency transfers.
 - **Indicators are fixed-rule comparisons, not advice** (TD-073). No score, no
   weights, no recommendation text.
 
+**M7 (closed): Savings Fund & Goals.** Read
+[`docs/m7-contract.md`](docs/m7-contract.md): policy and suggestions (M7.1),
+the fund (M7.2), goals (M7.3), ledger integration and reconciliation (M7.4).
+
+- **Four things are never confused:** income recorded (the ledger), saving
+  suggested (M7.1), money reserved (M7.2), money assigned to a goal (M7.3). M7
+  adds **no row and no column** to `transactions` or `account_movements`, and
+  nothing in it is read by `valuation`: reserving cannot move the net worth.
+- **All M7 figures are USD** (`savings.FundCurrency`), which is not the
+  valuation base.
+- **Only `INCOME` is saved from**, by type; categories are eligible unless
+  excluded; overrides carry a reason; never by description (TD-076).
+- **The policy version is chosen by the income's effective date.** Only the
+  first version may start in the past (TD-077).
+- **A suggestion freezes its USD valuation and copies the rate legs it used**
+  (TD-078) — a deliberate exception to "derived on every read", because it is a
+  record of what was suggested. The rate is still the reference rate of the
+  income's date via `fx.Book`; a corrected rate is reported, never applied
+  silently. A missing rate is `PENDING_VALUATION`, never zero.
+- **One live revision per income** (partial unique index); a correction
+  supersedes, never edits. Confirmation states are derived, never stored
+  (TD-079). Reservations confirmed against a revision are never moved or
+  deleted automatically.
+- **An income and its suggestion commit in one transaction** through
+  `internal/application`; the web adapter routes every income write there.
+  Anything wider is a previewed, idempotent sync (TD-080).
+- **The fund is operations + signed entries** (TD-082); every reserved balance
+  is a SUM, nothing is edited. A reservation never exceeds the account's free
+  USD and never confirms past the live suggestion without a recorded exception;
+  every write is idempotent on a form-rendered request key (TD-083).
+- **A goal's money is the sum of its entries; its status is only its
+  lifecycle** (TD-084). FUNDED is derived and is never COMPLETED; closing a goal
+  moves its money to unallocated, never releases it. Distribution is exact,
+  capped by need, rest unallocated (TD-085).
+- **An expense or a transfer is never refused because of savings** (TD-086).
+  What it does to them is a plan (`SPEND`, `RELEASE` with a reason, `REBACK`)
+  applied in the same transaction by `internal/application`; without one, an
+  uncovered expense is an issue. **Issues are derived; an acknowledgement
+  changes no balance and hides nothing** (TD-087).
+- The policy's "tasa de ahorro objetivo" is **not** the recap's "tasa de ahorro".
+
+**M8 (in progress): Credit & Debt Management.** Read
+[`docs/m8-contract.md`](docs/m8-contract.md) for what is built and
+[`docs/m8-plan.md`](docs/m8-plan.md) for M8.2–M8.5.
+
+- **A card is an account and a debt is a negative balance** (TD-089).
+  `CREDIT_CARD` is the first LIABILITY; `account.Type.Nature()` derives it from
+  the type, it is stored nowhere and it never changes. The ledger's arithmetic
+  is unchanged. The generic account form opens assets only; a card is opened
+  with its terms through `application.OpenCreditCard`.
+- **Nothing calculated is stored.** `credit_cards` holds the issuer's terms
+  (unknown is NULL, never zero); debt, available credit, cycles and payment
+  allocations are derived on every read.
+- **No `CARD_PURCHASE`, no `CARD_PAYMENT`** (TD-091). A purchase is an
+  `EXPENSE` on the card, a payment a `TRANSFER` or an `FX_EXCHANGE` into it, a
+  charge an `EXPENSE` plus a `credit_charges` row. Labels are inferred
+  structurally, never from a category or a description. A charge is corrected
+  only as a charge.
+- **`REFUND` is not income** (TD-090): one positive movement under an EXPENSE
+  category, negative spending in the cash flow, optionally linked to the expense
+  it refunds and never more than it. Unlinking corrects an assertion; it
+  changes no amount.
+- **Only assets save and back savings** (TD-094): an income on a liability is
+  never eligible, overrides included; a liability never backs the fund.
+- **Every M8 form is idempotent** on a server-rendered request key
+  (`operation_requests`, TD-095) — except a statement, whose closing day is its
+  key (TD-092).
+- **What a card owes is derived; only facts and assertions are stored**
+  (TD-092, M8.2). `credit_statements` is what the bank printed (balances in the
+  ledger's sign, unknown NULL); `credit_statement_assignments` is the user's
+  "the bank billed it there". `creditcard.Derive` is a pure function: cycles,
+  statuses, pending billed and minimum, overdue as the **maximum** unmet minimum
+  (never the sum), and each payment partitioned exactly (I5) over overdue /
+  minimum / billed / prepaid / credit. No allocation, status or pending figure
+  is stored.
+- **Membership**: the first cycle closing on or after the movement's date;
+  `min(day, last day of the month)`; a registered statement replaces the
+  nearest calendar closing; an assertion needs the statement to close on or
+  after the movement. `effective_date` is always the operation's date.
+- **A refund is never a payment**: never towards the minimum or the overdue.
+  Its effect on the billed balance is the card's `refund_policy`. **An unknown
+  due date never makes anything overdue**, and interest is never computed.
+- **Reconciliation informs and never corrects**: `Δ = B − L`, broken down by
+  the bank's figures, candidates within five days of the closing.
+- **Paying a card** is `application.RecordCardPayment`: a `TRANSFER` or an
+  `FX_EXCHANGE` (both amounts) into the card, from an asset, with the D-12
+  savings plan (`SPEND`/`RELEASE` linked to the payment) for a USD source.
+- **Rebuilding a parent with children** follows SQLite's twelve-step procedure
+  with in-SQL guards, outside goose's transaction (TD-088); after a failed
+  migration the `*sql.DB` is closed, and `migrations.Up` checks foreign keys are
+  on after success.
+- `NetWorth.AssetsMinor − LiabilitiesMinor == TotalMinor` exactly; an account's
+  share is of the assets.
+
 **Design overhaul (in progress): skeuomorphic instrument** (TD-071).
 
 - One visual system for desktop and `/mobile`: brushed chassis panels, keys for
@@ -288,6 +394,12 @@ and payment methods; internal same-currency transfers.
   number. Every amount a template shows goes through `formatAmount`.
 - **Fonts are embedded** (`web/static/fonts`, OFL). No Google Fonts, no CDN, no
   request to another host from any page.
+- **The ticker tape** (TD-096) sits in the sticky header on every desktop page
+  and on mobile Inicio. `GET /ticker` is loaded by htmx after the page; it
+  composes existing reads (the month-in-progress recap, the fund, the latest
+  transactions), computes nothing and never fails a page. What it shows, its
+  order, colour, speed and motion live in `localStorage`, applied by `tape.js`,
+  which measures widths only. A new group goes into `TickerCatalogue()`.
 - The desktop dashboard is a grid: summary; evolution beside accounts;
   currencies beside the wide cash-flow card; recent movements at full width.
   A new block goes into that grid, not appended below it.
@@ -305,12 +417,17 @@ and payment methods; internal same-currency transfers.
   scheduled or recurring transfers, no scheduled or automatic exchanges.
 - **No budgets, spending limits, alerts, anomaly detection, notifications,
   forecasting or recommendations.** M6's dashboard reports; it does not judge.
+  M7's savings suggestion is a mechanical application of a rate the user set,
+  not advice, and it never moves money.
 - **No projected balance**, no maximum age for a rate, no automatic importer of
   historical BCV rates, no snapshot table, no cache, no background job, no JSON
   API and no charting library.
 - **No third-party rate mirror** (TD-054).
-- No credit, loans, instalments, calendar, recurring transactions, budgets, tags,
-  hierarchical categories, authentication or public API.
+- No loans or instalments (M9), calendar, recurring transactions, budgets,
+  tags, hierarchical categories, authentication or public API. Credit cards
+  exist from M8.1 (TD-089) and statements and payment allocation from M8.2
+  (TD-092); FX analytics of a debt and liquidity arrive with M8.3–M8.5, not
+  before.
 
 Do not implement a future milestone's domain because it seems convenient.
 

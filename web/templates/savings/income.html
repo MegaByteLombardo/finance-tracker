@@ -1,0 +1,137 @@
+{{ define "content" }}
+{{ $d := .Detail }}
+{{ $view := . }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>{{ if $d.Description }}{{ derefString $d.Description }}{{ else }}Ingreso{{ end }}</h1>
+    <p class="page-subtitle">{{ formatDate $d.Date }} · {{ $d.AccountName }} · {{ $d.CategoryName }} · {{ formatAmount $d.AmountFormatted }} {{ $d.CurrencyCode }}</p>
+  </div>
+  <div class="page-actions">
+    <a href="/savings" class="btn btn-secondary">Volver a Ahorro</a>
+    <a href="/transactions/{{ $d.TransactionID }}/edit?return_to=/savings/incomes/{{ $d.TransactionID }}" class="btn btn-secondary">Editar la transacción</a>
+  </div>
+</div>
+
+{{ with .Live }}{{ if .Valued }}
+<article class="card" id="confirm" style="margin-bottom: var(--space-6);">
+  <div class="card-header">
+    <h2 class="card-title">Confirmar el ahorro</h2>
+    <span class="badge {{ .BadgeClass }}">{{ .StatusLabel }}</span>
+  </div>
+  <div class="card-body">
+    <ul class="ledger">
+      <li class="ledger-row"><span class="ledger-name">Sugerido</span><span class="ledger-figure">{{ formatAmount .SuggestedUSDFormatted }} USD</span></li>
+      <li class="ledger-row"><span class="ledger-name">Confirmado</span><span class="ledger-figure">{{ formatAmount .IncomeConfirmedFormatted }} USD</span><span class="ledger-sub">en todas las revisiones de este ingreso</span></li>
+      <li class="ledger-row"><span class="ledger-name">Por confirmar</span><span class="ledger-figure">{{ formatAmount .RemainingFormatted }} USD</span></li>
+    </ul>
+    {{ if .OverConfirmed }}
+    <div class="alert alert-warning" role="alert"><div>Hay <strong>{{ formatAmount .OverConfirmedFormatted }} USD</strong> confirmados por encima de la sugerencia vigente (una excepción, o una revisión que la redujo). No se libera solo: hazlo desde el fondo si lo decides.</div></div>
+    {{ end }}
+    {{ if .CanConfirm }}
+    {{ if $view.Fund.CanReserve }}
+    <form action="/savings/reserve" method="POST">
+      <input type="hidden" name="request_key" value="{{ $view.ConfirmKey }}">
+      <input type="hidden" name="income_id" value="{{ .IncomeTransactionID }}">
+      <input type="hidden" name="return" value="{{ $view.Return }}">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="confirm_account" class="form-label">Cuenta en USD que lo respalda</label>
+          <select id="confirm_account" name="account_id" class="form-control">
+            {{ range $view.Fund.Accounts }}{{ if .HasFree }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .FreeFormatted }} libres</option>{{ end }}{{ end }}
+          </select>
+        </div>
+        {{ if not $view.Distribution }}
+        <div class="form-group">
+          <label for="confirm_amount" class="form-label">Importe (USD)</label>
+          <input type="text" id="confirm_amount" name="amount" class="form-control" inputmode="decimal" value="{{ .RemainingAmount }}" required>
+          <p class="form-help">Todo o una parte. Lo que no confirmes sigue pendiente en esta misma sugerencia.</p>
+        </div>
+        {{ end }}
+      </div>
+      {{ with $view.Distribution }}
+      <div class="savings-lines">
+        <p class="form-help">Reparto sugerido según el porcentaje de cada meta; cámbialo si quieres. Lo confirmado es la suma de las líneas, y lo que no confirmes sigue pendiente.</p>
+        {{ range . }}
+        <label class="savings-line">
+          <span>{{ if .GoalID }}{{ .GoalName }}{{ if .Capped }} <span class="badge badge-info">ya casi financiada</span>{{ end }}{{ else }}Sin asignar{{ end }}</span>
+          <input type="hidden" name="line_goal" value="{{ with .GoalID }}{{ . }}{{ end }}">
+          <input type="text" name="line_amount" class="form-control" inputmode="decimal" value="{{ .Amount }}">
+        </label>
+        {{ end }}
+      </div>
+      {{ end }}
+      <details class="savings-exception">
+        <summary>Apartar más de lo que queda (excepción)</summary>
+        <label class="form-label"><input type="checkbox" name="exception" value="1"> Confirmar por encima de la sugerencia</label>
+        <input type="text" name="reason" class="form-control" maxlength="255" placeholder="Motivo, obligatorio para una excepción">
+      </details>
+      <button type="submit" class="btn btn-primary">Confirmar y reservar</button>
+    </form>
+    {{ else }}
+    <p class="text-muted">No hay USD libres en ninguna cuenta activa. Si el ingreso fue en bolívares, registra primero la compra de dólares.</p>
+    {{ end }}
+    {{ end }}
+  </div>
+</article>
+{{ end }}{{ end }}
+
+<div class="savings-split">
+  <article class="card">
+    <div class="card-header"><h2 class="card-title">¿Se ahorra de este ingreso?</h2></div>
+    <div class="card-body">
+      <p><span class="badge {{ if $d.Eligible }}badge-income{{ else }}badge-neutral{{ end }}">{{ if $d.Eligible }}Elegible{{ else }}No elegible{{ end }}</span> {{ $d.Reason }}</p>
+      {{ with $d.Override }}
+      <p class="text-muted">Excepción vigente desde {{ formatDate .UpdatedAt }}: «{{ .Reason }}».</p>
+      {{ end }}
+      <form action="/savings/incomes/{{ $d.TransactionID }}/override" method="POST">
+        <input type="hidden" name="return" value="{{ $view.Return }}">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="eligible" class="form-label">Excepción para este ingreso</label>
+            <select id="eligible" name="eligible" class="form-control">
+              <option value="0">Excluir del ahorro</option>
+              <option value="1">Incluir en el ahorro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="reason" class="form-label">Motivo</label>
+            <input type="text" id="reason" name="reason" class="form-control" maxlength="255" required placeholder="Es un reembolso, no un ingreso nuevo">
+          </div>
+        </div>
+        <p class="form-help">Gana sobre la regla de su categoría y se aplica de inmediato a este ingreso. Nunca se decide por la descripción.</p>
+        <button type="submit" class="btn btn-secondary">Guardar excepción</button>
+      </form>
+    </div>
+  </article>
+
+  <article class="card">
+    <div class="card-header">
+      <h2 class="card-title">Historial de sugerencias</h2>
+      <span class="dash-section-meta">la más antigua primero</span>
+    </div>
+    <div class="card-body">
+      {{ if not $d.Revisions }}
+      <p class="text-muted">Este ingreso nunca tuvo una sugerencia.</p>
+      {{ else }}
+      <ul class="ledger">
+        {{ range $d.Revisions }}
+        <li class="ledger-row">
+          <span class="ledger-name">Revisión {{ .Revision }} <span class="badge {{ .BadgeClass }}">{{ .StatusLabel }}</span>
+            {{ if .RateChanged }}<span class="badge badge-info">tasa corregida</span>{{ end }}</span>
+          <span class="ledger-figure">{{ if .Valued }}{{ formatAmount .SuggestedUSDFormatted }} USD{{ else }}—{{ end }}</span>
+          <span class="ledger-sub">
+            {{ formatAmount .IncomeAmountFormatted }} {{ .IncomeCurrencyCode }} del {{ formatDate .IncomeEffectiveDate }} al {{ .RateFormatted }}%
+            {{ if .Valued }}· {{ .MethodLabel }}{{ if .ShowUSDEquivalent }}: {{ formatAmount .IncomeUSDFormatted }} USD{{ end }}{{ end }}
+            {{ range .Legs }}<br>1 {{ .Pair }} = {{ .Rate }} ({{ .SourceLabel }}, fecha valor {{ formatDate .EffectiveDate }}{{ if .Inverted }}, invertida{{ end }}){{ end }}
+            {{ if .PendingLabel }}<br>{{ .PendingLabel }}{{ end }}
+            {{ if .StatusReason }}<br>{{ derefString .StatusReason }}{{ end }}
+          </span>
+          <span class="ledger-sub ledger-sub-right">creada {{ formatDate .CreatedAt }}{{ with .ValuedAt }}<br>valorada {{ formatDate . }}{{ end }}</span>
+        </li>
+        {{ end }}
+      </ul>
+      {{ end }}
+    </div>
+  </article>
+</div>
+{{ end }}

@@ -1,0 +1,94 @@
+{{ define "content" }}
+<div class="mobile-viewport-wrapper">
+  <div class="mobile-device-container">
+    <div class="mobile-safe-top" aria-hidden="true"></div>
+
+    <main class="mobile-scrollable-content" id="main-mobile-content">
+      <div style="margin-bottom: 4px;">
+        <a href="/mobile/ahorro" class="section-link" aria-label="Volver a Ahorro">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          <span>Ahorro</span>
+        </a>
+      </div>
+
+      {{ $view := . }}
+      {{ with .Alert }}<p class="net-worth-incomplete" role="status">{{ .Message }}</p>{{ end }}
+
+      <header class="mobile-section">
+        <span class="section-eyebrow">Política de ahorro</span>
+        <h1 class="section-title">{{ if .Policy.Current }}{{ .Policy.Current.RateFormatted }}% de cada ingreso{{ else if .Policy.IsSet }}Empieza el {{ spanishDate .Policy.Start }}{{ else }}Sin definir{{ end }}</h1>
+        <p class="section-note">Cambiar la tasa nunca altera las sugerencias de ingresos fechados antes del cambio.</p>
+      </header>
+
+      {{ if .UnsyncedCount }}
+      <section class="mobile-section">
+        <a href="/mobile/ahorro/sincronizar" class="section-link"><span>{{ .UnsyncedCount }} ingreso{{ if ne .UnsyncedCount 1 }}s{{ end }} por sincronizar · revisar</span></a>
+      </section>
+      {{ end }}
+
+      <section class="mobile-section">
+        <form action="/savings/policy" method="POST" class="op-fields-container">
+          <input type="hidden" name="return" value="{{ .Return }}">
+          {{ if .Form.Errors.general }}<p class="net-worth-incomplete" role="alert">{{ .Form.Errors.general }}</p>{{ end }}
+          <div class="op-field-group">
+            <label for="rate" class="op-field-label">Porcentaje de cada ingreso</label>
+            <input type="text" id="rate" name="rate" class="op-native-input" inputmode="decimal" value="{{ .Form.Rate }}" placeholder="20" required>
+            {{ if .Form.Errors.rate }}<p class="op-field-help" role="alert">{{ .Form.Errors.rate }}</p>{{ end }}
+          </div>
+          <div class="op-field-group">
+            <label for="effective_from" class="op-field-label">Vigente desde</label>
+            <input type="date" id="effective_from" name="effective_from" class="op-native-input" value="{{ .Form.EffectiveFrom }}" required>
+            <p class="op-field-help">{{ if .Policy.IsSet }}Hoy o más adelante.{{ else }}Puede ser pasada: verás los ingresos afectados antes de calcular nada.{{ end }}</p>
+            {{ if .Form.Errors.effective_from }}<p class="op-field-help" role="alert">{{ .Form.Errors.effective_from }}</p>{{ end }}
+          </div>
+          <button type="submit" class="mobile-btn mobile-btn-primary">Guardar</button>
+        </form>
+      </section>
+
+      <section class="mobile-section" aria-labelledby="versions-heading">
+        <h2 id="versions-heading" class="section-title">Historial</h2>
+        {{ if not .Policy.Versions }}
+        <p class="section-note">Todavía no hay ninguna versión.</p>
+        {{ else }}
+        <ul class="mobile-list">
+          {{ range .Policy.Versions }}
+          <li class="mobile-list-item">
+            <div class="mobile-list-main">
+              <span class="mobile-list-title">Desde {{ spanishDate .EffectiveFrom }}{{ if .InForce }} · vigente{{ end }}{{ if .Scheduled }} · programada{{ end }}</span>
+              <span class="mobile-list-subtitle">{{ .SuggestionCount }} sugerencia{{ if ne .SuggestionCount 1 }}s{{ end }}</span>
+            </div>
+            <span class="mobile-list-amount">{{ .RateFormatted }}%</span>
+          </li>
+          {{ end }}
+        </ul>
+        {{ end }}
+      </section>
+
+      <section class="mobile-section" aria-labelledby="categories-heading">
+        <h2 id="categories-heading" class="section-title">Categorías elegibles</h2>
+        <p class="section-note">Elegibles salvo que las excluyas. Excluir no cambia nada hasta sincronizar.</p>
+        <ul class="mobile-list">
+          {{ range .Categories }}
+          <li class="mobile-list-item">
+            <div class="mobile-list-main">
+              <span class="mobile-list-title">{{ .Name }}</span>
+              <span class="mobile-list-subtitle">{{ if .Eligible }}Se ahorra{{ else }}Excluida{{ end }}{{ if not .Explicit }} · por defecto{{ end }}{{ if not .IsActive }} · archivada{{ end }}</span>
+            </div>
+            <form action="/savings/categories/{{ .CategoryID }}/eligibility" method="POST">
+              <input type="hidden" name="return" value="{{ $view.Return }}">
+              <input type="hidden" name="eligible" value="{{ if .Eligible }}0{{ else }}1{{ end }}">
+              <button type="submit" class="mobile-btn mobile-btn-secondary">{{ if .Eligible }}Excluir{{ else }}Incluir{{ end }}</button>
+            </form>
+          </li>
+          {{ end }}
+        </ul>
+      </section>
+    </main>
+
+    {{ template "bottom_navigation" .Navigation }}
+  </div>
+</div>
+{{ end }}

@@ -806,6 +806,314 @@ snapshot tables, background jobs and a JSON API.
 
 ---
 
+## M7 — Savings Fund & Goals · `CLOSED`
+
+**Closed:** 2026-10-18
+
+Replaces the M7 the roadmap called Credit & Debt, which becomes M8. The ledger
+says where the money is; M7 adds what the user means to do with it: a policy
+that suggests a share of every eligible income, money set aside against real USD
+accounts, and goals it is assigned to. Four submilestones, each approved and
+closed on its own. The contract is [m7-contract.md](m7-contract.md).
+
+| Submilestone | Status |
+| --- | --- |
+| M7.1 — Savings policy & suggestions | `CLOSED` (2026-10-18) |
+| M7.2 — Savings fund | `CLOSED` (2026-10-18) |
+| M7.3 — Savings goals | `CLOSED` (2026-10-18) |
+| M7.4 — Ledger integration & dashboard | `CLOSED` (2026-10-18) |
+
+### The rule the milestone hangs on
+
+**A layer over the ledger, never a second ledger.** Income recorded, saving
+suggested, money reserved and money assigned to a goal are four different facts
+in four different places. Nothing in M7 adds a row or a column to `transactions`
+or `account_movements`, and nothing in it is read by the valuation: reserving
+money cannot change the net worth.
+
+### M7.1 delivered
+
+- **Eligibility** (TD-076): `INCOME` only, by type; every income category
+  eligible unless excluded; per-income overrides with a reason. Never by the
+  description.
+- **A versioned policy** (TD-077): basis points, chosen by the income's
+  effective date; only the first version may start in the past; a rate that
+  governs suggestions never changes.
+- **One suggestion per eligible income**, written in the same transaction as the
+  income (TD-080), in USD at the reference rate of the income's date, rounded
+  once, half to even. The valuation and the observations used are frozen
+  (TD-078); a corrected rate is reported and revalued only on request.
+- **Revisions** (TD-079): a correction closes the live revision and opens the
+  next; at most one live revision per income, enforced by a partial unique
+  index. A missing rate leaves a suggestion pending, never zero; a future-dated
+  income in another currency waits for its date (TD-081).
+- **A previewed, idempotent sync** for a retroactive start, a category rule and
+  anything changed outside the application.
+- **`BEGIN IMMEDIATE`** for every read-write transaction (TD-075).
+- **Screens**, desktop and mobile: overview, policy and eligibility, sync
+  preview, one income's history.
+
+Schema version 13 → 15 (00014, 00015), purely additive and reversible. The
+ledger gained `RecordIncomeTx`, `UpdateTransactionTx`, `GetIncome` and
+`ListIncomesSince`, with no change of behaviour.
+
+### M7.1 verification
+
+- `go vet ./...` clean, `go test ./... -count=1` green, `gofmt` clean on every
+  changed file, and `go test -race -count=1 -p 4 ./...` green in the Linux
+  container. At the default parallelism, under the race detector,
+  `cmd/web`'s `TestShutdownTakesABackup` can exceed its 30-second wait for the
+  server to start while twenty packages compete for the CPU; it passes alone
+  in about a second, on this branch and on `main`.
+- The no-float test covers `internal/savings` and `internal/application`.
+- Against real SQLite: $800 at 20% suggests $160; $500 + $300 suggest $160; a VES
+  income at the rate of its date, never a later or forward-dated one; a cross
+  rate through the pivot; a missing rate, then valued in place; a future-dated
+  income; an exchange and a transfer suggest nothing; single half-even rounding;
+  20% → 25% leaves earlier suggestions alone; every kind of correction; a
+  dismissed suggestion; a corrected rate and its revaluation; a retroactive start
+  backfilled only on confirmation, idempotently; eligibility previewed and
+  overrides applied; atomicity (a failed suggestion leaves no income); a
+  suggestion counted in its income's period; concurrent incomes and concurrent
+  syncs, in one pool and in two pools over one file.
+- An upgrade from a schema 13 database with M3–M5 data changes no row, creates
+  no suggestion, and rolls back cleanly.
+- Desktop and mobile were checked in a browser against a seeded database.
+
+### M7.2 delivered
+
+- **The fund** (TD-082): `savings_operations` + `savings_entries`, append-only;
+  every reserved balance a sum of entries. Per USD account: balance today,
+  reserved, free, overallocated; in total, plus unallocated.
+- **Reserving** (TD-083): with or without a suggestion (savings that predate M7
+  need no income), never above the account's free balance, idempotent on a
+  request key generated with each form. Partial confirmation leaves the rest
+  pending on the same suggestion; confirming past it needs a recorded exception
+  with a reason.
+- **Releasing**, with a mandatory reason; an archived account can still release
+  what it backs but backs nothing new.
+- **Derived confirmation states** on every suggestion (pending, partly
+  confirmed, confirmed, over-confirmed), summed across the income's revisions;
+  a revision or invalidation never moves a reservation.
+- **The six figures kept apart** (§B of the approval): suggested and confirmed
+  by the income's date; gross contributions, withdrawals and net change by the
+  operation's date; the reserved balance today. The confirmation percentage is
+  not the fund's growth.
+- **Screens**: the fund page (desktop and mobile), the confirmation form on each
+  income, confirmed figures on the overview.
+
+Schema 15 → 16 (00016), additive and reversible.
+
+### M7.2 verification
+
+`go vet` clean and `go test ./... -count=1` green. Against real SQLite:
+reserved vs unreserved ($1,000 / $800 / $200) with the net worth unchanged; a
+manual reservation with no income; free-balance, currency, archived-account and
+key refusals; $160 confirmed as $100 + $60 on one suggestion, $0.01 more refused,
+an exception recorded; a pending or dismissed suggestion refused; a form
+submitted twice reserving once (also for a release); six concurrent
+reservations of $600 against $1,000 with exactly one winning, and the same across
+two pools over one file; releases; an expense leaving the fund overallocated and
+recorded anyway; reservations surviving a lowered revision and an invalidation;
+the six figures of a period. Desktop checked in a browser.
+
+### M7.3 delivered
+
+- **Goals** (TD-084): permanent and one-time, with a target, an optional date
+  for a one-time goal, and a share of each confirmed saving. Lifecycle stored;
+  money, funding, progress, remaining and the suggested monthly contribution
+  derived. FUNDED is not COMPLETED; only a one-time goal is completed.
+- **Contributions, withdrawals and reallocations** per goal and account, all
+  operations in the same append-only fund; reallocations are net zero.
+- **Pause, resume, complete, cancel.** Closing moves what the goal holds to the
+  unallocated part, in the same action; its history stays.
+- **Target changes** append to a history; the original budget is kept.
+- **Suggested distribution** (TD-085): exact, capped by each goal's need, the
+  rest unallocated, cents by largest remainder; shares capped at 100% in total.
+  The confirmation form prefills it, editable.
+- **Screens**: goals list and detail (desktop and mobile), distribution on the
+  overview, goal selectors on the fund forms.
+
+Schema 16 → 17 (00017), additive and reversible.
+
+### M7.3 verification
+
+`go vet` clean and `go test ./... -count=1` green. Against real SQLite: $160 at
+50/50 is $80 + $80; one and two cents in thirds; every amount from 0 to 5,000
+cents against tight caps, summing exactly and never past a cap; a funded goal
+gets nothing; a paused goal and a goal without a share take no part; shares
+past 100% refused; a distributed confirmation splitting allocated and
+unallocated without double counting; a permanent goal funded, drawn on ($1,000 −
+$300 = $700, back to partial) and refilled, never completable; a one-time goal
+over-funded, completed idempotently, its remainder kept reserved and unallocated;
+pausing and cancelling with money on two accounts; reallocations; target
+history; suggested contributions with and without a date. Desktop checked in a
+browser.
+
+### M7.4 delivered
+
+- **Expenses** (TD-086): the form shows the account's free USD and, when the
+  expense exceeds it, the shortfall; the user may pay with a goal's money
+  (`SPEND`, several goals at once), cover the shortfall with reserves and a
+  mandatory reason (`RELEASE`), or record it anyway. All atomic with the expense
+  and idempotent; never refused because of savings.
+- **Goal completion against a real expense**: the goal keeps its original
+  budget; the real cost and the deviation are shown.
+- **Transfers**: the backing of reserved money can move to the destination
+  (`REBACK`); a transfer never consumes savings.
+- **Reconciliation** (TD-087): overallocation, over-confirmation, corrected
+  linked expenses and archived backing, derived on every read; acknowledgements
+  that change no balance and keep the issue visible.
+- **History**: the fund month by month (contributions, withdrawals, net change,
+  closing balance) and each goal month by month; the policy's rate history.
+- **Dashboard**: a savings block in the desktop grid and a summary on mobile
+  Inicio, both absent until savings are in use.
+
+Schema 17 → 18 (00018), additive and reversible. The ledger gained
+`RecordExpenseTx` and `RecordTransferTx`, with no change of behaviour.
+
+### M7.4 verification
+
+`go vet` clean and `go test ./... -count=1` green; `-race` green in the Linux
+container. Against real SQLite: an expense within the free balance touching
+nothing; $300 against $200 free releasing $100 with a reason, and refused (with
+nothing recorded) without one; an unresolved expense kept, reported,
+acknowledged without changing the fund, and re-raised when the deficit grew;
+Travel $800 paid by an $800 expense with exactly one expense and the free
+balance unchanged, then completed; a $1,000 cost against an $800 budget showing
++$200; an expense over two goals atomic and idempotent; a VES expense refused
+USD savings; a corrected linked expense reported; a transfer moving the backing
+of two slices, idempotent, and a transfer without a plan reported; over-
+confirmation; the fund's and a goal's monthly history. The expense form and the
+dashboard were checked in a browser.
+
+### Not in M7
+
+Investments and their returns, bank synchronisation, automatic transfers or
+exchanges, detailed category budgets, push notifications, savings optimisers,
+predictions. Multi-currency savings: every reservation is in USD and backed by a
+USD account; a VES or EUR expense uses USD savings only through an explicit
+`FX_EXCHANGE` and a release; goals in another currency do not exist.
+
+### Not in M7.1
+
+The expense and transfer integration, reconciliation of reserves, goal
+completion against a real expense and the dashboard block (M7.4).
+
+---
+
+## M8 — Credit & Debt Management · `IN PROGRESS`
+
+Credit cards as liability accounts, statements and payments, the FX effect on a
+debt denominated in bolívares, committed liquidity and a card dashboard. Five
+submilestones, each approved and closed on its own. The plan and its audit are
+[m8-plan.md](m8-plan.md); the contract for what is built is
+[m8-contract.md](m8-contract.md).
+
+| Submilestone | Status |
+| --- | --- |
+| M8.1 — Credit accounts & liability ledger | Delivered and validated |
+| M8.2 — Statements & payments | Delivered, awaiting functional validation |
+| M8.3 — FX benefit analytics | `PLANNED` |
+| M8.4 — Liquidity & M7 integration | `PLANNED` |
+| M8.5 — Credit dashboard & optimisation | `PLANNED` |
+
+### The rule the milestone hangs on
+
+**A card is an account and a debt is a negative balance.** The ledger's
+arithmetic does not change; M8 adds terms, facts and assertions, and stores
+nothing it can derive.
+
+### M8.1 delivered
+
+- **`CREDIT_CARD`, the first liability** (TD-089): nature derived from the type,
+  never changeable; terms in `credit_cards`, unknown terms NULL; the position
+  (debt, credit balance, available) derived on every read.
+- **The 12-step rebuild of two parent tables with guards** (TD-088, migration
+  00019), `database.CheckForeignKeys` after migrating, `foreign_key_check` in
+  `backup.Validate`.
+- **`REFUND`** (TD-090): positive, under an EXPENSE category, optional link to
+  the expense it refunds, never more than it; negative spending in the cash flow.
+- **Payments and charges without new types** (TD-091): a payment is a transfer
+  or an exchange into the card; interest, fees and penalties are expenses with a
+  `credit_charges` row, corrected only as charges.
+- **M7 under liabilities** (TD-094): only incomes on assets are eligible, only
+  USD assets back the fund.
+- **Idempotent forms** (TD-095): `operation_requests`.
+- **Valuation:** assets and liabilities split exactly; shares of the assets.
+- **Web:** `/cards` (list, open, detail, terms, purchase, charge),
+  `/refunds`, the type routing of the generic edit, Activos/Pasivos on the
+  dashboard.
+
+### M8.1 verification
+
+`go vet` clean, `gofmt` clean and `go test ./... -count=1` green. Against real
+SQLite: the 18 → 21 upgrade with M7 data (rows, savings, schema objects other
+than the two rebuilt tables all identical); 00019 run twice; each of its six
+guards made to fail, with the file intact and foreign keys on after reopening;
+00020/00021 rolled back; Plaza Black opened (VES, statement day 25, no limit, no
+due date, nominal unconfirmed) with a previous debt, once per request key; a
+back-dated purchase moving the history from its own date; refunds linked,
+unlinked, capped and corrected; charges classified and refused by the generic
+edit; cashback on a card not eligible even with an override; a USD card with a
+credit outside the fund; assets − liabilities = net worth. Smoke-tested on the
+binary over HTTP. `-race` green in the Linux container (golang:1.27-trixie).
+
+### Not in M8.1
+
+Statements, cycles, minimums, due dates, payment allocation and reconciliation
+(M8.2); FX analytics (M8.3); liquidity (M8.4); the card dashboard and mobile
+card screens (M8.5).
+
+### M8.2 delivered
+
+- **Statements and assertions** (migration 00022, TD-092): what the bank printed
+  in `credit_statements`, "the bank billed this movement there" in
+  `credit_statement_assignments`, and the card's `refund_policy`.
+- **The calendar**: closing on `min(day, last day of the month)`, membership to
+  the first cycle closing on or after a movement's date, a registered statement
+  replacing the nearest calendar closing, an assertion replacing the rule.
+- **Layer O** (`creditcard.Derive`): cycles and their status, billed and minimum
+  pending, overdue as a maximum, missed minimums, prepaid, and every payment
+  partitioned over overdue / minimum / billed / prepaid / credit with its trace.
+  Derived on every read; an unknown due date never makes anything overdue.
+- **Reconciliation**: `Δ = B − L` per statement, broken down by the bank's
+  figures, with candidates near the closing; it informs, and the user asserts.
+- **Payments** (`application.RecordCardPayment`): a transfer or an exchange into
+  the card from an asset, idempotent, with the D-12 savings plan for a USD
+  source; M7's reconciliation follows a `SPEND` to its payment.
+- **Web:** `/cards/{id}/payments`, `/cards/{id}/statements` (list, record,
+  correct, reconcile, assert), the obligations panel on the card's page, the
+  refund policy among the terms.
+
+### M8.2 verification
+
+`go vet` clean, `gofmt` clean and `go test ./... -count=1` green. Pure tests of
+the engine: E1–E7 with the numbers of plan R2.4; I5 over 400 generated
+histories (random statement days, statements, due dates, minimums, payments,
+exchanges, refunds, purchases and assertions); `V` as a maximum; unknown minimum
+and due date; estimated due date; no statement in force; bounded thresholds with
+their warning; the calendar on the 25th, across a year, the 31st in February and
+a leap year; an early closing, an assertion across a year, an impossible and an
+orphan assertion; future movements left out. Against real SQLite: statements
+recorded, replayed, refused (same closing, overlap, due date, closing in the
+future, malformed amounts); an assertion before the closing refused; a closing
+moved before an asserted movement refused, and accepted once withdrawn; payments
+from VES and from USD with and without a plan, refused plans leaving nothing,
+a corrected payment reported as `SPEND_MISMATCH`; the 21 → 22 schema and the
+00022 rollback. M7's suite unchanged. Smoke-tested on the binary over a copy of
+the real database (migration 21 → 22 with its snapshot, a statement recorded and
+reconciled, a USD payment replayed once). `-race` pending in the Linux
+container.
+
+### Not in M8.2
+
+The components layer and the FX effect of a debt (M8.3); liquidity (M8.4); the
+card dashboard, history, simulation, calendar facts and mobile card screens
+(M8.5). Interest is never computed.
+
+---
+
 ## Roadmap
 
 Everything below is **provisional**. These are the currently expected shape of
@@ -823,9 +1131,14 @@ below has acceptance criteria yet, by design.
 | M6 | Historical Net Worth & Analytics Dashboard | `CLOSED` |
 | M6.5 | Weekly & Monthly Recap | `IN PROGRESS` |
 | — | Production Deployment, Private Access & Continuous Backup | `POSTPONED` |
-| M7 | Credit & Debt | `PLANNED` |
-| M8 | Instalments & Calendar | `PLANNED` |
-| M9 | Hardening | `PLANNED` |
+| M7 | Savings Fund & Goals | `CLOSED` |
+| M8 | Credit & Debt | `IN PROGRESS` |
+| M9 | Instalments & Calendar | `PLANNED` |
+| M10 | Hardening | `PLANNED` |
+
+**M7 is now Savings Fund & Goals**, and Credit & Debt, Instalments and Hardening
+each moved down one. Planning savings needs only what the ledger already holds;
+credit needs a model of its own.
 
 **M6 merges what were M6 (Historical Net Worth) and M7 (Dashboard &
 Analytics).** They were never separable: every figure the dashboard needs — the
@@ -862,8 +1175,9 @@ Parked items, none blocking:
   startup logs report what happened, and `goose_db_version` is one query away in
   the sqlite3 CLI. Revisit if a rollback is ever needed in anger.
 - **Purpose dimension for accounts.** `account_type` classifies the container
-  only. If distinguishing savings from day-to-day money ever has a real
-  consumer, it arrives as its own decision rather than as more enum values.
+  only. M7 answers "which money is savings" without touching accounts: a
+  reservation (M7.2) marks part of an account's balance, so one account can hold
+  both. If a per-account purpose is ever still needed, it is its own decision.
 - **Historical backfill of exchange rates.** M5 stores what it is told and what it
   fetches from today onward; there is no history before the first run. M6 decided
   that manual entry is enough for now: days without a rate are gaps on the chart,

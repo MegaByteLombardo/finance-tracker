@@ -1,0 +1,110 @@
+{{ define "content" }}
+{{ $s := .Standing }}
+{{ $c := $s.Card }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Estados de cuenta de {{ $c.Name }}</h1>
+    <p class="page-subtitle">
+      Corte el día {{ $c.StatementDay }}. Un estado registrado es lo que imprimió el banco; uno calculado sale del calendario
+      y de tus movimientos. Lo que debes, lo vencido y a qué se aplicó cada pago se recalcula en cada visita.
+    </p>
+  </div>
+  <div class="page-actions">
+    <a href="/cards/{{ $c.AccountID }}" class="btn btn-secondary">&larr; Volver a la tarjeta</a>
+    <a href="/cards/{{ $c.AccountID }}/statements/new" class="btn btn-primary">+ Registrar estado de cuenta</a>
+    {{ if $c.IsActive }}<a href="/cards/{{ $c.AccountID }}/payments/new" class="btn btn-secondary">Pagar</a>{{ end }}
+  </div>
+</div>
+
+{{ with .Alert }}<div class="alert alert-{{ .Type }}" role="alert"><div>{{ .Message }}</div></div>{{ end }}
+
+{{ template "card_obligations" $s }}
+
+<section class="card dash-section" aria-labelledby="cycles-title">
+  <div class="card-header"><h2 id="cycles-title" class="card-title">Ciclos</h2></div>
+  <div class="card-body">
+    <div class="table-container">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Corte</th><th>Período</th><th>Estado</th>
+            <th class="cell-right">Adeudado al corte</th><th class="cell-right">Mínimo</th><th>Vence</th>
+            <th class="cell-right">Pagado después</th><th class="cell-right"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range $s.Cycles }}
+          <tr>
+            <td style="white-space: nowrap;">{{ formatDate .ClosingDate }}</td>
+            <td style="white-space: nowrap;" class="text-muted">{{ formatDate .PeriodStart }} &rarr; {{ formatDate .ClosingDate }}</td>
+            <td>
+              <span class="badge {{ if eq .Status "OVERDUE" }}badge-expense{{ else if eq .Status "PAID" }}badge-active{{ else if eq .Status "OPEN" }}badge-info{{ else }}badge-neutral{{ end }}">{{ .StatusLabel }}</span>
+              {{ if .Registered }}<span class="badge badge-transfer">Registrado</span>{{ else }}<span class="badge badge-inactive">Calculado</span>{{ end }}
+            </td>
+            <td class="cell-right cell-mono" style="white-space: nowrap;">
+              {{ formatAmount .OwedFormatted }}
+              {{ if and .Registered (not .Reconciled) }}<br><span class="amount-expense" title="Banco menos ledger">&Delta; {{ formatAmount .DifferenceFormatted }}</span>{{ end }}
+            </td>
+            <td class="cell-right cell-mono">{{ if .MinimumFormatted }}{{ formatAmount .MinimumFormatted }}{{ else }}<span class="text-muted">&mdash;</span>{{ end }}</td>
+            <td style="white-space: nowrap;">
+              {{ if .DueDate }}{{ formatDate (derefTime .DueDate) }}{{ if .DueEstimated }} <span class="text-muted">(est.)</span>{{ end }}{{ else }}<span class="text-muted">desconocido</span>{{ end }}
+              {{ if .MissedMinimumFormatted }}<br><span class="text-muted">mínimo sin cubrir al vencer: {{ formatAmount .MissedMinimumFormatted }}</span>{{ end }}
+            </td>
+            <td class="cell-right cell-mono">{{ if .Closed }}{{ formatAmount .PaidAfterFormatted }}{{ else }}<span class="text-muted">&mdash;</span>{{ end }}</td>
+            <td class="cell-right" style="white-space: nowrap;">
+              {{ if .Registered }}
+              <a href="/cards/{{ $c.AccountID }}/statements/{{ .StatementID }}/reconcile" class="btn btn-sm btn-secondary">Conciliar</a>
+              <a href="/cards/{{ $c.AccountID }}/statements/{{ .StatementID }}/edit" class="btn btn-sm btn-secondary">Corregir</a>
+              {{ else if .Closed }}
+              <a href="/cards/{{ $c.AccountID }}/statements/new?period_start={{ formatDate .PeriodStart }}&amp;closing_date={{ formatDate .ClosingDate }}" class="btn btn-sm btn-secondary">Registrar</a>
+              {{ end }}
+            </td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+    </div>
+    <p class="form-help">Un estado calculado usa el saldo de tus movimientos como si fuera el del banco, y no tiene mínimo:
+      registra el estado real para que el mínimo y lo vencido se puedan calcular.</p>
+  </div>
+</section>
+
+<section class="card dash-section" aria-labelledby="payments-title">
+  <div class="card-header"><h2 id="payments-title" class="card-title">Aplicación de los pagos</h2></div>
+  <div class="card-body">
+    {{ if $s.Payments }}
+    <div class="table-container">
+      <table class="data-table">
+        <thead><tr><th>Fecha</th><th class="cell-right">Pago</th><th>Se aplicó a</th><th>Cómo se calculó</th></tr></thead>
+        <tbody>
+          {{ range $s.Payments }}
+          <tr>
+            <td style="white-space: nowrap;">{{ formatDate .Date }}</td>
+            <td class="cell-right cell-mono" style="white-space: nowrap;">{{ formatAmount .AmountFormatted }} {{ $c.CurrencyCode }}</td>
+            <td>
+              {{ range .Lines }}
+              <div><span class="badge {{ if eq .Target "OVERDUE" }}badge-expense{{ else if eq .Target "MINIMUM" }}badge-warning{{ else if eq .Target "CREDIT_BALANCE" }}badge-income{{ else }}badge-neutral{{ end }}">{{ .Label }}</span>
+                <span class="cell-mono">{{ formatAmount .AmountFormatted }}</span>
+                {{ if .Cycles }}<span class="text-muted">· {{ range $i, $d := .Cycles }}{{ if $i }}, {{ end }}{{ formatDate $d }}{{ end }}</span>{{ end }}</div>
+              {{ end }}
+              {{ if .Clamped }}<span class="badge badge-warning" title="Las cifras del banco se acotaron para ubicar este pago">acotado</span>{{ end }}
+            </td>
+            <td class="text-muted" style="font-size: 0.8rem;">
+              {{ if .AgainstClosing }}Estado del {{ formatDate (derefTime .AgainstClosing) }}: ya se habían pagado {{ formatAmount .PaidBeforeFormatted }}.
+              Tramos: vencido hasta {{ formatAmount .OverdueFormatted }}, mínimo hasta {{ formatAmount .MinimumFormatted }},
+              facturado hasta {{ formatAmount .BilledFormatted }}, más {{ formatAmount .UnbilledFormatted }} sin facturar.
+              {{ else }}Sin estado de cuenta vigente: anticipado hasta {{ formatAmount .UnbilledFormatted }} sin facturar.{{ end }}
+            </td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+    </div>
+    <p class="form-help">Un pago reduce a la vez todos los estados de cuenta abiertos: primero lo vencido, luego el mínimo,
+      luego el resto de lo facturado, luego lo consumido después del corte. Nada se suma dos veces.</p>
+    {{ else }}
+    <p class="text-muted">Sin pagos todavía.</p>
+    {{ end }}
+  </div>
+</section>
+{{ end }}

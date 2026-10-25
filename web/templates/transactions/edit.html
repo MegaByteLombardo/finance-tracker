@@ -5,7 +5,8 @@
     <p class="page-subtitle">Update movement details in the ledger</p>
   </div>
   <div class="page-actions">
-    <a href="/transactions" class="btn btn-secondary">&larr; Back to Transactions</a>
+    {{ if eq .Type "INCOME" }}<a href="/savings/incomes/{{ .ID }}" class="btn btn-secondary">Ahorro de este ingreso</a>{{ end }}
+    <a href="{{ .ReturnTo }}" class="btn btn-secondary">&larr; Back</a>
   </div>
 </div>
 
@@ -29,6 +30,7 @@
   {{ end }}
 
   <form action="/transactions/{{ .ID }}" method="POST">
+    <input type="hidden" name="return_to" value="{{ .ReturnTo }}">
     {{ if .NeedsCurrencyConfirmation }}
     <input type="hidden" name="allow_currency_change" value="true">
     {{ else }}
@@ -195,7 +197,7 @@
     </div>
 
     <div class="form-actions">
-      <a href="/transactions" class="btn btn-secondary">Cancel</a>
+      <a href="{{ .ReturnTo }}" class="btn btn-secondary">Cancel</a>
       <button type="submit" class="btn {{ if .NeedsCurrencyConfirmation }}btn-warning{{ else }}btn-primary{{ end }}">
         {{ if .NeedsCurrencyConfirmation }}Confirmar y Guardar{{ else }}Save Changes{{ end }}
       </button>

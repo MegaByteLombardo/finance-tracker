@@ -1,0 +1,85 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>{{ if eq .Mode "purchase" }}Compra con {{ .Card.Name }}{{ else if eq .Mode "charge" }}Cargo del banco en {{ .Card.Name }}{{ else }}Corregir cargo de {{ .Card.Name }}{{ end }}</h1>
+    <p class="page-subtitle">
+      {{ if .IsCharge }}Interés, comisión o penalización: un egreso de la tarjeta que además se clasifica como costo financiero.
+      {{ else }}Un egreso de la tarjeta: aumenta la deuda y no toca ninguna cuenta bancaria.{{ end }}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a href="/cards/{{ .Card.AccountID }}" class="btn btn-secondary">&larr; Volver a la tarjeta</a>
+  </div>
+</div>
+
+<div class="form-card">
+  {{ if .HasError "general" }}
+  <div class="alert alert-danger" role="alert"><div>{{ .Error "general" }}</div></div>
+  {{ end }}
+
+  <form action="{{ .Action }}" method="POST">
+    {{ if .RequestKey }}<input type="hidden" name="request_key" value="{{ .RequestKey }}">{{ end }}
+
+    {{ if .IsCharge }}
+    <div class="form-group">
+      <label class="form-label" for="kind">Tipo de cargo <span class="required-indicator">*</span></label>
+      <select class="form-control" id="kind" name="kind" required>
+        {{ range .Kinds }}
+        <option value="{{ . }}" {{ if eq $.Kind . }}selected{{ end }}>{{ chargeKindLabel . }}</option>
+        {{ end }}
+      </select>
+    </div>
+    {{ end }}
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="amount">Monto ({{ .Card.CurrencyCode }}) <span class="required-indicator">*</span></label>
+        <input type="text" inputmode="decimal" class="form-control font-mono {{ if .HasError "amount" }}is-invalid{{ end }}"
+               id="amount" name="amount" value="{{ .Amount }}" placeholder="0.00" required>
+        {{ if .HasError "amount" }}<div class="form-error">{{ .Error "amount" }}</div>{{ end }}
+        <div class="form-help">Positivo: el signo lo pone la operación.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="effective_date">Fecha de la operación <span class="required-indicator">*</span></label>
+        <input type="date" class="form-control {{ if .HasError "effective_date" }}is-invalid{{ end }}"
+               id="effective_date" name="effective_date" value="{{ .EffectiveDate }}" required>
+        {{ if .HasError "effective_date" }}<div class="form-error">{{ .Error "effective_date" }}</div>{{ end }}
+        <div class="form-help">La fecha en que ocurrió, aunque la registres después: de ella dependen la tasa y la historia.</div>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" for="category_id">Categoría <span class="required-indicator">*</span></label>
+        <select class="form-control {{ if .HasError "category_id" }}is-invalid{{ end }}" id="category_id" name="category_id" required>
+          <option value="">Elige una categoría...</option>
+          {{ range .Categories }}{{ if .IsActive }}
+          <option value="{{ .ID }}" {{ if eq $.CategoryID .ID }}selected{{ end }}>{{ .Name }}</option>
+          {{ end }}{{ end }}
+        </select>
+        {{ if .HasError "category_id" }}<div class="form-error">{{ .Error "category_id" }}</div>{{ end }}
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="payment_method_id">Método de pago <span class="required-indicator">*</span></label>
+        <select class="form-control {{ if .HasError "payment_method_id" }}is-invalid{{ end }}" id="payment_method_id" name="payment_method_id" required>
+          <option value="">Elige un método...</option>
+          {{ range .Methods }}{{ if .IsActive }}
+          <option value="{{ .ID }}" {{ if eq $.PaymentMethodID .ID }}selected{{ end }}>{{ .Name }}</option>
+          {{ end }}{{ end }}
+        </select>
+        {{ if .HasError "payment_method_id" }}<div class="form-error">{{ .Error "payment_method_id" }}</div>{{ end }}
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="description">Descripción</label>
+      <input type="text" class="form-control" id="description" name="description" value="{{ .Description }}" maxlength="255">
+    </div>
+
+    <div class="form-actions">
+      <a href="/cards/{{ .Card.AccountID }}" class="btn btn-secondary">Cancelar</a>
+      <button type="submit" class="btn btn-primary">{{ if eq .Mode "charge-edit" }}Guardar corrección{{ else }}Registrar{{ end }}</button>
+    </div>
+  </form>
+</div>
+{{ end }}

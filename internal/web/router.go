@@ -65,6 +65,46 @@ func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
 	mux.HandleFunc("GET /mobile/categorias", handleMobileCategories(logger, renderer, svcs))
 	mux.HandleFunc("GET /mobile/metodos-pago", handleMobilePaymentMethods(logger, renderer, svcs))
 
+	// Savings (M7.1): the policy and the suggestion each eligible income
+	// produces. A suggestion is a target, never money. Actions on a suggestion
+	// name the INCOME and act on its live revision; the mobile pages post to the
+	// same endpoints with a "return" path.
+	mux.HandleFunc("GET /savings", handleSavings(logger, renderer, svcs, false))
+	mux.HandleFunc("GET /savings/policy", handleSavingsPolicy(logger, renderer, svcs, false))
+	mux.HandleFunc("POST /savings/policy", handleSetSavingsPolicy(logger, renderer, svcs))
+	mux.HandleFunc("POST /savings/categories/{id}/eligibility", handleSetCategoryEligibility(logger, svcs))
+	mux.HandleFunc("GET /savings/sync", handleSavingsSync(logger, renderer, svcs, false))
+	mux.HandleFunc("POST /savings/sync", handleApplySavingsSync(logger, svcs))
+	mux.HandleFunc("POST /savings/value-pending", handleValuePending(logger, svcs))
+	mux.HandleFunc("GET /savings/incomes/{id}", handleSavingsIncome(logger, renderer, svcs, false))
+	mux.HandleFunc("POST /savings/incomes/{id}/override", handleSetIncomeOverride(logger, svcs))
+	mux.HandleFunc("POST /savings/incomes/{id}/value", handleSuggestionAction(logger, svcs, "value"))
+	mux.HandleFunc("POST /savings/incomes/{id}/revalue", handleSuggestionAction(logger, svcs, "revalue"))
+	mux.HandleFunc("POST /savings/incomes/{id}/dismiss", handleSuggestionAction(logger, svcs, "dismiss"))
+	mux.HandleFunc("GET /savings/fund", handleSavingsFund(logger, renderer, svcs, false))
+	mux.HandleFunc("POST /savings/reserve", handleSavingsReserve(logger, svcs))
+	mux.HandleFunc("POST /savings/release", handleSavingsRelease(logger, svcs))
+	mux.HandleFunc("GET /mobile/ahorro/fondo", handleSavingsFund(logger, renderer, svcs, true))
+	mux.HandleFunc("GET /savings/goals", handleSavingsGoals(logger, renderer, svcs, false))
+	mux.HandleFunc("POST /savings/goals", handleCreateGoal(logger, renderer, svcs))
+	mux.HandleFunc("GET /savings/goals/{id}", handleSavingsGoal(logger, renderer, svcs, false))
+	mux.HandleFunc("POST /savings/goals/{id}", handleUpdateGoal(logger, svcs))
+	mux.HandleFunc("POST /savings/goals/{id}/pause", handleGoalAction(logger, svcs, "pause"))
+	mux.HandleFunc("POST /savings/goals/{id}/resume", handleGoalAction(logger, svcs, "resume"))
+	mux.HandleFunc("POST /savings/goals/{id}/complete", handleGoalAction(logger, svcs, "complete"))
+	mux.HandleFunc("POST /savings/goals/{id}/cancel", handleGoalAction(logger, svcs, "cancel"))
+	mux.HandleFunc("POST /savings/reallocate", handleReallocate(logger, svcs))
+	mux.HandleFunc("GET /mobile/ahorro/metas", handleSavingsGoals(logger, renderer, svcs, true))
+	mux.HandleFunc("GET /mobile/ahorro/metas/{id}", handleSavingsGoal(logger, renderer, svcs, true))
+	mux.HandleFunc("GET /savings/impact", handleSavingsImpact(logger, renderer, svcs))
+	mux.HandleFunc("GET /savings/issues", handleSavingsIssues(logger, renderer, svcs, false))
+	mux.HandleFunc("POST /savings/issues/acknowledge", handleAcknowledgeIssue(logger, svcs))
+	mux.HandleFunc("GET /mobile/ahorro/incidencias", handleSavingsIssues(logger, renderer, svcs, true))
+	mux.HandleFunc("GET /mobile/ahorro", handleSavings(logger, renderer, svcs, true))
+	mux.HandleFunc("GET /mobile/ahorro/politica", handleSavingsPolicy(logger, renderer, svcs, true))
+	mux.HandleFunc("GET /mobile/ahorro/sincronizar", handleSavingsSync(logger, renderer, svcs, true))
+	mux.HandleFunc("GET /mobile/ahorro/ingresos/{id}", handleSavingsIncome(logger, renderer, svcs, true))
+
 	// Accounts
 	mux.HandleFunc("GET /accounts", handleAccountsList(logger, renderer, svcs))
 	mux.HandleFunc("GET /accounts/new", handleNewAccountForm(logger, renderer, svcs))
@@ -74,6 +114,40 @@ func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
 	mux.HandleFunc("POST /accounts/{id}/archive", handleSetAccountActive(logger, svcs, false))
 	mux.HandleFunc("POST /accounts/{id}/restore", handleSetAccountActive(logger, svcs, true))
 	mux.HandleFunc("GET /accounts/subtype-options", handleSubtypeOptions(logger, renderer))
+
+	// Credit cards (M8.1). A card is a liability account with the issuer's
+	// terms. A purchase and a charge are expenses on it; a payment is a
+	// transfer or an exchange into it, recorded on those forms. Every form
+	// carries a request key, so a double submission records once.
+	mux.HandleFunc("GET /cards", handleCards(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/new", handleNewCardForm(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards", handleOpenCard(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}", handleCard(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}/edit", handleEditCardTerms(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards/{id}/edit", handleUpdateCardTerms(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}/purchases/new", handleNewCardEntry(logger, renderer, svcs, "purchase"))
+	mux.HandleFunc("POST /cards/{id}/purchases", handleRecordCardEntry(logger, renderer, svcs, "purchase"))
+	mux.HandleFunc("GET /cards/{id}/charges/new", handleNewCardEntry(logger, renderer, svcs, "charge"))
+	mux.HandleFunc("POST /cards/{id}/charges", handleRecordCardEntry(logger, renderer, svcs, "charge"))
+	mux.HandleFunc("GET /cards/{id}/charges/{tid}/edit", handleEditCardCharge(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards/{id}/charges/{tid}", handleUpdateCardCharge(logger, renderer, svcs))
+	// M8.2: payments, statements and their reconciliation.
+	mux.HandleFunc("GET /cards/{id}/payments/new", handleNewCardPayment(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards/{id}/payments", handleRecordCardPayment(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}/statements", handleCardStatements(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}/statements/new", handleNewCardStatement(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards/{id}/statements", handleRecordCardStatement(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}/statements/{sid}/edit", handleEditCardStatement(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards/{id}/statements/{sid}", handleUpdateCardStatement(logger, renderer, svcs))
+	mux.HandleFunc("GET /cards/{id}/statements/{sid}/reconcile", handleReconcileCardStatement(logger, renderer, svcs))
+	mux.HandleFunc("POST /cards/{id}/statements/{sid}/assertions", handleAssertMembership(logger, svcs))
+
+	// Refunds (M8.1): money given back for an expense, on any account. Never
+	// income. Recorded and corrected only here.
+	mux.HandleFunc("GET /refunds/new", handleNewRefund(logger, renderer, svcs))
+	mux.HandleFunc("POST /refunds", handleRecordRefund(logger, renderer, svcs))
+	mux.HandleFunc("GET /refunds/{id}/edit", handleEditRefund(logger, renderer, svcs))
+	mux.HandleFunc("POST /refunds/{id}", handleUpdateRefund(logger, renderer, svcs))
 
 	// Transactions
 	mux.HandleFunc("GET /transactions", handleTransactionsList(logger, renderer, svcs))
@@ -126,6 +200,12 @@ func NewRouter(logger *slog.Logger, svcs *Services, cfg Config) http.Handler {
 	mux.HandleFunc("GET /settings", handleSettingsIndex(logger, renderer, svcs))
 	mux.HandleFunc("GET /settings/{$}", handleSettingsIndex(logger, renderer, svcs))
 	mux.HandleFunc("POST /settings/base-currency", handleSetBaseCurrency(logger, renderer, svcs))
+
+	// The ticker tape under the header (TD-096). /ticker is the fragment htmx
+	// loads into it; what it shows is chosen in the browser, so the settings
+	// screen has no POST.
+	mux.HandleFunc("GET /ticker", handleTicker(logger, renderer, svcs))
+	mux.HandleFunc("GET /settings/ticker", handleTickerSettings(logger, renderer))
 
 	// Exchange rates (M5). These are REFERENCE rates, used to value balances;
 	// no transaction carries a rate.

@@ -126,6 +126,13 @@ var (
 	// it states where an account started rather than recording an operation, and
 	// turning one into income would put it in every "what did I earn" figure.
 	ErrTypeChangeNotAllowed = errors.New("this transaction type cannot be changed")
+	// ErrRefundOriginal means a refund names an original that it cannot be the
+	// refund of: one that does not exist, is not an EXPENSE, or sits in another
+	// account. Money given back for a purchase returns to where it was spent.
+	ErrRefundOriginal = errors.New("a refund can only name an expense of the same account")
+	// ErrRefundExceedsOriginal means the refunds linked to one expense would add
+	// up to more than the expense: a purchase cannot be given back twice over.
+	ErrRefundExceedsOriginal = errors.New("the refunds of an expense cannot add up to more than it")
 	// ErrCurrencyChangeNotConfirmed means an edit would move a transaction to an
 	// account denominated in a different currency without saying so explicitly.
 	//
@@ -237,6 +244,19 @@ const (
 	// also unrelated to the reference rates in exchange_rates, which say what a
 	// source published, not what this operation cost.
 	FXExchange TransactionType = "FX_EXCHANGE"
+	// Refund is money given back for an expense (M8.1, TD-090): a purchase
+	// returned, a charge reversed. Its single movement is POSITIVE, which is the
+	// one thing an expense cannot be, and it is filed under an EXPENSE category
+	// and a channel, because what it gives back is spending.
+	//
+	// It is not income. Nothing was earned: an income would put a returned pair
+	// of shoes in "what did I earn" and make it eligible for savings. In the
+	// cash flow it is a negative expense in its category (TD-068).
+	//
+	// It may name the expense it gives money back for (transaction_refunds).
+	// That link is optional, and when present the refunds of one expense never
+	// add up to more than it.
+	Refund TransactionType = "REFUND"
 )
 
 // TransactionTypes lists every valid type, in the order a UI would present
@@ -249,7 +269,7 @@ const (
 // exchange only through RecordExchange and UpdateExchange, never through the
 // income-and-expense use cases.
 func TransactionTypes() []TransactionType {
-	return []TransactionType{Income, Expense, OpeningBalance, Transfer, FXExchange}
+	return []TransactionType{Income, Expense, OpeningBalance, Transfer, FXExchange, Refund}
 }
 
 // Valid reports whether t is a known transaction type.
@@ -375,6 +395,10 @@ type TransactionView struct {
 	// CurrencyCode would render "-85,000.00 VES" and have no way to discover
 	// that 100.00 USD arrived.
 	Exchange *ExchangeDetail
+
+	// RefundOf is the expense a REFUND gives money back for, when the user
+	// linked one. It is nil for every other type and for an unlinked refund.
+	RefundOf *int64
 
 	// The account the money moved in.
 	//
@@ -646,6 +670,33 @@ type ExpenseItem struct {
 	AmountMinor int64
 }
 
+// IncomeItem is one INCOME transaction, in its own currency, with the facts a
+// savings suggestion is computed from (M7, internal/savings).
+//
+// It is ExpenseItem's mirror. The ledger returns incomes as they are now; what
+// a suggestion recorded about one when it was made is internal/savings'
+// business, and comparing the two is how a correction is noticed.
+type IncomeItem struct {
+	TransactionID int64
+	Date          time.Time
+	Description   *string
+
+	CategoryID   int64
+	CategoryName string
+
+	AccountID   int64
+	AccountName string
+	// AccountType is the type of the account the income was credited to. Its
+	// nature decides whether the income can be saved from at all: an income
+	// credited to a liability reduces a debt and adds no money (TD-094).
+	AccountType  account.Type
+	CurrencyCode string
+	MinorUnit    int
+
+	// AmountMinor is how much came in: positive, as stored.
+	AmountMinor int64
+}
+
 // RecordIncomeInput is the input to Service.RecordIncome.
 type RecordIncomeInput struct {
 	AccountID int64
@@ -680,6 +731,41 @@ type RecordExpenseInput struct {
 	PaymentMethodID int64
 	Description     *string
 	EffectiveDate   string
+}
+
+// RecordRefundInput is the input to RecordRefundTx.
+//
+// It is shaped like RecordExpenseInput because a refund is shaped like an
+// expense: an account, an EXPENSE category, a channel, a positive amount. The
+// sign is the use case's: the movement is stored positive.
+type RecordRefundInput struct {
+	AccountID       int64
+	CategoryID      int64
+	Amount          string
+	PaymentMethodID int64
+	Description     *string
+	EffectiveDate   string
+
+	// OriginalTransactionID names the expense this gives money back for. nil
+	// means the refund is not traced to one, which is allowed.
+	OriginalTransactionID *int64
+}
+
+// UpdateRefundInput is the input to UpdateRefundTx. Like every edit input it is
+// a REPLACEMENT: every field, the link included, is sent on every call. There
+// is no Type: a refund cannot become anything else, and nothing else can become
+// a refund.
+type UpdateRefundInput struct {
+	AccountID             int64
+	CategoryID            int64
+	Amount                string
+	PaymentMethodID       int64
+	Description           *string
+	EffectiveDate         string
+	OriginalTransactionID *int64
+
+	// AllowCurrencyChange has the meaning it has on UpdateTransactionInput.
+	AllowCurrencyChange bool
 }
 
 // RecordOpeningBalanceInput is the input to Service.RecordOpeningBalance.

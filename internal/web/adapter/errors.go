@@ -6,6 +6,7 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/account"
 	"github.com/MegaByteLombardo/finance-tracker/internal/backup"
 	"github.com/MegaByteLombardo/finance-tracker/internal/category"
+	"github.com/MegaByteLombardo/finance-tracker/internal/creditcard"
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
 	"github.com/MegaByteLombardo/finance-tracker/internal/paymentmethod"
@@ -55,6 +56,8 @@ func TranslateAccountError(err error) error {
 		return translateError(web.ErrCurrencyNotFound, err)
 	case errors.Is(err, account.ErrCurrencyInactive):
 		return translateError(web.ErrCurrencyInactive, err)
+	case errors.Is(err, account.ErrNatureChange):
+		return translateError(web.ErrNatureChange, err)
 	default:
 		return err
 	}
@@ -174,6 +177,14 @@ func translateLedgerSentinel(err error) error {
 		return translateError(web.ErrInconsistentTransfer, err)
 	case errors.Is(err, ledger.ErrInconsistentExchange):
 		return translateError(web.ErrInconsistentExchange, err)
+	case errors.Is(err, ledger.ErrRefundOriginal):
+		return translateError(web.ErrRefundOriginal, err)
+	case errors.Is(err, ledger.ErrRefundExceedsOriginal):
+		return translateError(web.ErrRefundExceedsOriginal, err)
+	case errors.Is(err, creditcard.ErrChargeEditedAsCharge):
+		// A generic edit that reached a card charge (M8.1): the application
+		// refuses it before the ledger is asked anything.
+		return translateError(web.ErrChargeEditedAsCharge, err)
 	default:
 		return err
 	}

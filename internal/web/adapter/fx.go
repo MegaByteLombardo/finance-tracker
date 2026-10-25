@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
@@ -181,18 +182,22 @@ func (a *valuationAdapter) GetCurrentNetWorth(ctx context.Context) (web.NetWorth
 // computed by internal/valuation; nothing here adds anything up.
 func toWebNetWorth(worth valuation.NetWorth) web.NetWorth {
 	out := web.NetWorth{
-		BaseCurrencyCode:    worth.BaseCurrencyCode,
-		BaseCurrencyName:    worth.BaseCurrencyName,
-		BaseSymbol:          worth.BaseSymbol,
-		BaseMinorUnit:       worth.BaseMinorUnit,
-		ValuationDate:       worth.ValuationDate,
-		TotalMinor:          worth.TotalMinor,
-		TotalFormatted:      worth.TotalFormatted,
-		Complete:            worth.Complete,
-		Components:          make([]web.NetWorthComponent, 0, len(worth.Components)),
-		Accounts:            make([]web.NetWorthAccount, 0, len(worth.Accounts)),
-		ArchivedWithBalance: worth.ArchivedWithBalance,
-		FutureMovementCount: worth.FutureMovementCount,
+		BaseCurrencyCode:     worth.BaseCurrencyCode,
+		BaseCurrencyName:     worth.BaseCurrencyName,
+		BaseSymbol:           worth.BaseSymbol,
+		BaseMinorUnit:        worth.BaseMinorUnit,
+		ValuationDate:        worth.ValuationDate,
+		TotalMinor:           worth.TotalMinor,
+		TotalFormatted:       worth.TotalFormatted,
+		AssetsMinor:          worth.AssetsMinor,
+		AssetsFormatted:      worth.AssetsFormatted,
+		LiabilitiesMinor:     worth.LiabilitiesMinor,
+		LiabilitiesFormatted: worth.LiabilitiesFormatted,
+		Complete:             worth.Complete,
+		Components:           make([]web.NetWorthComponent, 0, len(worth.Components)),
+		Accounts:             make([]web.NetWorthAccount, 0, len(worth.Accounts)),
+		ArchivedWithBalance:  worth.ArchivedWithBalance,
+		FutureMovementCount:  worth.FutureMovementCount,
 	}
 
 	for _, component := range worth.Components {
@@ -232,6 +237,7 @@ func toWebNetWorth(worth valuation.NetWorth) web.NetWorth {
 			AccountID:          line.AccountID,
 			AccountName:        line.AccountName,
 			AccountType:        line.AccountType,
+			Nature:             string(line.Nature),
 			Institution:        line.Institution,
 			IsActive:           line.IsActive,
 			CurrencyCode:       line.CurrencyCode,
@@ -265,6 +271,18 @@ func toWebShare(share valuation.Share) web.Ratio {
 	return web.Ratio{BasisPoints: share.BasisPoints, Defined: true, Formatted: money.Format(share.BasisPoints, 2)}
 }
 
+// shortRate states a rate at two decimals, half to even, for a readout with no
+// room for the observation's full precision (the ticker, TD-096). It is for
+// reading only: nothing converts with it, and Rate keeps the full value.
+func shortRate(value money.Decimal) string {
+	d, _, err := money.NewDecimalFromRat(value.Rat(), 2)
+	if err != nil {
+		return value.String()
+	}
+	whole, frac, _ := strings.Cut(d.String(), ".")
+	return whole + "." + (frac + "00")[:2]
+}
+
 func toWebResolution(resolution fx.Resolution) web.RateResolutionView {
 	method := web.RateMethod(resolution.Method)
 
@@ -283,6 +301,7 @@ func toWebResolution(resolution fx.Resolution) web.RateResolutionView {
 			QuoteCurrencyCode: leg.Observation.QuoteCurrencyCode,
 			Pair:              leg.Observation.Pair(),
 			Rate:              leg.Observation.Value.String(),
+			RateShort:         shortRate(leg.Observation.Value),
 			EffectiveDate:     leg.Observation.EffectiveDate,
 			Source:            source,
 			SourceLabel:       source.Label(),

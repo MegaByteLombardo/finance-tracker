@@ -1,0 +1,261 @@
+{{ define "content" }}
+{{ $view := . }}
+{{ $g := .Goal }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>{{ $g.Name }}</h1>
+    <p class="page-subtitle">{{ $g.TypeLabel }} · {{ $g.StatusLabel }}{{ with $g.TargetDate }} · para el {{ spanishDate . }}{{ end }}{{ if $g.HasShare }} · {{ $g.DistributionFormatted }}% de cada ahorro{{ end }}</p>
+  </div>
+  <div class="page-actions">
+    <a href="/savings/goals" class="btn btn-secondary">Volver a Metas</a>
+  </div>
+</div>
+
+<section class="dash savings-dash" aria-label="La meta hoy">
+  <div class="savings-kpis">
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Reservado <span class="badge {{ $g.FundingBadge }}">{{ $g.FundingLabel }}</span></h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $g.ReservedFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <div class="savings-bar" role="img" aria-label="Progreso {{ $g.ProgressFormatted }}%"><span class="savings-bar-fill" style="width: {{ $g.ProgressWidth }}%"></span></div>
+      <p class="dash-kpi-meta">{{ $g.ProgressFormatted }}% del objetivo</p>
+    </article>
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Objetivo</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $g.TargetFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">{{ if $g.TargetChanged }}Presupuesto original: <strong>{{ formatAmount $g.OriginalTargetFormatted }} USD</strong>{{ else }}Sin cambios desde que se creó{{ end }}</p>
+    </article>
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Falta</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $g.RemainingFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">{{ if $g.SuggestedContributionFormatted }}Aporte sugerido: <strong>{{ formatAmount $g.SuggestedContributionFormatted }} USD/mes</strong>{{ else }}Sin fecha límite, sin aporte mensual calculado{{ end }}</p>
+    </article>
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Respaldo por cuenta</h3>
+      <ul class="ledger">
+        {{ range $g.Accounts }}<li class="ledger-row"><span class="ledger-name">{{ .AccountName }}</span><span class="ledger-figure">{{ formatAmount .ReservedFormatted }}</span></li>{{ else }}<li class="ledger-row"><span class="ledger-name text-muted">Nada reservado</span></li>{{ end }}
+      </ul>
+    </article>
+  </div>
+  {{ if $g.Closed }}
+  <div class="alert alert-info" role="status"><div><strong>{{ $g.StatusLabel }}</strong>{{ with $g.ClosedAt }} el {{ formatDate . }}{{ end }}{{ with $g.ClosingNote }}: «{{ . }}»{{ end }}. Su historial se conserva.</div></div>
+  {{ end }}
+</section>
+
+{{ if not $g.Closed }}
+<div class="savings-split" style="margin-bottom: var(--space-6);">
+  {{ if $g.AcceptsMoney }}
+  <article class="card">
+    <div class="card-header"><h2 class="card-title">Aportar</h2></div>
+    <div class="card-body">
+      {{ if $view.Fund.CanReserve }}
+      <form action="/savings/reserve" method="POST">
+        <input type="hidden" name="request_key" value="{{ $view.ContributeKey }}">
+        <input type="hidden" name="goal_id" value="{{ $g.ID }}">
+        <input type="hidden" name="return" value="{{ $view.Return }}">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="c_account" class="form-label">Desde los USD libres de</label>
+            <select id="c_account" name="account_id" class="form-control">
+              {{ range $view.Fund.Accounts }}{{ if .HasFree }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .FreeFormatted }} libres</option>{{ end }}{{ end }}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="c_amount" class="form-label">Importe (USD)</label>
+            <input type="text" id="c_amount" name="amount" class="form-control" inputmode="decimal" required>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Aportar</button>
+      </form>
+      <p class="form-help">Para pasar dinero ya reservado sin asignar, usa «Mover».</p>
+      {{ else }}<p class="text-muted">No hay USD libres en ninguna cuenta activa.</p>{{ end }}
+    </div>
+  </article>
+  {{ end }}
+
+  {{ if $g.HasMoney }}
+  <article class="card">
+    <div class="card-header"><h2 class="card-title">Retirar</h2></div>
+    <div class="card-body">
+      <form action="/savings/release" method="POST">
+        <input type="hidden" name="request_key" value="{{ $view.WithdrawKey }}">
+        <input type="hidden" name="goal_id" value="{{ $g.ID }}">
+        <input type="hidden" name="return" value="{{ $view.Return }}">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="w_account" class="form-label">De la cuenta</label>
+            <select id="w_account" name="account_id" class="form-control">
+              {{ range $g.Accounts }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .ReservedFormatted }}</option>{{ end }}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="w_amount" class="form-label">Importe (USD)</label>
+            <input type="text" id="w_amount" name="amount" class="form-control" inputmode="decimal" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="w_reason" class="form-label">Motivo</label>
+          <input type="text" id="w_reason" name="reason" class="form-control" maxlength="255" required>
+        </div>
+        <button type="submit" class="btn btn-secondary">Retirar</button>
+        <p class="form-help">El dinero vuelve a estar libre en su cuenta. {{ if not $g.IsOneTime }}Una meta permanente vuelve a necesitar fondos.{{ end }}</p>
+      </form>
+    </div>
+  </article>
+
+  <article class="card">
+    <div class="card-header"><h2 class="card-title">Mover a otra meta</h2></div>
+    <div class="card-body">
+      <form action="/savings/reallocate" method="POST">
+        <input type="hidden" name="request_key" value="{{ $view.MoveKey }}">
+        <input type="hidden" name="from_goal_id" value="{{ $g.ID }}">
+        <input type="hidden" name="return" value="{{ $view.Return }}">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="m_account" class="form-label">Cuenta</label>
+            <select id="m_account" name="account_id" class="form-control">
+              {{ range $g.Accounts }}<option value="{{ .AccountID }}">{{ .AccountName }} · {{ formatAmount .ReservedFormatted }}</option>{{ end }}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="m_to" class="form-label">Hacia</label>
+            <select id="m_to" name="to_goal_id" class="form-control">
+              <option value="">Sin asignar</option>
+              {{ range $view.OtherGoals }}<option value="{{ .ID }}">{{ .Name }}</option>{{ end }}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="m_amount" class="form-label">Importe (USD)</label>
+            <input type="text" id="m_amount" name="amount" class="form-control" inputmode="decimal" required>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-secondary">Mover</button>
+      </form>
+    </div>
+  </article>
+  {{ end }}
+
+  <article class="card">
+    <div class="card-header"><h2 class="card-title">Editar</h2></div>
+    <div class="card-body">
+      <form action="/savings/goals/{{ $g.ID }}" method="POST">
+        <input type="hidden" name="return" value="{{ $view.Return }}">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="e_name" class="form-label">Nombre</label>
+            <input type="text" id="e_name" name="name" class="form-control" maxlength="80" value="{{ $g.Name }}" required>
+          </div>
+          <div class="form-group">
+            <label for="e_target" class="form-label">Objetivo (USD)</label>
+            <input type="text" id="e_target" name="target" class="form-control" inputmode="decimal" value="{{ $g.TargetAmount }}" required>
+          </div>
+        </div>
+        <div class="form-row">
+          {{ if $g.IsOneTime }}
+          <div class="form-group">
+            <label for="e_date" class="form-label">Fecha límite</label>
+            <input type="date" id="e_date" name="target_date" class="form-control" value="{{ with $g.TargetDate }}{{ formatDate . }}{{ end }}">
+          </div>
+          {{ end }}
+          <div class="form-group">
+            <label for="e_share" class="form-label">% de cada ahorro</label>
+            <input type="text" id="e_share" name="distribution" class="form-control" inputmode="decimal" value="{{ $g.DistributionFormatted }}">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-secondary">Guardar</button>
+        <p class="form-help">Cambiar el objetivo no borra el original: queda en el historial.</p>
+      </form>
+    </div>
+  </article>
+
+  <article class="card">
+    <div class="card-header"><h2 class="card-title">Estado</h2></div>
+    <div class="card-body savings-actions-block">
+      {{ if $g.CanPause }}<form action="/savings/goals/{{ $g.ID }}/pause" method="POST"><input type="hidden" name="return" value="{{ $view.Return }}"><button type="submit" class="btn btn-secondary">Pausar</button></form>{{ end }}
+      {{ if $g.CanResume }}<form action="/savings/goals/{{ $g.ID }}/resume" method="POST"><input type="hidden" name="return" value="{{ $view.Return }}"><button type="submit" class="btn btn-secondary">Reactivar</button></form>{{ end }}
+      <form action="/savings/goals/{{ $g.ID }}/{{ if $g.CanComplete }}complete{{ else }}cancel{{ end }}" method="POST" class="savings-close-form">
+        <input type="hidden" name="request_key" value="{{ $view.CloseKey }}">
+        <input type="hidden" name="return" value="{{ $view.Return }}">
+        <label for="close_note" class="form-label">{{ if $g.CanComplete }}Completar la meta{{ else }}Cancelar la meta{{ end }}</label>
+        <input type="text" id="close_note" name="note" class="form-control" maxlength="255" required placeholder="{{ if $g.CanComplete }}Viaje realizado{{ else }}Motivo{{ end }}">
+        <p class="form-help">{{ if $g.HasMoney }}Lo que tiene ({{ formatAmount $g.ReservedFormatted }} USD) queda reservado sin asignar; no se libera.{{ else }}No tiene dinero reservado.{{ end }}</p>
+        <button type="submit" class="btn btn-primary">{{ if $g.CanComplete }}Completar{{ else }}Cancelar meta{{ end }}</button>
+      </form>
+      {{ if $g.CanComplete }}
+      <form action="/savings/goals/{{ $g.ID }}/cancel" method="POST" class="savings-close-form">
+        <input type="hidden" name="request_key" value="{{ $view.CloseKey }}">
+        <input type="hidden" name="return" value="{{ $view.Return }}">
+        <input type="text" name="note" class="form-control" maxlength="255" required placeholder="Motivo para cancelarla">
+        <button type="submit" class="btn btn-secondary">Cancelar meta</button>
+      </form>
+      {{ end }}
+    </div>
+  </article>
+</div>
+{{ end }}
+
+{{ if $g.LinkedExpenses }}
+<article class="card" style="margin-bottom: var(--space-6);">
+  <div class="card-header"><h2 class="card-title">Gasto real</h2><span class="dash-section-meta">frente al presupuesto original</span></div>
+  <div class="card-body">
+    <ul class="ledger">
+      <li class="ledger-row"><span class="ledger-name">Presupuesto original</span><span class="ledger-figure">{{ formatAmount $g.OriginalTargetFormatted }} USD</span></li>
+      <li class="ledger-row"><span class="ledger-name">Gasto real</span><span class="ledger-figure">{{ formatAmount $g.ActualCostFormatted }} USD</span><span class="ledger-sub">pagado con la meta: {{ formatAmount $g.SpentFormatted }} USD</span></li>
+      <li class="ledger-row"><span class="ledger-name">Desviación</span><span class="ledger-figure {{ if $g.CostOverBudget }}amount-expense{{ end }}">{{ formatAmount $g.DeviationFormatted }} USD</span></li>
+    </ul>
+    <table class="data-table">
+      <thead><tr><th>Fecha</th><th>Gasto</th><th class="text-right">Importe</th><th class="text-right">De la meta</th></tr></thead>
+      <tbody>
+        {{ range $g.LinkedExpenses }}
+        <tr><td class="savings-figure">{{ formatDate .Date }}</td><td><a href="/transactions/{{ .TransactionID }}/edit?return_to=/savings/goals/{{ $g.ID }}">{{ if .Description }}{{ derefString .Description }}{{ else }}Gasto #{{ .TransactionID }}{{ end }}</a></td>
+          <td class="text-right savings-figure">{{ formatAmount .AmountFormatted }}</td><td class="text-right savings-figure">{{ formatAmount .SpentFormatted }}</td></tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+</article>
+{{ end }}
+
+{{ if $g.Months }}
+<article class="card" style="margin-bottom: var(--space-6);">
+  <div class="card-header"><h2 class="card-title">Evolución</h2><span class="dash-section-meta">por mes</span></div>
+  <table class="data-table">
+    <thead><tr><th>Mes</th><th class="text-right">Entró</th><th class="text-right">Salió</th><th class="text-right">Al cierre</th></tr></thead>
+    <tbody>
+      {{ range $g.Months }}
+      <tr><td>{{ spanishDate .Month }}</td><td class="text-right savings-figure">{{ formatAmount .InFormatted }}</td>
+        <td class="text-right savings-figure">{{ formatAmount .OutFormatted }}</td><td class="text-right savings-figure"><strong>{{ formatAmount .ClosingFormatted }}</strong></td></tr>
+      {{ end }}
+    </tbody>
+  </table>
+</article>
+{{ end }}
+
+<div class="savings-split">
+  <article class="card">
+    <div class="card-header"><h2 class="card-title">Historial</h2><span class="dash-section-meta">aportes, retiros y movimientos</span></div>
+    {{ if not $g.Operations }}<div class="card-body"><p class="text-muted">Aún no hay movimientos.</p></div>{{ else }}
+    <table class="data-table">
+      <thead><tr><th>Fecha</th><th>Operación</th><th>Detalle</th></tr></thead>
+      <tbody>
+        {{ range $g.Operations }}
+        <tr>
+          <td class="savings-figure">{{ formatDate .EffectiveDate }}</td>
+          <td>{{ .KindLabel }}</td>
+          <td>{{ range $i, $e := .Entries }}{{ if $i }}<br>{{ end }}{{ $e.AccountName }} · {{ if $e.GoalName }}{{ $e.GoalName }}{{ else }}sin asignar{{ end }}: <span class="savings-figure">{{ formatAmount $e.AmountFormatted }}</span>{{ end }}
+            {{ if .Reason }}<div class="text-muted savings-sub">{{ derefString .Reason }}</div>{{ end }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ end }}
+  </article>
+  <article class="card">
+    <div class="card-header"><h2 class="card-title">Objetivos</h2><span class="dash-section-meta">el primero es el presupuesto original</span></div>
+    <div class="card-body">
+      <ul class="ledger">
+        {{ range $g.TargetRevisions }}<li class="ledger-row"><span class="ledger-name">{{ formatDate .CreatedAt }}</span><span class="ledger-figure">{{ formatAmount .TargetFormatted }} USD</span></li>{{ end }}
+      </ul>
+    </div>
+  </article>
+</div>
+{{ end }}

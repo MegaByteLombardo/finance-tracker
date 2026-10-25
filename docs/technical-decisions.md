@@ -197,7 +197,7 @@ building it now would be anticipating a problem that does not exist.
 
 ## TD-009 — `_txlock` deliberately not configured
 
-**Status:** Accepted · **Milestone:** M0
+**Status:** Superseded by TD-075 (M7.1) · **Milestone:** M0
 
 **Decision.** The DSN does not set `_txlock`. SQLite's default `DEFERRED`
 transaction behaviour stands.
@@ -2336,3 +2336,632 @@ would be a guess at its rate (TD-067).
 **Alternatives considered.** Ranking within each currency — it answers a
 different question and lists up to five per currency. Ranking by the latest
 rate — look-ahead bias (TD-053). A query that ranks in SQL — it cannot convert.
+
+## TD-075 — Read-write transactions begin IMMEDIATE
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** The DSN carries `_txlock=immediate`, so every read-write `BeginTx`
+issues `BEGIN IMMEDIATE` and takes SQLite's write lock when the transaction
+opens. A `ReadOnly` transaction keeps a plain `BEGIN` (the driver,
+modernc.org/sqlite v1.57.0, applies the mode only to non-read-only
+transactions). M0's "no `_txlock` until real write paths justify it" is
+superseded.
+
+**Rationale.** M7 is the first write path that reads, decides and writes on
+what it read — whether an income already has a live suggestion, what remains
+pending. Within the process the single pooled connection already serialises
+everything. Against a second process (the sqlite3 CLI, a second container) a
+DEFERRED transaction reads under a shared lock and upgrades at its first write;
+if the other process committed in between, the upgrade fails with
+`SQLITE_BUSY` after the decision was taken, and `busy_timeout` cannot help
+because waiting would not make the stale read true. With IMMEDIATE the only
+wait is at `BEGIN`, before anything is read, and `busy_timeout` governs it.
+This was verified, not assumed: `TestTwoProcessesSyncingAtOnceCreateEachSuggestionOnce`
+fails with `database is locked (SQLITE_BUSY)` under `_txlock=deferred` and
+passes under `immediate`. The whole suite passes with the change, so no other
+module depended on DEFERRED.
+
+**Alternatives considered.** A dummy write at the start of each M7 transaction
+— the same effect, invisible at the call site and easy to forget in the next
+write path. A retry loop on `SQLITE_BUSY` — it would have to classify the error
+by its code, which this project does not do (CLAUDE.md), and would re-run a
+decision that already acted.
+
+## TD-076 — Income categories are eligible for savings by default
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** Only `transaction_type = 'INCOME'` is ever saved from. Within
+that, every category is eligible unless `savings_category_rules` excludes it,
+and `savings_income_overrides` holds per-income exceptions in both directions,
+each with a mandatory reason. Eligibility is never inferred from a
+description.
+
+**Rationale.** The common case — a salary — should work with no configuration;
+an exception is something the user states. Transfers, exchanges (a purchase of
+USD) and opening balances are excluded by their type, structurally, so no rule
+can let one in. The rules live in savings tables rather than in a column of
+`categories`, which would have meant rebuilding a parent table for a concern
+the ledger does not have.
+
+**Alternatives considered.** Opt-in per category — every new income category
+would silently produce no suggestion until configured. Keyword matching on the
+description — rejected by the milestone brief and by the project: a renamed
+description would change what is saved.
+
+## TD-077 — The policy rate is versioned by the income's effective date, and only the first version may reach back
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** `savings_policy_versions` is append-only and unique on
+`effective_from`. The version applied to an income is the latest one whose
+`effective_from` is on or before the income's `effective_date` — never chosen by
+`created_at`. The first version may start on any date, including in the past;
+every later version starts today or later and not before the version in force.
+A version no suggestion uses may have its rate corrected in place, and a policy
+that never produced a suggestion may move its start earlier.
+
+**Rationale.** A change from 20% to 25% must not touch any suggestion already
+made, including one for an income entered after the change but dated before
+it. Choosing by effective date makes that hold for corrections too: moving an
+income across a version boundary re-suggests it at that version's rate, which
+is what the rate was on that day. A retroactive start is useful exactly once —
+when the user begins using M7 — and is backfilled only through a previewed,
+explicit sync (TD-080).
+
+**Alternatives considered.** Choosing by when the income was recorded — an
+income entered late would take a rate that was never in force on its date.
+Freely editable versions — the rate behind confirmed history could change.
+
+## TD-078 — A savings suggestion freezes its valuation and copies the rate legs it used
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** A suggestion stores its USD figures (`income_usd_minor`,
+`suggested_usd_minor`), the method, when it was valued, and a copy of each
+reference observation used (`savings_suggestion_rate_legs`: the `exchange_rates`
+id plus base, quote, rate, effective date, source and whether it was inverted).
+The combined factor is not stored. A later change of the rate in force on the
+income's date is detected on read (`RateChanged`) and applied only by an
+explicit revaluation, which opens a new revision.
+
+**Rationale.** TD-052 derives every converted figure on every read because a
+net worth is a function of today's data. A suggestion is a different kind of
+fact: the record of what the application told the user to save, on the rate in
+force on the income's date, which the user may already have acted on. Letting a
+re-published Fecha Valor or an edited manual rate rewrite it silently would
+change a target after the fact. The legs are copied because `exchange_rates`
+rows are mutable by design (the BCV upsert, manual corrections, archiving); an
+id alone would not say what the rate WAS. The rate is still the reference rate
+of the income's date, resolved by `fx.Book` with M5's rules — never a later
+one, never a forward-dated one — and no transaction carries a rate.
+
+**Alternatives considered.** Deriving the suggestion on every read — a rate
+correction would move confirmed history. Storing only the `exchange_rates` id —
+not verifiable once the row changes. Storing the combined factor as a decimal —
+a cross rate is a fraction that is never materialised (TD-046).
+
+## TD-079 — One live suggestion revision per income; confirmation states are derived
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** A correction never updates a suggestion's figures. It closes the
+live revision (`SUPERSEDED`, or `INVALIDATED` when the income stops being
+eligible) and, if still eligible, opens revision n+1. A partial unique index
+admits at most one live revision (`PENDING_VALUATION`, `OPEN`, `DISMISSED`) per
+income. Stored statuses are those five; `PENDING_CONFIRMATION`,
+`PARTIALLY_CONFIRMED` and `CONFIRMED` are what an `OPEN` revision looks like
+against the money reserved for it (M7.2) and are derived, never stored. A
+pending valuation, once a rate exists, values the same row in place.
+
+**Rationale.** History stays readable — every figure the user was ever shown is
+kept with the reason it was replaced — and "an income is suggested once" is a
+fact the database enforces, which is also what makes the sync idempotent. A
+stored "confirmed" status would be a second source of truth beside the
+reservations. Reservations confirmed against an earlier revision (M7.2) are
+never moved, deleted or reconciled automatically when a revision is replaced;
+M7.2 will compare their sum across the income's revisions with the live
+suggestion and refuse to confirm more without an explicit, recorded user
+decision.
+
+**Alternatives considered.** Updating the suggestion in place — history lost.
+One row per income with a status — the same, plus no way to keep what a
+dismissed or superseded figure was.
+
+## TD-080 — An income and its suggestion commit together; anything wider is a previewed sync
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** `application.RecordIncome` and `application.UpdateTransaction` run
+the ledger's write (`ledger.RecordIncomeTx`, `ledger.UpdateTransactionTx`) and
+`savings.SyncIncomeTx` in one transaction. The web adapter's `RecordIncome` and
+`UpdateTransaction` route through them, so no handler can write an income that
+bypasses its suggestion. Every read inside that transaction goes through its
+executor — `ledger.NewRepository(exec)`, `fx.NewRepository(exec)` +
+`fx.NewBook` — never through a service holding the pool, which has one
+connection and would deadlock. Changes that affect many incomes — a retroactive
+first version, a category rule — write nothing by themselves: `PlanSync`
+previews every income whose suggestion is missing, out of date or no longer
+warranted, and `ApplySync` applies exactly the incomes the user confirmed,
+re-planning each inside its transaction. A per-income override applies at once,
+being an act on that income.
+
+**Rationale.** An income committed without its suggestion, or a suggestion for
+an income that then failed to commit, would each be a state no screen could
+explain. The milestone requires the backfill to be explicit, previewed and
+idempotent; the same mechanism doubles as the safety net for an income changed
+outside the application (a restored backup, the CLI). No suggestion is
+fabricated for history on upgrade.
+
+**Alternatives considered.** Syncing on every read — a GET that writes.
+Automatic re-sync when a category rule changes — a silent, unpreviewed rewrite
+of many suggestions. Making the ledger call savings — an import cycle, and the
+ledger would learn a concern it does not have.
+
+## TD-081 — A future-dated income in another currency waits for its date to be valued
+
+**Status:** Accepted · **Milestone:** M7.1
+
+**Decision.** An income dated after today in a currency other than USD is
+recorded `PENDING_VALUATION` with the reason `FUTURE_DATE`, and cannot be valued
+until its date arrives. A future-dated USD income is valued immediately (the
+identity needs no rate).
+
+**Rationale.** The rate in force on a future date is not known yet. Valuing now
+with the latest rate on or before that date would use today's rate for a day
+that has not happened, when a rate published between now and then would have
+been the right one. No figure is fixed before the information for its date
+exists — TD-053 read in the other direction.
+
+**Alternatives considered.** Valuing with today's rate and revaluing later — a
+figure known to be provisional, presented as a suggestion.
+
+## TD-082 — The savings fund is operations and signed entries, never an account
+
+**Status:** Accepted · **Milestone:** M7.2
+
+**Decision.** Money set aside is recorded as `savings_operations` (the event:
+kind, idempotency key, the suggestion or transaction it answers to, a reason,
+the financial date) and `savings_entries` (the impact: a signed USD amount on
+one USD account, and from M7.3 one goal). Every reserved balance — per account,
+per goal, the fund's total — is a `SUM` over entries computed on read. Free
+balance is the ledger's balance today minus what is reserved on the account;
+overallocation is `max(0, reserved − max(0, balance))`. Operations are never
+edited or deleted. The `kind` enumeration (`RESERVE`, `RELEASE`, `REALLOCATE`,
+`REBACK`, `SPEND`) is complete from migration 00016, and Go refuses the kinds no
+use case writes yet.
+
+**Rationale.** It is the ledger's own shape one level up: a single source of
+truth per figure, no balance column that could drift, and an audit trail for
+free. The fund is not an account, so it can neither appear as an extra asset
+nor move money; `internal/valuation` never reads these tables. Defining the
+whole enumeration at once avoids the TD-037 rebuild of a parent table with
+children in the middle of the milestone, which was approved as a whole.
+
+**Alternatives considered.** A virtual "savings account" in the ledger — the
+net worth would count the money twice or the user's real account would show
+less than the bank. A stored reserved balance per account — a second source of
+truth. Widening the kind CHECK in M7.3 and M7.4 — two table rebuilds.
+
+## TD-083 — A reservation never exceeds free USD, and never confirms more than the live suggestion without a recorded exception
+
+**Status:** Accepted · **Milestone:** M7.2
+
+**Decision.** `Reserve` refuses an amount above the account's free balance,
+read inside the `BEGIN IMMEDIATE` transaction that writes it. Against a
+suggestion, it refuses to bring what is confirmed for the income — summed over
+all its revisions — above the live revision's suggested amount, unless the user
+marks an exception, which requires a reason and is stored (`is_exception`).
+Every write carries a request key generated when the form is rendered; a key
+that already produced an operation replays it. A partial confirmation leaves
+the remainder pending on the same suggestion; confirmation states are derived.
+
+**Rationale.** A reservation is not a financial event, so refusing one hides
+nothing — unlike an expense, which is never blocked (M7.4). Summing across
+revisions is what keeps a correction of the income from re-opening money that
+was already confirmed, and what lets a revision that lowered the suggestion
+show the excess (`OverConfirmed`) without releasing anything by itself. The
+request key makes a double click or a browser retry harmless without relying on
+the browser.
+
+**Alternatives considered.** Allowing any confirmation and reporting the excess
+afterwards — the brief asks for an explicit decision. A per-session token —
+a second tab would share it. Releasing the excess automatically when a revision
+lowers the suggestion — the brief forbids it.
+
+## TD-084 — A goal's money is the sum of its entries; its status is only its lifecycle
+
+**Status:** Accepted · **Milestone:** M7.3
+
+**Decision.** `savings_goals` stores what a goal is (name, kind, current target,
+optional date for a one-time goal, distribution share) and its lifecycle
+(`ACTIVE`, `PAUSED`, `COMPLETED`, `CANCELLED`). Its money is `SUM` of the
+`savings_entries` that name it. Funding (`UNFUNDED`, `PARTIAL`, `FUNDED`,
+`OVERFUNDED`), progress, what remains and the suggested monthly contribution
+are derived on read. Only a one-time goal can be completed; a permanent one is
+funded, drawn on and refilled. Completing or cancelling moves whatever the goal
+still holds to the fund's unallocated part on the same accounts, in the same
+transaction, as a `REALLOCATE` — never a release. A change of target appends to
+`savings_goal_target_revisions`; the first row is the original budget.
+
+**Rationale.** A stored "funded" status would be a second source of truth that
+a withdrawal or a reallocation could contradict. Keeping lifecycle and funding
+apart is what lets a permanent goal fall back to `PARTIAL` by itself after a
+withdrawal, and what keeps `FUNDED` from meaning `COMPLETED`. Moving the
+remainder to unallocated rather than releasing it keeps the user's reservation
+intact until they decide otherwise.
+
+**Alternatives considered.** A `reserved_minor` column on goals — drifts.
+Refusing to close a goal that holds money — forces two steps for one decision.
+Releasing the remainder on close — removes savings the user did not ask to
+remove.
+
+## TD-085 — Distribution is exact, capped by need, and the remainder stays unallocated
+
+**Status:** Accepted · **Milestone:** M7.3
+
+**Decision.** A suggested distribution of an amount A among the active goals
+with a share: each goal's exact part is A × bp / 10000; a part above what the
+goal still needs (target − reserved, at least 0) is capped at that need, so a
+funded goal receives nothing; whatever the capped parts and the unassigned
+basis points leave is the unallocated part. `money.Allocate` turns the exact
+parts into cents by largest remainder, ties to the earlier goal, so the lines
+add up to A exactly. The open goals' shares sum to at most 100%. It is a
+suggestion: the user edits the lines, and what is confirmed is their sum.
+
+**Rationale.** Exact rationals and one allocation step make "sum(allocations)
+== confirmed amount" true by construction. A capped part is a whole number of
+cents, so its remainder is zero and it can never receive the extra cent that
+would take it past its cap (verified for every amount from 0 to 5,000 cents
+against tight caps). Excess stays unallocated, as approved, rather than being
+redistributed by a rule the user did not choose.
+
+**Alternatives considered.** Rounding each line independently — the lines
+disagree with the total by a cent. Redistributing the excess proportionally —
+rejected at approval (decision 5).
+
+## TD-086 — A real movement is never refused because of savings; what it does to them is a plan applied in the same transaction
+
+**Status:** Accepted · **Milestone:** M7.4
+
+**Decision.** `application.RecordExpense` and `application.RecordTransfer` record
+the ledger movement and, in the same transaction, apply the user's savings plan:
+for an expense, `SPEND` for money a goal was for (no reason needed) and/or
+`RELEASE` with a mandatory reason for reserved money given back to cover it; for
+a transfer, one `REBACK` moving the backing of reserved money to the destination,
+net zero per goal. Every amount comes from a reservation on the movement's own
+USD account and together they never exceed the movement. A plan carries a
+request key: a replay returns the movement already recorded. Without a plan the
+movement is recorded exactly as before and, if the free balance did not cover
+it, the account is left overallocated — an issue (TD-087). The forms show the
+account's free USD and the shortfall through one htmx partial
+(`GET /savings/impact`), empty where nothing applies. The validation lives in
+`internal/savings`, not in a handler.
+
+**Rationale.** Finance Tracker records what happened; a bank account can be
+overdrawn and an expense that happened must be recordable (TD-043). Hiding the
+consequence would be the other failure, so it is shown, resolvable in the same
+action, or left as an explicit issue. Nothing reduces a goal the user did not
+name. A VES expense never consumes USD savings directly: the compatible path is
+an `FX_EXCHANGE` from the USD account (which then shows the shortfall) and a
+release with a reason.
+
+**Alternatives considered.** Blocking an expense beyond the free balance —
+refuses a real event. Reducing goals automatically, proportionally or by
+priority — decides for the user. Linking savings to VES expenses through an
+implicit conversion — a hidden FX decision.
+
+## TD-087 — Reconciliation issues are derived; an acknowledgement records that they were seen and resolves nothing
+
+**Status:** Accepted · **Milestone:** M7.4
+
+**Decision.** Issues are computed on every read: an overallocated account, an
+income with more confirmed than its live suggestion (or no longer eligible), a
+`SPEND` whose expense was corrected (no longer an expense, another account, or
+smaller than what it spent), and an archived account backing savings. The only
+stored fact is `savings_issue_acknowledgements(issue_key, note)`, keyed by the
+issue AND its amount. Acknowledging changes no balance; the issue stays listed
+(marked), the fund and the dashboard keep showing the overallocated figure, and a
+changed amount is a new, unacknowledged issue. Resolution is always an ordinary
+operation: release, move, reallocate, contribute.
+
+**Rationale.** A stored issue would be a copy of facts the ledger and the fund
+already state, and could disagree with them. Keying by amount means the user is
+never told "you acknowledged this" about a deficit larger than the one they saw.
+
+**Alternatives considered.** An issues table with a status — a second source of
+truth. Hiding acknowledged issues — the approval forbids it (§C).
+
+## TD-088 — A parent table with children is rebuilt by SQLite's twelve-step procedure, with guards
+
+**Status:** Accepted · **Milestone:** M8.1
+
+**Decision.** Migration 00019 widens two `CHECK` constraints on `accounts` and
+`transactions`, both parents of `account_movements` and of five M7 tables. It is
+`-- +goose NO TRANSACTION` and follows the procedure of
+<https://www.sqlite.org/lang_altertable.html> §8: `PRAGMA foreign_keys = OFF`
+outside any transaction, `BEGIN IMMEDIATE`, create `X_new`, copy, `DROP X`,
+`ALTER TABLE X_new RENAME TO X`, recreate the indexes, `COMMIT`,
+`PRAGMA foreign_keys = ON`. Nothing that references the two tables is rebuilt:
+the children keep naming `accounts` and `transactions`, which resolve to the new
+tables. Plain SQL cannot branch, so every precondition is an `INSERT` into a
+`TEMP` table whose `CHECK (ok = 1)` fails the statement: `legacy_alter_table`
+off, `foreign_keys` off inside the transaction, equal row counts before each
+`DROP`, an empty `pragma_foreign_key_check` and `integrity_check = 'ok'` before
+`COMMIT`. After a failure `migrations.Up` returns the error and the `*sql.DB`
+must be closed (documented on `Up`): that discards the open transaction and the
+connection that still has foreign keys off. After success `migrations.Up` checks
+`database.CheckForeignKeys`. The body is idempotent, so a crash between our
+`COMMIT` and goose's version insert re-runs it safely. `backup.Validate` now also
+runs `foreign_key_check`, which `integrity_check` does not cover.
+
+This is a scoped exception to TD-037, which still applies to a parent whose only
+child is rebuilt by the same migration.
+
+**Rationale.** TD-037's device — rebuild the child too and drop it first — would
+have meant rebuilding six tables, M7's included, to change two lists of words.
+The official procedure touches only the two parents. goose v3.27.3 runs a
+no-transaction SQL migration statement by statement on one `*sql.Conn`, and the
+pool holds one connection, so the PRAGMAs and the `BEGIN` reach the same
+connection. Every guard was made to fail in a test: the migration stops, and
+after reopening the file the schema, the rows and the version are exactly what
+they were and foreign keys are on.
+
+**Alternatives considered.** Renaming the old table first — the documentation
+warns it "might corrupt references to that table in triggers, views, and
+foreign key constraints". A Go migration — it would use the `*sql.DB` and wait
+forever for the connection goose holds. `PRAGMA defer_foreign_keys` — fails at
+`COMMIT` (TD-037). Moving the enumerations to Go only — gives up the database's
+last word on a ledger's shape.
+
+## TD-089 — An account's nature, asset or liability, is derived from its type; `CREDIT_CARD` is the first liability
+
+**Status:** Accepted · **Milestone:** M8.1 · **Replaces:** "No credit" in `CLAUDE.md`
+
+**Decision.** `account_type` gains `CREDIT_CARD`. `account.Type.Nature()`
+returns `ASSET` for `BANK`, `CASH`, `WALLET`, `OTHER` and `LIABILITY` for
+`CREDIT_CARD`, naming every type and returning nothing for an unknown one
+(TD-045); it is stored nowhere. A debt is a negative balance, so the ledger's
+arithmetic, the balance queries and the valuation are unchanged. An account
+cannot change nature (`ErrNatureChange`); within a nature the type stays
+editable. The generic account form and `account.Service.Create` open assets only
+(`account.RequireAsset`); a card is opened by `application.OpenCreditCard` with
+its terms in `credit_cards` (`internal/creditcard`): statement day, optional
+limit, optional due days, processing days, denomination (`NOMINAL`/`INDEXED`,
+with whether it was verified) and a default payment method. Unknown terms are
+NULL, never zero. The valuation splits the total into `AssetsMinor` and
+`LiabilitiesMinor` from the same allocated account lines, so assets minus
+liabilities equals the total exactly; an account's `Share` is of the assets.
+
+**Rationale.** A purchase with a card is spending that touches no bank account;
+modelled as a liability account, it is one movement on the card and the net
+worth falls by exactly that. A stored nature column could disagree with the
+type. Changing nature would reinterpret every balance the account ever had
+without any figure changing.
+
+**Alternatives considered.** A `nature` column — a second source of truth. A
+separate debts table outside the ledger — a second ledger. Recording card
+purchases as expenses of a bank account — false on the day of the purchase.
+Inferring a liability from a negative balance — an overdrawn bank account is
+still an asset, a card with a credit is still a liability.
+
+## TD-090 — `REFUND` is its own transaction type: a positive movement under an EXPENSE category
+
+**Status:** Accepted · **Milestone:** M8.1
+
+**Decision.** `transaction_type` gains `REFUND`: one positive movement, with an
+EXPENSE category and a payment method (the table `CHECK` treats it like
+`INCOME`/`EXPENSE`; the category type is checked in Go). It may name the expense
+it refunds in `transaction_refunds`; the link is optional, and when present the
+original must be an `EXPENSE` of the same account and the refunds linked to it
+never add up to more than it — checked after every write that could break it,
+the original's own edits included. It is recorded and corrected only through
+`ledger.RecordRefundTx`/`UpdateRefundTx` (the application commits it with a
+request key); `UpdateTransaction` refuses it and the web layer routes it to
+`/refunds`. In the cash flow (`ListFlows`) a refund is reported as `EXPENSE` and
+nets against its category's spending on its own day (TD-068), so M6 and M6.5
+figures move with refunds; it is never among the largest expenses
+(`ListExpenses`) and never income.
+
+**Rationale.** An `EXPENSE` is negative by construction, so a refund cannot be
+one. An `INCOME` would put a returned purchase in "what did I earn" and make it
+eligible for savings. A refund is spending undone, in the category it was spent
+in.
+
+**Alternatives considered.** A negative expense — breaks the sign rule every
+expense relies on. An `ADJUSTMENT` type — postponed (D-6), it would be a
+catch-all. Excluding refunds from the cash flow — the expense would stay
+overstated forever.
+
+## TD-091 — A card payment is a `TRANSFER` or an `FX_EXCHANGE` into the card; "payment" is a label, never a type
+
+**Status:** Accepted · **Milestone:** M8.1
+
+**Decision.** Nothing called `CARD_PAYMENT` or `CARD_PURCHASE` is stored. A
+purchase is an `EXPENSE` on the card; a payment in the card's currency is a
+`TRANSFER` into it, and from another currency an `FX_EXCHANGE` whose destination
+is the card; a cash advance is a `TRANSFER` out of it; a previous debt is a
+negative `OPENING_BALANCE`; a charge is an `EXPENSE` with a row in
+`credit_charges` (`INTEREST`, `FEE`, `PENALTY`). A screen infers the label from
+the type, the direction and whether the charge row exists — structurally, never
+from a category or a description (TD-044). A charge is corrected only through
+`application.UpdateCardCharge`, which keeps it an expense on a liability;
+`application.UpdateTransaction` refuses one (`ErrChargeEditedAsCharge`).
+
+**Rationale.** The existing types already say what happened: a payment moves
+money between two of the user's accounts and is neither income nor expense
+(I4), which is exactly a transfer or an exchange. A new type would duplicate
+them and fork every rule that names them.
+
+**Alternatives considered.** `CARD_PAYMENT` and `CARD_PURCHASE` types — two
+names for events the ledger already spells. Classifying charges by category —
+renaming a category would change what is interest.
+
+## TD-092 — What a card owes and what a payment settled are derived; only the bank's facts and the user's assertions are stored
+
+**Status:** Accepted · **Milestone:** M8.2
+
+**Decision.** `credit_statements` stores what the issuer printed — period,
+closing, due date, the balance at the closing (ledger sign), the minimum and,
+when the bank reports them, the previous balance, payments, debits and past-due
+amount — and `credit_statement_assignments` stores the user's assertion that the
+bank billed a movement in a statement other than the one its date implies.
+Nothing else is stored. `creditcard.Derive(facts, asOf)` is a pure function that
+computes, on every read, the cycles (registered or computed from the calendar),
+their status (`OPEN`, `BILLED`, `PARTIALLY_PAID`, `MINIMUM_MET`, `PAID`,
+`OVERDUE`, `DUE_UNKNOWN`), the billed and minimum still pending, the overdue
+amount `V` as the **maximum** unmet minimum among cycles already due (never the
+sum: one payment raises every `P_j` at once), and the allocation of every
+payment as the partition of `[p, p+x)` over the thresholds of the statement in
+force (overdue, minimum, rest of the billed balance, prepaid, credit balance),
+bounded to stay monotone and flagged when bounded (plan R2.3). The rules:
+
+- **Membership** of a movement is the first cycle closing on or after its date;
+  a month without the statement day closes on its last day; a registered
+  statement replaces the calendar closing nearest to it (a bank that closed a
+  day early opens no one-day cycle); an assertion replaces the rule for one
+  movement and is honoured only while the statement closes on or after the
+  movement's date — otherwise it is reported and the rule applies.
+- **Refunds are never payments**: they never count towards the minimum or what
+  is overdue. Their effect on the billed balance is the card's `refund_policy`
+  (`NEXT_STATEMENT` by default, `REDUCES_BILLED`).
+- **An unknown due date never makes anything overdue.** A due date is the
+  statement's, else estimated from the card's terms, else unknown; an unknown
+  minimum removes the minimum segment.
+- A missed minimum and the billed balance unpaid at the due date are facts of
+  their cycle, counted with the payments made **on or before** the due date.
+- Reconciliation shows `Δ = B − L` per registered statement, broken down by the
+  bank's figures when present, with the movements within five days of the
+  closing as candidates for an assertion. It informs and never corrects.
+
+A statement closes no later than today and never overlaps another of the same
+card; moving its closing before a movement asserted into it is refused
+(`ErrAssertionAfterClosing`). Recording one is idempotent on its natural key:
+the same statement twice returns the first, a different one on the same closing
+is `ErrStatementExists` (409). Assertions are written by `creditcard.Service`,
+since they touch one domain.
+
+A payment is recorded by `application.RecordCardPayment`: a `TRANSFER` from an
+asset in the card's currency, an `FX_EXCHANGE` from one in another currency,
+idempotent on its request key, with the savings plan of D-12 applied in the same
+transaction (`savings.ApplyCardPaymentPlanTx`: `SPEND` / `RELEASE` linked to the
+payment, budget = what left the USD source).
+
+**Rationale.** An allocation stored when a payment is recorded is stale the
+moment a purchase is back-dated, a statement corrected or an earlier payment
+entered (plan R2.2, option P); it is the failure mode TD-052 forbids for the net
+worth. Derived allocations are exact for the facts in force, reproducible with
+their trace, and a history "as of" a date is the same function with the facts
+cut at that date. What the bank did differently from the rule is a fact the user
+states (an assertion) or a figure the bank printed (the statement), never a
+correction typed over a computed row.
+
+**Alternatives considered.** `payment_allocations` persisted at recording —
+cascading rewrites and a second source of truth. Derivation without assertions —
+cannot represent a movement the bank posted late. A `posted_date` column — an
+indirect stand-in for the one consequence it has, membership (R7). Summing the
+overdue deficits — counts one payment several times.
+
+## TD-094 — An income is saved from only when credited to an asset; only assets back reserved money
+
+**Status:** Accepted · **Milestone:** M8.1 (moved from M8.4)
+
+**Decision.** `rules.decide` gains a first step, before the policy and before
+any override: an income whose movement lands in an account whose nature is not
+`ASSET` is not eligible ("Se acreditó a «X», que es un pasivo…").
+`ledger.IncomeItem` carries `AccountType` for it. The fund counts USD
+**assets** only: `fundTx` leaves a USD card out of the balance, the free figure
+and the table even when it holds a credit; `checkFundAccount` refuses a
+liability (`ErrLiabilityAccount`), so a reservation, a release, a `SPEND`, a
+`RELEASE` or a `REBACK` with a card at either end is refused as a plan error
+(422), while the movement without the plan records as always (TD-086);
+`AccountImpact` reports `Applies = false` for a card. Before M8 no liability
+existed, so neither rule changes any suggestion, reservation or issue M7
+already holds — M7's suite runs unchanged.
+
+**Rationale.** Cashback on a card lowers a debt and adds nothing anyone could
+set aside; a suggestion from it, or a reservation backed by a card's credit,
+would be savings with nothing behind them. The rule had to arrive with the first
+liability, not three submilestones later.
+
+**Alternatives considered.** Leaving it to categories — an override could
+re-include it. Excluding by the sign of the balance — a card with a credit has a
+positive balance.
+
+## TD-095 — Form submissions are idempotent through `operation_requests`
+
+**Status:** Accepted · **Milestone:** M8.1
+
+**Decision.** Every M8 form carries a request key rendered by the server (16 to
+64 `[0-9a-zA-Z_-]`). The workflow looks it up inside the transaction that would
+write — which holds the write lock from `BEGIN` (TD-075) — and, if found, returns
+what it produced; otherwise it records the operation and the key together in
+`operation_requests(request_key, transaction_id, account_id)`, where at least
+one of the two is set (opening a card produces an account, and with a previous
+debt a transaction too). The primary key is the backstop. A refused submission
+re-renders with the same key, so correcting it and resubmitting still records
+once.
+
+**Rationale.** A double click or a browser retry must not record a purchase
+twice. M7's `request_key` lives on `savings_operations` and covers savings only;
+the ledger's own operations needed the same guarantee without a column on
+`transactions`.
+
+**Alternatives considered.** A key column on `transactions` — a ledger column
+for a presentation concern, and no place for an account. Client-side disabling of
+the button — does not survive a retry. Deduplicating by content — two identical
+coffees on one day are two purchases.
+
+## TD-096 — A ticker tape under the header, composed from existing reads, configured in the browser
+
+**Status:** Accepted · **Milestone:** Design overhaul
+
+**Decision.** Every desktop page carries an LED ticker tape inside the sticky
+header, below the navigation; `/mobile` carries it on Inicio only. Its content is
+`GET /ticker`, an HTML fragment htmx loads after the page has rendered. The
+handler composes it from reads that already exist: one `Analytics.Recap` of the
+**month in progress** (compared like for like with the same days of the previous
+month, TD-072), `Savings.Overview` and the latest eight transactions. It renders
+ten groups — `NWTH`, `DEBT`, `CFLOW`, `SRATE`, `BURN`, `FX`, `CASH`, `FUND`,
+`CAT`, `TX` — in a fixed catalogue order, and leaves out a group that has nothing
+to show. A source that fails drops its groups and is logged; the fragment always
+answers 200, and with nothing at all it says `SIN DATOS`.
+
+The handler computes nothing. Every figure arrives formatted; arrows and tones
+come from what the backend already decided — a `Change`'s sign, a category's
+`Direction`, a transaction's type, named case by case (TD-045). No two amounts
+are compared, and no figure is stored. The arrow and the delta take the tone of
+the change, so a fall that is bad is red. A movement's own amount, and a negative
+net cash flow, take the tone of their sign. A rate on the tape is shown at two
+decimals, rounded half to even by the adapter (`RateLegView.RateShort`). It is
+display only; the rates screen and every conversion keep the full value.
+
+**What the tape shows is the viewer's choice and lives in `localStorage`**
+(`ft.ticker`): which groups, their order, the LED colour (amber, green, cyan,
+red, white), the speed and the motion. The server always renders every group;
+`web/static/js/tape.js` hides, orders and loops them. Like `fit.js` it measures
+widths only and never reads a number. `GET /settings/ticker`, reached from
+Configuración, lists the catalogue and edits those choices; it has no POST. The
+tape itself carries no keys. The loop is two identical runs, each at
+least as wide as the window, scrolled by half, at a constant speed in px/s. It
+pauses while the pointer is over it, and while a link in it has keyboard focus. "Automático" honours
+`prefers-reduced-motion`: the tape stands still and scrolls by hand. "Siempre"
+runs it anyway — the one exception to the global reduced-motion rule in
+`app.css`.
+
+**Rationale.** A ticker is a readout of figures other screens already compute, so
+it must not grow a second way of computing them. Loading it after the page means
+a slow valuation never delays a page and a failure never breaks one, the same
+rule the rate provider follows. The settings are presentation preferences for one
+screen in one browser. A table would have needed a schema change, a migration
+and a write path for something that never affects a figure, and
+`internal/settings` is explicitly not a preferences system.
+
+**Alternatives considered.** A table of ticker items — schema and a write path
+for a cosmetic choice. Rendering the tape inline in every handler — every page
+would wait for a recap. A block in the dashboard grid — it would compete with the
+headline LCD and appear on one page only. A budget item (`BGET`) or per-category
+limits — budgets are out of scope. "Anomalies" — anomaly detection is out of
+scope; `CAT` shows the three largest movements in the order the recap already
+ranks them.

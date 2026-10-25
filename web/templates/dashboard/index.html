@@ -222,19 +222,38 @@
       </div>
       <div class="card-body">
         {{ if .NetWorth.Accounts }}
+        <!-- Two groups by nature (M8.1): what is held and what is owed. The
+             backend split the total; assets minus liabilities is the net worth. -->
+        <h3 class="dash-kpi-label">Activos · {{ formatAmount .NetWorth.AssetsFormatted }} {{ $base }}</h3>
         <ul class="ledger">
-          {{ range .NetWorth.Accounts }}
+          {{ range .NetWorth.AssetAccounts }}
           <li class="ledger-row">
             <span class="ledger-name">{{ .AccountName }}</span>
             <span class="ledger-figure"><span class="{{ if isNegative .BalanceMinor }}amount-expense{{ end }}">{{ formatAmount .BalanceFormatted }}</span><span class="currency-badge">{{ .CurrencyCode }}</span></span>
             <span class="ledger-sub">
-              {{ .AccountType }}{{ if .Institution }} · {{ derefString .Institution }}{{ end }}
+              {{ accountTypeLabel .AccountType }}{{ if .Institution }} · {{ derefString .Institution }}{{ end }}
               {{ if .ArchivedWithBalance }}<span class="badge badge-warning">archivada con saldo</span>{{ else if not .IsActive }}<span class="badge badge-neutral">archivada</span>{{ end }}
             </span>
             <span class="ledger-sub ledger-sub-right">{{ if .Valued }}{{ formatAmount .ConvertedFormatted }} {{ $base }}{{ else }}&mdash;{{ end }} · {{ ratio .Share }}</span>
           </li>
           {{ end }}
         </ul>
+        {{ with .NetWorth.LiabilityAccounts }}
+        <h3 class="dash-kpi-label">Pasivos · {{ formatAmount $.NetWorth.LiabilitiesFormatted }} {{ $base }}</h3>
+        <ul class="ledger">
+          {{ range . }}
+          <li class="ledger-row">
+            <span class="ledger-name"><a href="/cards/{{ .AccountID }}">{{ .AccountName }}</a></span>
+            <span class="ledger-figure"><span class="{{ if isNegative .BalanceMinor }}amount-expense{{ else }}amount-income{{ end }}">{{ formatAmount .BalanceFormatted }}</span><span class="currency-badge">{{ .CurrencyCode }}</span></span>
+            <span class="ledger-sub">
+              {{ accountTypeLabel .AccountType }}{{ if .Institution }} · {{ derefString .Institution }}{{ end }}
+              {{ if .ArchivedWithBalance }}<span class="badge badge-warning">archivada con saldo</span>{{ else if not .IsActive }}<span class="badge badge-neutral">archivada</span>{{ end }}
+            </span>
+            <span class="ledger-sub ledger-sub-right">{{ if .Valued }}{{ formatAmount .ConvertedFormatted }} {{ $base }}{{ else }}&mdash;{{ end }}</span>
+          </li>
+          {{ end }}
+        </ul>
+        {{ end }}
         {{ else }}
         <p class="text-muted">Sin cuentas todavía.</p>
         {{ end }}
@@ -247,6 +266,38 @@
     <span class="badge badge-neutral">{{ .NetWorth.FutureMovementCount }} {{ if eq .NetWorth.FutureMovementCount 1 }}movimiento futuro{{ else }}movimientos futuros{{ end }}</span>
     Tienen fecha posterior a hoy: existen en el ledger, pero aún no forman parte de ningún saldo.
   </p>
+  {{ end }}
+
+  <!-- Savings (M7): the fund and the month's savings, from internal/savings. -->
+  {{ with .Savings }}
+  <section class="dash-savings" aria-labelledby="dash-savings-title">
+    <div class="dash-section-head">
+      <h2 id="dash-savings-title" class="card-title">Ahorro</h2>
+      <span class="dash-section-meta"><a href="/savings">Ver ahorro &rarr;</a>{{ if .IssueCount }} · <a href="/savings/issues">{{ .IssueCount }} incidencia{{ if ne .IssueCount 1 }}s{{ end }}</a>{{ end }}</span>
+    </div>
+    <div class="savings-kpis">
+      <article class="card dash-kpi">
+        <h3 class="dash-kpi-label">Fondo reservado</h3>
+        <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount .Fund.ReservedFormatted }}<span class="lcd-unit">USD</span></span></div>
+        <p class="dash-kpi-meta">Sin asignar {{ formatAmount .Fund.UnallocatedFormatted }} · no cambia tu patrimonio</p>
+      </article>
+      <article class="card dash-kpi">
+        <h3 class="dash-kpi-label">USD libres</h3>
+        <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount .Fund.FreeFormatted }}<span class="lcd-unit">USD</span></span></div>
+        <p class="dash-kpi-meta">{{ if .Fund.Overallocated }}<span class="amount-expense">Sobreasignado: {{ formatAmount .Fund.OverallocatedFormatted }} USD</span>{{ else }}Todo lo reservado está respaldado{{ end }}</p>
+      </article>
+      <article class="card dash-kpi">
+        <h3 class="dash-kpi-label">Sugerido este mes</h3>
+        <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount .SuggestedFormatted }}<span class="lcd-unit">USD</span></span></div>
+        <p class="dash-kpi-meta">{{ if .Policy.Current }}Tasa objetivo {{ .Policy.Current.RateFormatted }}%{{ else }}Sin tasa vigente{{ end }}</p>
+      </article>
+      <article class="card dash-kpi">
+        <h3 class="dash-kpi-label">Confirmado este mes</h3>
+        <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount .ConfirmedFormatted }}<span class="lcd-unit">USD</span></span></div>
+        <p class="dash-kpi-meta">{{ if .ProgressFormatted }}{{ .ProgressFormatted }}% de lo sugerido{{ else }}Nada sugerido aún{{ end }} · pendiente {{ formatAmount .OpenFormatted }}</p>
+      </article>
+    </div>
+  </section>
   {{ end }}
 
   <!-- Row 3: currencies beside the cash flow -->
@@ -445,7 +496,7 @@
                 <span class="amount-transfer">-{{ formatAmount .Exchange.SourceAmountFormatted }} {{ .Exchange.SourceCurrencyCode }}</span><br>
                 <span class="amount-transfer">+{{ formatAmount .Exchange.DestinationAmountFormatted }} {{ .Exchange.DestinationCurrencyCode }}</span>
                 {{ else }}
-                <span class="{{ if eq .Type "INCOME" }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else if eq .Type "TRANSFER" }}amount-transfer{{ else }}amount-opening{{ end }}">{{ formatSignedAmount . }} {{ .CurrencyCode }}</span>
+                <span class="{{ if or (eq .Type "INCOME") (eq .Type "REFUND") }}amount-income{{ else if eq .Type "EXPENSE" }}amount-expense{{ else if eq .Type "TRANSFER" }}amount-transfer{{ else }}amount-opening{{ end }}">{{ formatSignedAmount . }} {{ .CurrencyCode }}</span>
                 {{ end }}
               </td>
             </tr>

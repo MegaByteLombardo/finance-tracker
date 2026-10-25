@@ -11,6 +11,7 @@ import (
 	"github.com/MegaByteLombardo/finance-tracker/internal/currency"
 	"github.com/MegaByteLombardo/finance-tracker/internal/dbtest"
 	"github.com/MegaByteLombardo/finance-tracker/internal/ledger"
+	"github.com/MegaByteLombardo/finance-tracker/internal/savings"
 )
 
 const today = "2026-09-05"
@@ -23,7 +24,7 @@ func fixture(t *testing.T) (*application.Service, *ledger.Service, *currency.Ser
 	t.Helper()
 
 	db := dbtest.New(t)
-	return application.NewService(db), ledger.NewService(db), currency.NewService(db), db
+	return application.NewService(db, savings.NewService(db)), ledger.NewService(db), currency.NewService(db), db
 }
 
 // counts returns how much of the workflow landed, which is how these tests tell

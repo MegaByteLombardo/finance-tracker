@@ -1,0 +1,240 @@
+{{ define "content" }}
+<div class="page-header">
+  <div class="page-title-group">
+    <h1>Ahorro</h1>
+    <p class="page-subtitle">Lo que tu política propone apartar de cada ingreso. Es un objetivo: no mueve saldos ni cambia tu patrimonio.</p>
+  </div>
+  <div class="page-actions">
+    <a href="/savings/fund" class="btn btn-secondary">Fondo</a>
+    <a href="/savings/goals" class="btn btn-secondary">Metas</a>
+    <a href="/savings/issues" class="btn btn-secondary">Reconciliación</a>
+    <a href="/savings/policy" class="btn btn-secondary">Política y elegibilidad</a>
+    {{ if and .Available .Overview.UnsyncedCount }}<a href="/savings/sync" class="btn btn-primary">Sincronizar ({{ .Overview.UnsyncedCount }})</a>{{ end }}
+  </div>
+</div>
+
+{{ if not .Available }}
+<div class="alert alert-warning" role="alert">{{ .Error }}</div>
+{{ else }}
+{{ $o := .Overview }}
+{{ $view := . }}
+
+{{ if not $o.Policy.IsSet }}
+<div class="empty-state">
+  <div class="empty-state-icon">🐷</div>
+  <h3 class="empty-state-title">Todavía no hay una política de ahorro</h3>
+  <p class="empty-state-text">Define qué porcentaje de cada ingreso quieres ahorrar y desde qué fecha. Nada se calcula hasta entonces.</p>
+  <a href="/savings/policy" class="btn btn-primary">Definir la política</a>
+</div>
+{{ else }}
+
+<!-- Figures computed by internal/savings for the incomes dated this month. A
+     suggestion belongs to its income's effective date, never to the day it was
+     created. Nothing here is added up in the template. -->
+<section class="dash savings-dash" aria-label="Resumen del mes">
+  <p class="dash-period-range">{{ spanishDate $o.PeriodFrom }} → {{ spanishDate $o.PeriodTo }} · por fecha de cada ingreso</p>
+  <div class="savings-kpis">
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Tasa objetivo{{ template "help" ($view.Help "policy-rate") }}</h3>
+      <div class="lcd">
+        {{ if $o.Policy.Current }}
+        <span class="lcd-value" data-fit>{{ $o.Policy.Current.RateFormatted }}<span class="lcd-unit">%</span></span>
+        {{ else }}
+        <span class="lcd-value" data-fit>—</span>
+        {{ end }}
+      </div>
+      <p class="dash-kpi-meta">
+        {{ if $o.Policy.Current }}Vigente desde {{ spanishDate $o.Policy.Current.EffectiveFrom }}{{ else }}Empieza el {{ spanishDate $o.Policy.Start }}{{ end }}
+        {{ with $o.Policy.Scheduled }}<br>Programada: <strong>{{ .RateFormatted }}%</strong> desde {{ spanishDate .EffectiveFrom }}{{ end }}
+      </p>
+    </article>
+
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Ingresos elegibles{{ template "help" ($view.Help "eligible-income") }}</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.EligibleIncomeFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">{{ if $o.PendingValuationCount }}Sin contar {{ $o.PendingValuationCount }} sin valorar{{ else }}Todos valorados{{ end }}</p>
+    </article>
+
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Ahorro sugerido{{ template "help" ($view.Help "suggested") }}</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.SuggestedFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">{{ $o.OpenCount }} abierta{{ if ne $o.OpenCount 1 }}s{{ end }}{{ if $o.OverConfirmed }} · {{ formatAmount $o.OverConfirmedFormatted }} confirmados de más{{ end }}</p>
+    </article>
+
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Confirmado{{ template "help" ($view.Help "confirmed") }}</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.ConfirmedFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">{{ if $o.ProgressFormatted }}{{ $o.ProgressFormatted }}% de lo sugerido{{ else }}Nada sugerido aún{{ end }} · pendiente <strong>{{ formatAmount $o.OpenFormatted }} USD</strong>{{ template "help" ($view.Help "open") }}</p>
+    </article>
+  </div>
+
+  <div class="savings-kpis">
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Fondo reservado{{ template "help" ($view.Help "fund") }}</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.Fund.ReservedFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">Hoy · sin asignar <strong>{{ formatAmount $o.Fund.UnallocatedFormatted }} USD</strong></p>
+    </article>
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">USD libres{{ template "help" ($view.Help "free") }}</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.Fund.FreeFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">{{ if $o.Fund.Overallocated }}<span class="amount-expense">Sobreasignado: {{ formatAmount $o.Fund.OverallocatedFormatted }} USD</span>{{ else }}Todo lo reservado está respaldado{{ end }}</p>
+    </article>
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Movimiento del mes{{ template "help" ($view.Help "fund-movement") }}</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.NetChangeFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">Aportes <strong>{{ formatAmount $o.GrossContributionsFormatted }}</strong> · retiros <strong>{{ formatAmount $o.WithdrawalsFormatted }}</strong></p>
+    </article>
+    <article class="card dash-kpi">
+      <h3 class="dash-kpi-label">Descartado</h3>
+      <div class="lcd"><span class="lcd-value" data-fit>{{ formatAmount $o.DismissedFormatted }}<span class="lcd-unit">USD</span></span></div>
+      <p class="dash-kpi-meta">{{ $o.DismissedCount }} sugerencia{{ if ne $o.DismissedCount 1 }}s{{ end }} declinada{{ if ne $o.DismissedCount 1 }}s{{ end }}</p>
+    </article>
+  </div>
+
+  {{ if $o.PendingValuationCount }}
+  <div class="alert alert-warning" role="alert">
+    <div>
+      <strong>{{ $o.PendingValuationCount }} ingreso{{ if ne $o.PendingValuationCount 1 }}s{{ end }} sin valorar este mes</strong>{{ template "help" ($view.Help "pending-valuation") }}:
+      {{ range $i, $p := $o.PendingByCurrency }}{{ if $i }}, {{ end }}{{ formatAmount $p.AmountFormatted }} {{ $p.CurrencyCode }}{{ end }}.
+      Su ahorro no se estima: se valora cuando exista la tasa de su fecha.
+      <form action="/savings/value-pending" method="POST" class="inline-form">
+        <input type="hidden" name="return" value="{{ $view.Return }}">
+        <button type="submit" class="btn btn-sm btn-secondary">Valorar las que ya tienen tasa</button>
+      </form>
+    </div>
+  </div>
+  {{ end }}
+  {{ if $o.RateChangedCount }}
+  <div class="alert alert-info" role="status">
+    <div><strong>{{ $o.RateChangedCount }} sugerencia{{ if ne $o.RateChangedCount 1 }}s{{ end }} con tasa corregida</strong>{{ template "help" ($view.Help "rate-changed") }}: se mantienen como se calcularon hasta que las revalores.</div>
+  </div>
+  {{ end }}
+  {{ if $o.IssueCount }}
+  <div class="alert alert-warning" role="alert">
+    <div><strong>{{ $o.IssueCount }} incidencia{{ if ne $o.IssueCount 1 }}s{{ end }} de reconciliación</strong>: reservas sin respaldo, confirmado de más o gastos vinculados modificados. <a href="/savings/issues">Revisar &rarr;</a></div>
+  </div>
+  {{ end }}
+  {{ if $o.UnsyncedCount }}
+  <div class="alert alert-info" role="status">
+    <div><strong>{{ $o.UnsyncedCount }} ingreso{{ if ne $o.UnsyncedCount 1 }}s{{ end }} por sincronizar</strong>{{ template "help" ($view.Help "sync") }}. <a href="/savings/sync">Revisar antes de aplicar &rarr;</a></div>
+  </div>
+  {{ end }}
+</section>
+
+{{ if .Goals }}
+<article class="card" aria-labelledby="goals-title" style="margin-bottom: var(--space-6);">
+  <div class="card-header">
+    <h2 id="goals-title" class="card-title">Distribución entre metas</h2>
+    <span class="dash-section-meta">sin asignar: {{ formatAmount .Overview.Fund.UnallocatedFormatted }} USD</span>
+  </div>
+  <div class="card-body">
+    <ul class="ledger">
+      {{ range .Goals }}
+      <li class="ledger-row">
+        <span class="ledger-name"><a href="/savings/goals/{{ .ID }}">{{ .Name }}</a> <span class="badge {{ .FundingBadge }}">{{ .FundingLabel }}</span></span>
+        <span class="ledger-figure">{{ formatAmount .ReservedFormatted }} / {{ formatAmount .TargetFormatted }}</span>
+        <span class="ledger-sub"><span class="savings-bar"><span class="savings-bar-fill" style="width: {{ .ProgressWidth }}%"></span></span></span>
+        <span class="ledger-sub ledger-sub-right">{{ .ProgressFormatted }}%</span>
+      </li>
+      {{ end }}
+    </ul>
+  </div>
+</article>
+{{ end }}
+
+{{ if .History }}
+<article class="card" aria-labelledby="history-title" style="margin-bottom: var(--space-6);">
+  <div class="card-header">
+    <h2 id="history-title" class="card-title">Evolución del fondo{{ template "help" ($view.Help "fund-movement") }}</h2>
+    <span class="dash-section-meta">por mes de cada operación</span>
+  </div>
+  <table class="data-table">
+    <thead><tr><th>Mes</th><th class="text-right">Aportes</th><th class="text-right">Retiros</th><th class="text-right">Variación neta</th><th class="text-right">Reservado al cierre</th></tr></thead>
+    <tbody>
+      {{ range .History }}
+      <tr>
+        <td>{{ spanishDate .Month }}</td>
+        <td class="text-right savings-figure">{{ formatAmount .ContributionsFormatted }}</td>
+        <td class="text-right savings-figure">{{ formatAmount .WithdrawalsFormatted }}</td>
+        <td class="text-right savings-figure">{{ formatAmount .NetFormatted }}</td>
+        <td class="text-right savings-figure"><strong>{{ formatAmount .ClosingFormatted }}</strong></td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</article>
+{{ end }}
+
+<article class="card" aria-labelledby="suggestions-title">
+  <div class="card-header">
+    <h2 id="suggestions-title" class="card-title">Sugerencias vigentes</h2>
+    <span class="dash-section-meta">la más reciente primero</span>
+  </div>
+  {{ if not .Suggestions }}
+  <div class="card-body"><p class="text-muted">Todavía no hay sugerencias. Aparecen al registrar un ingreso elegible.</p></div>
+  {{ else }}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Fecha</th>
+        <th>Ingreso</th>
+        <th class="text-right">Importe</th>
+        <th class="text-right">Tasa</th>
+        <th class="text-right">Sugerido</th>
+        <th>Estado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .Suggestions }}
+      <tr>
+        <td class="savings-figure">{{ formatDate .IncomeEffectiveDate }}</td>
+        <td>
+          <a href="/savings/incomes/{{ .IncomeTransactionID }}">{{ if .IncomeDescription }}{{ derefString .IncomeDescription }}{{ else }}{{ .IncomeCategoryName }}{{ end }}</a>
+          <div class="text-muted savings-sub">{{ .IncomeAccountName }} · {{ .IncomeCategoryName }}{{ if gt .Revision 1 }} · revisión {{ .Revision }}{{ end }}</div>
+        </td>
+        <td class="text-right savings-figure">
+          {{ formatAmount .IncomeAmountFormatted }} {{ .IncomeCurrencyCode }}
+          {{ if .ShowUSDEquivalent }}<div class="text-muted savings-sub">≈ {{ formatAmount .IncomeUSDFormatted }} USD</div>{{ end }}
+        </td>
+        <td class="text-right">{{ .RateFormatted }}%</td>
+        <td class="text-right savings-figure">
+          {{ if .Valued }}<strong>{{ formatAmount .SuggestedUSDFormatted }} USD</strong>{{ else }}<span class="text-muted">—</span>{{ end }}
+          {{ if .HasConfirmed }}<div class="text-muted savings-sub">confirmado {{ formatAmount .IncomeConfirmedFormatted }}</div>{{ end }}
+        </td>
+        <td>
+          <span class="badge {{ .BadgeClass }}">{{ .StatusLabel }}</span>
+          {{ if .RateChanged }}<span class="badge badge-info">tasa corregida</span>{{ end }}
+          {{ if .PendingLabel }}<div class="text-muted savings-sub">{{ .PendingLabel }}</div>{{ end }}
+          {{ if .StatusReason }}<div class="text-muted savings-sub">{{ derefString .StatusReason }}</div>{{ end }}
+        </td>
+        <td class="savings-actions">
+          {{ if .CanConfirm }}<a href="/savings/incomes/{{ .IncomeTransactionID }}#confirm" class="btn btn-sm btn-primary">Confirmar</a>{{ end }}
+          {{ if .CanValue }}
+          <form action="/savings/incomes/{{ .IncomeTransactionID }}/value" method="POST">
+            <input type="hidden" name="return" value="{{ $view.Return }}">
+            <button type="submit" class="btn btn-sm btn-secondary">Valorar</button>
+          </form>
+          {{ end }}
+          {{ if .CanRevalue }}
+          <form action="/savings/incomes/{{ .IncomeTransactionID }}/revalue" method="POST">
+            <input type="hidden" name="return" value="{{ $view.Return }}">
+            <button type="submit" class="btn btn-sm btn-secondary">Revalorar</button>
+          </form>
+          {{ end }}
+          {{ if .CanDismiss }}
+          <form action="/savings/incomes/{{ .IncomeTransactionID }}/dismiss" method="POST">
+            <input type="hidden" name="return" value="{{ $view.Return }}">
+            <button type="submit" class="btn btn-sm btn-secondary">Descartar</button>
+          </form>
+          {{ end }}
+        </td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  {{ end }}
+</article>
+{{ end }}
+{{ end }}
+{{ end }}
